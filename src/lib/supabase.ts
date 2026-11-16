@@ -17,6 +17,17 @@ export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 export const supabase: SupabaseClient | null =
   supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
+export interface SupabaseDiagnosticResult {
+  configured: boolean;
+  connected: boolean;
+  host: string | null;
+  latencyMs: number | null;
+  productsCount: number | null;
+  ordersCount: number | null;
+  errorMessage: string | null;
+  checkedAt: string;
+}
+
 const KEYS = {
   CART: 'amir_mobile_cart_v1',
   WISHLIST: 'amir_mobile_wishlist_v1',
@@ -47,6 +58,75 @@ function writeStorage<T>(key: string, value: T): void {
 }
 
 export const storeRepository = {
+  async checkSupabaseConnection(): Promise<SupabaseDiagnosticResult> {
+    const checkedAt = new Date().toLocaleTimeString('fa-IR');
+    if (!supabase || !supabaseUrl) {
+      return {
+        configured: false,
+        connected: false,
+        host: null,
+        latencyMs: null,
+        productsCount: null,
+        ordersCount: null,
+        errorMessage: 'متغیرهای VITE_SUPABASE_URL یا VITE_SUPABASE_ANON_KEY در این بیلد تنظیم نشده‌اند.',
+        checkedAt,
+      };
+    }
+
+    let host: string | null = null;
+    try {
+      host = new URL(supabaseUrl).hostname;
+    } catch {
+      host = supabaseUrl;
+    }
+
+    const start = performance.now();
+    try {
+      const [productsRes, ordersRes] = await Promise.all([
+        supabase.from('products').select('id', { count: 'exact', head: true }),
+        supabase.from('orders').select('id', { count: 'exact', head: true }),
+      ]);
+      const latencyMs = Math.round(performance.now() - start);
+
+      const firstError = productsRes.error || ordersRes.error;
+      if (firstError) {
+        return {
+          configured: true,
+          connected: false,
+          host,
+          latencyMs,
+          productsCount: productsRes.count ?? null,
+          ordersCount: ordersRes.count ?? null,
+          errorMessage: `${firstError.message}${firstError.code ? ` (کد: ${firstError.code})` : ''}`,
+          checkedAt,
+        };
+      }
+
+      return {
+        configured: true,
+        connected: true,
+        host,
+        latencyMs,
+        productsCount: productsRes.count ?? 0,
+        ordersCount: ordersRes.count ?? 0,
+        errorMessage: null,
+        checkedAt,
+      };
+    } catch (err) {
+      const latencyMs = Math.round(performance.now() - start);
+      return {
+        configured: true,
+        connected: false,
+        host,
+        latencyMs,
+        productsCount: null,
+        ordersCount: null,
+        errorMessage: err instanceof Error ? err.message : 'خطا در برقراری ارتباط شبکه‌ای با Supabase',
+        checkedAt,
+      };
+    }
+  },
+
   async fetchProducts(): Promise<Product[]> {
     if (supabase) {
       try {
@@ -104,13 +184,13 @@ export const storeRepository = {
     return hasSample ? stored : [...stored, DEMO_SAMPLE_ORDER];
   },
 
-  async createOrder(order: OrderRecord): Promise<OrderRecord> {
+  async createOrder(order: OrderRecord): Promise<OrderRecord & { syncedToSupabase: boolean; syncError?: string }> {
     const existing = this.loadOrders().filter((o) => o.orderCode !== order.orderCode);
     writeStorage(KEYS.ORDERS, [order, ...existing]);
 
     if (supabase) {
       try {
-        await supabase.from('orders').insert({
+        const { error } = await supabase.from('orders').insert({
           order_code: order.orderCode,
           customer_name: order.customerName,
           customer_phone: order.customerPhone,
@@ -126,11 +206,19 @@ export const storeRepository = {
           imei_sample: order.imeiSample,
           items: order.items,
         });
-      } catch {
-        // Already saved locally for portfolio resilience
+        if (!error) {
+          return { ...order, syncedToSupabase: true };
+        }
+        return { ...order, syncedToSupabase: false, syncError: error.message };
+      } catch (err) {
+        return {
+          ...order,
+          syncedToSupabase: false,
+          syncError: err instanceof Error ? err.message : 'Network error',
+        };
       }
     }
-    return order;
+    return { ...order, syncedToSupabase: false };
   },
 
   async findOrderByCode(orderCode: string): Promise<OrderRecord | null> {
@@ -167,7 +255,7 @@ export const storeRepository = {
             deliveryPin: data.delivery_pin,
             imeiSample: data.imei_sample,
             items: (data.items as CartItem[]) || [],
-            createdAt: 'ثبت شده در پایگاه داده',
+            createdAt: 'ثبت شده در پایگاه داده Supabase',
           };
         }
       } catch {
@@ -177,13 +265,13 @@ export const storeRepository = {
     return null;
   },
 
-  async submitSupportTicket(ticket: SupportTicket): Promise<SupportTicket> {
+  async submitSupportTicket(ticket: SupportTicket): Promise<SupportTicket & { syncedToSupabase: boolean }> {
     const existing = readStorage<SupportTicket[]>(KEYS.TICKETS, []);
     writeStorage(KEYS.TICKETS, [ticket, ...existing]);
 
     if (supabase) {
       try {
-        await supabase.from('support_tickets').insert({
+        const { error } = await supabase.from('support_tickets').insert({
           ticket_code: ticket.ticketCode,
           full_name: ticket.fullName,
           phone: ticket.phone,
@@ -191,25 +279,33 @@ export const storeRepository = {
           order_code: ticket.orderCode || null,
           message: ticket.message,
         });
+        if (!error) {
+          return { ...ticket, syncedToSupabase: true };
+        }
       } catch {
         // Saved locally
       }
     }
-    return ticket;
+    return { ...ticket, syncedToSupabase: false };
   },
 
-  async subscribeNewsletter(contact: string): Promise<void> {
+  async subscribeNewsletter(contact: string): Promise<{ syncedToSupabase: boolean }> {
     const existing = readStorage<string[]>(KEYS.NEWSLETTER, []);
     if (!existing.includes(contact)) {
       writeStorage(KEYS.NEWSLETTER, [contact, ...existing]);
     }
     if (supabase) {
       try {
-        await supabase.from('newsletter_subscribers').upsert({ contact });
+        // Use insert rather than upsert because RLS policy only permits public INSERT
+        const { error } = await supabase.from('newsletter_subscribers').insert({ contact });
+        if (!error || error.code === '23505') {
+          return { syncedToSupabase: true };
+        }
       } catch {
         // Saved locally
       }
     }
+    return { syncedToSupabase: false };
   },
 
   loadReviews(productId: string): ProductReview[] {
