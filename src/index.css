@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --surface: #f8f9ff;
+    --surface-low: #eff4ff;
+    --surface-container: #e5eeff;
+    --surface-high: #dce9ff;
+    --surface-lowest: #ffffff;
+    --on-surface: #0b1c30;
+    --on-surface-variant: #434655;
+    --primary: #004ac6;
+    --primary-container: #2563eb;
+    --tertiary: #8e3c00;
+    --tertiary-container: #b54e00;
+    --tertiary-fixed: #ffdbca;
+    --inverse-surface: #213145;
+  }
+
+  html {
+    font-family: "Vazirmatn", system-ui, Tahoma, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--surface);
+    color: var(--on-surface);
+    font-family: "Vazirmatn", system-ui, Tahoma, sans-serif;
+    overflow-x: hidden;
+  }
+}
+
+.tabular-nums-fa {
+  font-variant-numeric: tabular-nums;
+}
+
+@media print {
+  header,
+  footer,
+  .no-print {
+    display: none !important;
+  }
+  main {
+    padding-top: 0 !important;
+  }
+}

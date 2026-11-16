@@ -1,0 +1,8 @@
+{
+  "name": "فروشگاه موبایل امیر | Amir Mobile",
+  "description": "فروشگاه اینترنتی تخصصی موبایل و لوازم جانبی اورجینال با تضمین اصالت و گارانتی ۱۸ ماهه امیر سرویس",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
