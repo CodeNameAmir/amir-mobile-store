@@ -240,3 +240,47 @@ create policy "Authenticated admin view newsletter"
   on public.newsletter_subscribers for select
   to authenticated
   using (true);
+
+-- ============================================================================
+-- 8. Storefront Customer Accounts & Auth OTP Challenges (Backend Service Role)
+-- Accessed exclusively by the Express API server using SUPABASE_SERVICE_ROLE_KEY.
+-- RLS is enabled with NO public anon policies so password hashes and OTPs
+-- are never exposed to client-side anon queries.
+-- ============================================================================
+create table if not exists public.app_users (
+  id uuid primary key default gen_random_uuid(),
+  email text unique not null,
+  full_name text not null,
+  phone text default '',
+  national_id text,
+  birth_date text,
+  newsletter_opt_in boolean default true,
+  email_verified boolean default true,
+  password_hash text,
+  addresses jsonb default '[]'::jsonb,
+  active_session_ids jsonb default '[]'::jsonb,
+  created_at timestamptz default now(),
+  last_login_at timestamptz default now()
+);
+
+create index if not exists idx_app_users_email on public.app_users (email);
+
+create table if not exists public.auth_otp_challenges (
+  challenge_key text primary key,
+  id uuid not null,
+  email text not null,
+  purpose text not null check (purpose in ('signup', 'login', 'reset-password', 'change-email')),
+  code_hash text not null,
+  expires_at timestamptz not null,
+  resend_available_at timestamptz not null,
+  attempts integer default 0,
+  pending_user_id uuid,
+  pending_signup jsonb,
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_auth_otp_expires_at on public.auth_otp_challenges (expires_at);
+
+alter table public.app_users enable row level security;
+alter table public.auth_otp_challenges enable row level security;
+

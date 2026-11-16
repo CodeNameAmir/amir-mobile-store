@@ -27,14 +27,22 @@ export interface AuthStatusResponse extends ResendServiceStatus {
   user: DemoUser | null;
 }
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+const rawApiBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim() || '';
+export const API_BASE_URL = rawApiBase.replace(/\/+$/, '');
+
+export function buildApiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath;
+}
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(buildApiUrl(path), {
+    ...init,
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers || {}),
     },
-    ...init,
   });
 
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
@@ -140,7 +148,7 @@ export const authApi = {
     totalFormatted: string;
     itemsCount: number;
   }): Promise<void> {
-    await fetch('/api/orders/notify', {
+    await fetch(buildApiUrl('/api/orders/notify'), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

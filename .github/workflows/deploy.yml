@@ -38,6 +38,7 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
           VITE_BASE_PATH: "./"
           VITE_GIT_COMMIT_SHA: ${{ github.sha }}
           VITE_GIT_BRANCH: ${{ github.ref_name }}

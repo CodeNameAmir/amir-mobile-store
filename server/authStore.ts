@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import path from 'node:path';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { resolveSessionSecret, resolveSupabaseAdminConfig } from './config.ts';
 
 export type OtpPurpose = 'signup' | 'login' | 'reset-password' | 'change-email';
 
@@ -46,12 +46,8 @@ export interface PublicUserDTO {
   lastLoginAt: string;
 }
 
-interface AuthDatabaseFile {
-  sessionSecret: string;
-  users: StoredUserRecord[];
-}
-
-interface OtpChallenge {
+export interface OtpChallengeRecord {
+  challengeKey: string;
   id: string;
   email: string;
   purpose: OtpPurpose;
@@ -67,47 +63,24 @@ interface OtpChallenge {
   };
 }
 
-const DATA_DIR = path.resolve(process.cwd(), '.data');
-const DB_PATH = path.join(DATA_DIR, 'auth-db.json');
-
-function ensureDb(): AuthDatabaseFile {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(DB_PATH)) {
-    const initial: AuthDatabaseFile = {
-      sessionSecret: crypto.randomBytes(32).toString('hex'),
-      users: [],
-    };
-    fs.writeFileSync(DB_PATH, JSON.stringify(initial, null, 2), 'utf8');
-    return initial;
-  }
-  try {
-    const raw = fs.readFileSync(DB_PATH, 'utf8');
-    const parsed = JSON.parse(raw) as Partial<AuthDatabaseFile>;
-    return {
-      sessionSecret: parsed.sessionSecret || crypto.randomBytes(32).toString('hex'),
-      users: Array.isArray(parsed.users) ? parsed.users : [],
-    };
-  } catch {
-    return {
-      sessionSecret: crypto.randomBytes(32).toString('hex'),
-      users: [],
-    };
-  }
-}
-
-function saveDb(db: AuthDatabaseFile): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf8');
-}
-
-function getSigningSecret(): string {
-  const envSecret = (process.env.AUTH_SESSION_SECRET || '').trim();
-  if (envSecret.length >= 16) return envSecret;
-  return ensureDb().sessionSecret;
+export interface AuthStorageAdapter {
+  mode: 'supabase' | 'dev-memory';
+  checkHealth(): Promise<{ ok: boolean; mode: 'supabase' | 'dev-memory'; detail?: string }>;
+  findUserByEmail(email: string): Promise<StoredUserRecord | null>;
+  findUserById(userId: string): Promise<StoredUserRecord | null>;
+  createUser(params: {
+    email: string;
+    fullName: string;
+    phone: string;
+    passwordHash?: string;
+  }): Promise<StoredUserRecord>;
+  updateUser(
+    userId: string,
+    updater: (user: StoredUserRecord) => StoredUserRecord
+  ): Promise<StoredUserRecord | null>;
+  getOtpChallenge(challengeKey: string): Promise<OtpChallengeRecord | null>;
+  upsertOtpChallenge(challenge: OtpChallengeRecord): Promise<void>;
+  deleteOtpChallenge(challengeKey: string): Promise<void>;
 }
 
 export function hashPassword(password: string): string {
@@ -126,8 +99,8 @@ export function verifyPassword(password: string, storedHash?: string): boolean {
   return crypto.timingSafeEqual(expectedBuf, actualBuf);
 }
 
-function hashOtpCode(code: string, email: string): string {
-  return crypto.createHmac('sha256', getSigningSecret()).update(`${email}:${code}`).digest('hex');
+function hashOtpCode(code: string, email: string, secret: string): string {
+  return crypto.createHmac('sha256', secret).update(`${email}:${code}`).digest('hex');
 }
 
 export function toPublicUser(user: StoredUserRecord): PublicUserDTO {
@@ -147,219 +120,459 @@ export function toPublicUser(user: StoredUserRecord): PublicUserDTO {
   };
 }
 
-const otpChallenges = new Map<string, OtpChallenge>();
-
 function otpKey(email: string, purpose: OtpPurpose): string {
   return `${purpose}::${email}`;
 }
 
-export function findUserByEmail(email: string): StoredUserRecord | null {
-  const db = ensureDb();
-  return db.users.find((u) => u.email === email) || null;
+function mapSupabaseUserRow(row: Record<string, unknown>): StoredUserRecord {
+  return {
+    id: String(row.id),
+    email: String(row.email),
+    fullName: String(row.full_name || ''),
+    phone: String(row.phone || ''),
+    nationalId: row.national_id ? String(row.national_id) : undefined,
+    birthDate: row.birth_date ? String(row.birth_date) : undefined,
+    newsletterOptIn: row.newsletter_opt_in !== false,
+    emailVerified: row.email_verified !== false,
+    passwordHash: row.password_hash ? String(row.password_hash) : undefined,
+    addresses: Array.isArray(row.addresses) ? (row.addresses as StoredAddress[]) : [],
+    activeSessionIds: Array.isArray(row.active_session_ids)
+      ? (row.active_session_ids as string[])
+      : [],
+    createdAt: String(row.created_at || new Date().toISOString()),
+    lastLoginAt: String(row.last_login_at || new Date().toISOString()),
+  };
 }
 
-export function findUserById(userId: string): StoredUserRecord | null {
-  const db = ensureDb();
-  return db.users.find((u) => u.id === userId) || null;
+function mapSupabaseOtpRow(row: Record<string, unknown>): OtpChallengeRecord {
+  return {
+    challengeKey: String(row.challenge_key),
+    id: String(row.id),
+    email: String(row.email),
+    purpose: String(row.purpose) as OtpPurpose,
+    codeHash: String(row.code_hash),
+    expiresAt: new Date(String(row.expires_at)).getTime(),
+    resendAvailableAt: new Date(String(row.resend_available_at)).getTime(),
+    attempts: Number(row.attempts || 0),
+    pendingUserId: row.pending_user_id ? String(row.pending_user_id) : undefined,
+    pendingSignup:
+      row.pending_signup && typeof row.pending_signup === 'object'
+        ? (row.pending_signup as OtpChallengeRecord['pendingSignup'])
+        : undefined,
+  };
 }
 
-export function createOtpChallenge(params: {
-  email: string;
-  purpose: OtpPurpose;
-  pendingUserId?: string;
-  pendingSignup?: {
+export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorageAdapter {
+  return {
+    mode: 'supabase',
+
+    async checkHealth() {
+      const { error } = await supabase
+        .from('app_users')
+        .select('id', { count: 'exact', head: true });
+      if (error) {
+        return { ok: false, mode: 'supabase', detail: error.message };
+      }
+      return { ok: true, mode: 'supabase' };
+    },
+
+    async findUserByEmail(email: string) {
+      const { data, error } = await supabase
+        .from('app_users')
+        .select('*')
+        .eq('email', email)
+        .maybeSingle();
+      if (error) throw new Error(`Supabase user lookup failed: ${error.message}`);
+      return data ? mapSupabaseUserRow(data as Record<string, unknown>) : null;
+    },
+
+    async findUserById(userId: string) {
+      const { data, error } = await supabase
+        .from('app_users')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) throw new Error(`Supabase user lookup failed: ${error.message}`);
+      return data ? mapSupabaseUserRow(data as Record<string, unknown>) : null;
+    },
+
+    async createUser(params) {
+      const nowIso = new Date().toISOString();
+      const row = {
+        id: crypto.randomUUID(),
+        email: params.email,
+        full_name: params.fullName.trim(),
+        phone: params.phone.trim(),
+        newsletter_opt_in: true,
+        email_verified: true,
+        password_hash: params.passwordHash ?? null,
+        addresses: [],
+        active_session_ids: [],
+        created_at: nowIso,
+        last_login_at: nowIso,
+      };
+      const { data, error } = await supabase.from('app_users').insert(row).select('*').single();
+      if (error || !data) {
+        throw new Error(`Supabase create user failed: ${error?.message || 'no row returned'}`);
+      }
+      return mapSupabaseUserRow(data as Record<string, unknown>);
+    },
+
+    async updateUser(userId, updater) {
+      const current = await this.findUserById(userId);
+      if (!current) return null;
+      const next = updater(current);
+
+      const { data, error } = await supabase
+        .from('app_users')
+        .update({
+          email: next.email,
+          full_name: next.fullName,
+          phone: next.phone,
+          national_id: next.nationalId ?? null,
+          birth_date: next.birthDate ?? null,
+          newsletter_opt_in: next.newsletterOptIn,
+          email_verified: next.emailVerified,
+          password_hash: next.passwordHash ?? null,
+          addresses: next.addresses,
+          active_session_ids: next.activeSessionIds,
+          last_login_at: next.lastLoginAt,
+        })
+        .eq('id', userId)
+        .select('*')
+        .single();
+
+      if (error || !data) {
+        throw new Error(`Supabase update user failed: ${error?.message || 'no row returned'}`);
+      }
+      return mapSupabaseUserRow(data as Record<string, unknown>);
+    },
+
+    async getOtpChallenge(challengeKey: string) {
+      const { data, error } = await supabase
+        .from('auth_otp_challenges')
+        .select('*')
+        .eq('challenge_key', challengeKey)
+        .maybeSingle();
+      if (error) throw new Error(`Supabase OTP lookup failed: ${error.message}`);
+      return data ? mapSupabaseOtpRow(data as Record<string, unknown>) : null;
+    },
+
+    async upsertOtpChallenge(challenge: OtpChallengeRecord) {
+      const { error } = await supabase.from('auth_otp_challenges').upsert({
+        challenge_key: challenge.challengeKey,
+        id: challenge.id,
+        email: challenge.email,
+        purpose: challenge.purpose,
+        code_hash: challenge.codeHash,
+        expires_at: new Date(challenge.expiresAt).toISOString(),
+        resend_available_at: new Date(challenge.resendAvailableAt).toISOString(),
+        attempts: challenge.attempts,
+        pending_user_id: challenge.pendingUserId ?? null,
+        pending_signup: challenge.pendingSignup ?? null,
+      });
+      if (error) throw new Error(`Supabase OTP upsert failed: ${error.message}`);
+    },
+
+    async deleteOtpChallenge(challengeKey: string) {
+      const { error } = await supabase
+        .from('auth_otp_challenges')
+        .delete()
+        .eq('challenge_key', challengeKey);
+      if (error) throw new Error(`Supabase OTP delete failed: ${error.message}`);
+    },
+  };
+}
+
+export function createMemoryAuthStorage(): AuthStorageAdapter {
+  const users = new Map<string, StoredUserRecord>();
+  const otps = new Map<string, OtpChallengeRecord>();
+
+  return {
+    mode: 'dev-memory',
+
+    async checkHealth() {
+      return {
+        ok: true,
+        mode: 'dev-memory',
+        detail: 'In-memory dev/test adapter (non-production only)',
+      };
+    },
+
+    async findUserByEmail(email: string) {
+      for (const user of users.values()) {
+        if (user.email === email) return { ...user, addresses: [...user.addresses], activeSessionIds: [...user.activeSessionIds] };
+      }
+      return null;
+    },
+
+    async findUserById(userId: string) {
+      const user = users.get(userId);
+      return user ? { ...user, addresses: [...user.addresses], activeSessionIds: [...user.activeSessionIds] } : null;
+    },
+
+    async createUser(params) {
+      const nowIso = new Date().toISOString();
+      const record: StoredUserRecord = {
+        id: crypto.randomUUID(),
+        email: params.email,
+        fullName: params.fullName.trim(),
+        phone: params.phone.trim(),
+        newsletterOptIn: true,
+        emailVerified: true,
+        passwordHash: params.passwordHash,
+        addresses: [],
+        activeSessionIds: [],
+        createdAt: nowIso,
+        lastLoginAt: nowIso,
+      };
+      users.set(record.id, record);
+      return { ...record, addresses: [], activeSessionIds: [] };
+    },
+
+    async updateUser(userId, updater) {
+      const existing = users.get(userId);
+      if (!existing) return null;
+      const updated = updater({
+        ...existing,
+        addresses: [...existing.addresses],
+        activeSessionIds: [...existing.activeSessionIds],
+      });
+      users.set(userId, updated);
+      return { ...updated, addresses: [...updated.addresses], activeSessionIds: [...updated.activeSessionIds] };
+    },
+
+    async getOtpChallenge(challengeKey: string) {
+      const item = otps.get(challengeKey);
+      return item ? { ...item } : null;
+    },
+
+    async upsertOtpChallenge(challenge: OtpChallengeRecord) {
+      otps.set(challenge.challengeKey, { ...challenge });
+    },
+
+    async deleteOtpChallenge(challengeKey: string) {
+      otps.delete(challengeKey);
+    },
+  };
+}
+
+export function createDefaultAuthStorage(env: NodeJS.ProcessEnv = process.env): AuthStorageAdapter {
+  const supaCfg = resolveSupabaseAdminConfig(env);
+  if (supaCfg.configured && supaCfg.url && supaCfg.serviceRoleKey) {
+    const client = createClient(supaCfg.url, supaCfg.serviceRoleKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+    return createSupabaseAuthStorage(client);
+  }
+  return createMemoryAuthStorage();
+}
+
+export class AuthService {
+  private readonly storage: AuthStorageAdapter;
+  private readonly sessionSecret: string;
+
+  constructor(storage: AuthStorageAdapter, sessionSecret?: string) {
+    this.storage = storage;
+    this.sessionSecret = sessionSecret || resolveSessionSecret();
+  }
+
+  get storageMode() {
+    return this.storage.mode;
+  }
+
+  checkHealth() {
+    return this.storage.checkHealth();
+  }
+
+  findUserByEmail(email: string) {
+    return this.storage.findUserByEmail(email);
+  }
+
+  findUserById(userId: string) {
+    return this.storage.findUserById(userId);
+  }
+
+  createUserAccount(params: {
+    email: string;
     fullName: string;
     phone: string;
     passwordHash?: string;
-  };
-}):
-  | { ok: true; code: string; challengeId: string; cooldownSeconds: number }
-  | { ok: false; retryAfterSeconds: number } {
-  const key = otpKey(params.email, params.purpose);
-  const existing = otpChallenges.get(key);
-  const now = Date.now();
-
-  if (existing && existing.resendAvailableAt > now) {
-    return {
-      ok: false,
-      retryAfterSeconds: Math.max(1, Math.ceil((existing.resendAvailableAt - now) / 1000)),
-    };
+  }) {
+    return this.storage.createUser(params);
   }
 
-  const code = String(crypto.randomInt(100000, 1000000));
-  const challengeId = crypto.randomUUID();
+  updateUserRecord(userId: string, updater: (user: StoredUserRecord) => StoredUserRecord) {
+    return this.storage.updateUser(userId, updater);
+  }
 
-  otpChallenges.set(key, {
-    id: challengeId,
-    email: params.email,
-    purpose: params.purpose,
-    codeHash: hashOtpCode(code, params.email),
-    expiresAt: now + 10 * 60 * 1000,
-    resendAvailableAt: now + 60 * 1000,
-    attempts: 0,
-    pendingUserId: params.pendingUserId,
-    pendingSignup: params.pendingSignup,
-  });
+  async createOtpChallenge(params: {
+    email: string;
+    purpose: OtpPurpose;
+    pendingUserId?: string;
+    pendingSignup?: {
+      fullName: string;
+      phone: string;
+      passwordHash?: string;
+    };
+  }): Promise<
+    | { ok: true; code: string; challengeId: string; cooldownSeconds: number }
+    | { ok: false; retryAfterSeconds: number }
+  > {
+    const key = otpKey(params.email, params.purpose);
+    const existing = await this.storage.getOtpChallenge(key);
+    const now = Date.now();
 
-  return { ok: true, code, challengeId, cooldownSeconds: 60 };
-}
-
-export function clearOtpChallenge(email: string, purpose: OtpPurpose): void {
-  otpChallenges.delete(otpKey(email, purpose));
-}
-
-export function verifyOtpChallenge(
-  email: string,
-  purpose: OtpPurpose,
-  code: string
-):
-  | {
-      ok: true;
-      challenge: OtpChallenge;
+    if (existing && existing.resendAvailableAt > now) {
+      return {
+        ok: false,
+        retryAfterSeconds: Math.max(1, Math.ceil((existing.resendAvailableAt - now) / 1000)),
+      };
     }
-  | {
-      ok: false;
-      messageFa: string;
-    } {
-  const key = otpKey(email, purpose);
-  const challenge = otpChallenges.get(key);
 
-  if (!challenge) {
+    const code = String(crypto.randomInt(100000, 1000000));
+    const challengeId = crypto.randomUUID();
+
+    await this.storage.upsertOtpChallenge({
+      challengeKey: key,
+      id: challengeId,
+      email: params.email,
+      purpose: params.purpose,
+      codeHash: hashOtpCode(code, params.email, this.sessionSecret),
+      expiresAt: now + 10 * 60 * 1000,
+      resendAvailableAt: now + 60 * 1000,
+      attempts: 0,
+      pendingUserId: params.pendingUserId,
+      pendingSignup: params.pendingSignup,
+    });
+
+    return { ok: true, code, challengeId, cooldownSeconds: 60 };
+  }
+
+  async clearOtpChallenge(email: string, purpose: OtpPurpose): Promise<void> {
+    await this.storage.deleteOtpChallenge(otpKey(email, purpose));
+  }
+
+  async verifyOtpChallenge(
+    email: string,
+    purpose: OtpPurpose,
+    code: string
+  ): Promise<
+    | { ok: true; challenge: OtpChallengeRecord }
+    | { ok: false; messageFa: string }
+  > {
+    const key = otpKey(email, purpose);
+    const challenge = await this.storage.getOtpChallenge(key);
+
+    if (!challenge) {
+      return {
+        ok: false,
+        messageFa: 'کد تاییدی برای این ایمیل صادر نشده یا منقضی شده است. لطفاً دوباره درخواست کد دهید.',
+      };
+    }
+
+    if (Date.now() > challenge.expiresAt) {
+      await this.storage.deleteOtpChallenge(key);
+      return {
+        ok: false,
+        messageFa: 'مدت اعتبار کد تایید (۱۰ دقیقه) به پایان رسیده است. لطفاً کد جدید دریافت کنید.',
+      };
+    }
+
+    if (challenge.attempts >= 5) {
+      await this.storage.deleteOtpChallenge(key);
+      return {
+        ok: false,
+        messageFa: 'تعداد تلاش‌های ناموفق بیش از حد مجاز بود. لطفاً کد جدید دریافت کنید.',
+      };
+    }
+
+    const candidateHash = hashOtpCode(code, email, this.sessionSecret);
+    const a = Buffer.from(candidateHash, 'hex');
+    const b = Buffer.from(challenge.codeHash, 'hex');
+
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      const nextAttempts = challenge.attempts + 1;
+      await this.storage.upsertOtpChallenge({
+        ...challenge,
+        attempts: nextAttempts,
+      });
+      return {
+        ok: false,
+        messageFa: `کد تایید نادرست است (${5 - nextAttempts} تلاش باقی‌مانده).`,
+      };
+    }
+
+    await this.storage.deleteOtpChallenge(key);
+    return { ok: true, challenge };
+  }
+
+  async issueSessionToken(userId: string): Promise<{ token: string; sessionId: string } | null> {
+    const sessionId = crypto.randomUUID();
+    const issuedAt = Date.now();
+    const updated = await this.storage.updateUser(userId, (user) => ({
+      ...user,
+      lastLoginAt: new Date().toISOString(),
+      activeSessionIds: [...user.activeSessionIds.slice(-9), sessionId],
+    }));
+    if (!updated) return null;
+
+    const payload = `${sessionId}.${userId}.${issuedAt}`;
+    const signature = crypto
+      .createHmac('sha256', this.sessionSecret)
+      .update(payload)
+      .digest('hex');
+
     return {
-      ok: false,
-      messageFa: 'کد تاییدی برای این ایمیل صادر نشده یا منقضی شده است. لطفاً دوباره درخواست کد دهید.',
+      token: `${payload}.${signature}`,
+      sessionId,
     };
   }
 
-  if (Date.now() > challenge.expiresAt) {
-    otpChallenges.delete(key);
-    return {
-      ok: false,
-      messageFa: 'مدت اعتبار کد تایید (۱۰ دقیقه) به پایان رسیده است. لطفاً کد جدید دریافت کنید.',
-    };
+  async verifySessionToken(
+    token: string | undefined
+  ): Promise<{ user: StoredUserRecord; sessionId: string } | null> {
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length !== 4) return null;
+
+    const [sessionId, userId, issuedAtStr, signature] = parts;
+    if (!sessionId || !userId || !issuedAtStr || !signature) return null;
+
+    const issuedAt = Number(issuedAtStr);
+    if (!Number.isFinite(issuedAt)) return null;
+
+    const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
+    if (Date.now() - issuedAt > maxAgeMs) return null;
+
+    const payload = `${sessionId}.${userId}.${issuedAtStr}`;
+    const expectedSig = crypto
+      .createHmac('sha256', this.sessionSecret)
+      .update(payload)
+      .digest('hex');
+
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expectedSig, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return null;
+    }
+
+    const user = await this.storage.findUserById(userId);
+    if (!user || !user.activeSessionIds.includes(sessionId)) {
+      return null;
+    }
+    return { user, sessionId };
   }
 
-  if (challenge.attempts >= 5) {
-    otpChallenges.delete(key);
-    return {
-      ok: false,
-      messageFa: 'تعداد تلاش‌های ناموفق بیش از حد مجاز بود. لطفاً کد جدید دریافت کنید.',
-    };
+  async revokeSession(userId: string, sessionId: string, allDevices = false): Promise<void> {
+    await this.storage.updateUser(userId, (user) => ({
+      ...user,
+      activeSessionIds: allDevices
+        ? []
+        : user.activeSessionIds.filter((id) => id !== sessionId),
+    }));
   }
-
-  const candidateHash = hashOtpCode(code, email);
-  const a = Buffer.from(candidateHash, 'hex');
-  const b = Buffer.from(challenge.codeHash, 'hex');
-
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    challenge.attempts += 1;
-    return {
-      ok: false,
-      messageFa: `کد تایید نادرست است (${5 - challenge.attempts} تلاش باقی‌مانده).`,
-    };
-  }
-
-  otpChallenges.delete(key);
-  return { ok: true, challenge };
-}
-
-export function createUserAccount(params: {
-  email: string;
-  fullName: string;
-  phone: string;
-  passwordHash?: string;
-}): StoredUserRecord {
-  const db = ensureDb();
-  const nowIso = new Date().toISOString();
-  const newUser: StoredUserRecord = {
-    id: crypto.randomUUID(),
-    email: params.email,
-    fullName: params.fullName.trim(),
-    phone: params.phone.trim(),
-    newsletterOptIn: true,
-    emailVerified: true,
-    passwordHash: params.passwordHash,
-    addresses: [],
-    activeSessionIds: [],
-    createdAt: nowIso,
-    lastLoginAt: nowIso,
-  };
-  db.users.push(newUser);
-  saveDb(db);
-  return newUser;
-}
-
-export function updateUserRecord(
-  userId: string,
-  updater: (user: StoredUserRecord) => StoredUserRecord
-): StoredUserRecord | null {
-  const db = ensureDb();
-  const idx = db.users.findIndex((u) => u.id === userId);
-  if (idx < 0) return null;
-  const updated = updater(db.users[idx]);
-  db.users[idx] = updated;
-  saveDb(db);
-  return updated;
-}
-
-export function issueSessionToken(userId: string): { token: string; sessionId: string } | null {
-  const sessionId = crypto.randomUUID();
-  const issuedAt = Date.now();
-  const updated = updateUserRecord(userId, (user) => ({
-    ...user,
-    lastLoginAt: new Date().toISOString(),
-    activeSessionIds: [...user.activeSessionIds.slice(-9), sessionId],
-  }));
-  if (!updated) return null;
-
-  const payload = `${sessionId}.${userId}.${issuedAt}`;
-  const signature = crypto.createHmac('sha256', getSigningSecret()).update(payload).digest('hex');
-  return {
-    token: `${payload}.${signature}`,
-    sessionId,
-  };
-}
-
-export function verifySessionToken(
-  token: string | undefined
-): { user: StoredUserRecord; sessionId: string } | null {
-  if (!token) return null;
-  const parts = token.split('.');
-  if (parts.length !== 4) return null;
-
-  const [sessionId, userId, issuedAtStr, signature] = parts;
-  if (!sessionId || !userId || !issuedAtStr || !signature) return null;
-
-  const issuedAt = Number(issuedAtStr);
-  if (!Number.isFinite(issuedAt)) return null;
-
-  const maxAgeMs = 7 * 24 * 60 * 60 * 1000;
-  if (Date.now() - issuedAt > maxAgeMs) return null;
-
-  const payload = `${sessionId}.${userId}.${issuedAtStr}`;
-  const expectedSig = crypto
-    .createHmac('sha256', getSigningSecret())
-    .update(payload)
-    .digest('hex');
-
-  const sigBuf = Buffer.from(signature, 'hex');
-  const expBuf = Buffer.from(expectedSig, 'hex');
-  if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
-    return null;
-  }
-
-  const user = findUserById(userId);
-  if (!user || !user.activeSessionIds.includes(sessionId)) {
-    return null;
-  }
-  return { user, sessionId };
-}
-
-export function revokeSession(userId: string, sessionId: string, allDevices = false): void {
-  updateUserRecord(userId, (user) => ({
-    ...user,
-    activeSessionIds: allDevices
-      ? []
-      : user.activeSessionIds.filter((id) => id !== sessionId),
-  }));
 }
