@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  MapPin,
   Minus,
   Plus,
   ShieldCheck,
@@ -46,16 +47,41 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
     null
   );
 
+  const savedAddresses = user?.addresses ?? [];
+  const defaultAddress = savedAddresses.find((a) => a.isDefault) || savedAddresses[0];
+
   const [form, setForm] = useState<CheckoutFormData>({
-    fullName: user?.fullName || '',
-    phone: user?.phone || '',
-    city: 'تهران',
-    address: '',
-    postalCode: '',
+    fullName: defaultAddress?.receiverName || user?.fullName || '',
+    phone: defaultAddress?.phone || user?.phone || '',
+    city: defaultAddress?.city || 'تهران',
+    address: defaultAddress?.address || '',
+    postalCode: defaultAddress?.postalCode || '',
     deliverySlot: 'express',
   });
+  const [selectedAddressId, setSelectedAddressId] = useState<string | null>(
+    defaultAddress?.id ?? null
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const def = user.addresses?.find((a) => a.isDefault) || user.addresses?.[0];
+    setForm((prev) => {
+      if (prev.address.trim() || prev.postalCode.trim()) return prev;
+      return {
+        ...prev,
+        fullName: prev.fullName || def?.receiverName || user.fullName || '',
+        phone: prev.phone || def?.phone || user.phone || '',
+        city: def?.city || prev.city || 'تهران',
+        address: def?.address || prev.address,
+        postalCode: def?.postalCode || prev.postalCode,
+      };
+    });
+    if (def && !selectedAddressId) {
+      setSelectedAddressId(def.id);
+    }
+  }, [user, selectedAddressId]);
 
   const crossSellProducts = products
     .filter(
@@ -319,6 +345,59 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
                   حالت دمو
                 </span>
               </div>
+
+              {savedAddresses.length > 0 && (
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-[#0b1c30] flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-[#004ac6]" />
+                      <span>انتخاب از آدرس‌های ذخیره‌شده حساب شما</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/account')}
+                      className="text-[11px] font-bold text-[#004ac6] hover:underline"
+                    >
+                      مدیریت آدرس‌ها
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {savedAddresses.map((addr) => {
+                      const active = selectedAddressId === addr.id;
+                      return (
+                        <button
+                          key={addr.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedAddressId(addr.id);
+                            setForm((prev) => ({
+                              ...prev,
+                              fullName: addr.receiverName,
+                              phone: addr.phone,
+                              city: addr.city,
+                              address: addr.address,
+                              postalCode: addr.postalCode,
+                            }));
+                            setErrors({});
+                          }}
+                          className={`p-3.5 rounded-2xl border text-right transition-colors ${
+                            active
+                              ? 'border-[#004ac6] bg-[#eff4ff]'
+                              : 'border-[#e5eeff] bg-[#f8f9ff] hover:border-[#2563eb]'
+                          }`}
+                        >
+                          <p className="text-xs font-extrabold text-[#0b1c30]">
+                            {addr.label} · {addr.city}
+                          </p>
+                          <p className="text-[11px] text-[#434655] line-clamp-1 mt-1">
+                            {addr.address}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">

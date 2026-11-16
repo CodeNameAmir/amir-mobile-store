@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { SEED_PRODUCTS } from '../data/catalog';
+import { authApi } from '../lib/authApi';
 import { storeRepository } from '../lib/supabase';
 import type {
   CartItem,
@@ -10,12 +11,15 @@ import type {
   FilterState,
   OrderRecord,
   Product,
+  ResendServiceStatus,
   StoreSettings,
+  UserAddress,
 } from '../types/store';
 import {
   calculateCartSummary,
   DEFAULT_COUPON_RULES,
   evaluateCoupon,
+  formatToman,
   FREE_SHIPPING_THRESHOLD,
   generateOrderCode,
   toEnglishDigits,
@@ -135,8 +139,22 @@ interface StoreContextValue {
   createDemoOrder: (form: CheckoutFormData) => Promise<OrderRecord>;
   findOrder: (code: string) => Promise<OrderRecord | null>;
   user: DemoUser | null;
+  authLoading: boolean;
+  resendStatus: ResendServiceStatus | null;
+  setAuthenticatedUser: (user: DemoUser) => void;
   loginDemoUser: (user: DemoUser) => void;
-  logoutDemoUser: () => void;
+  logoutDemoUser: (allDevices?: boolean) => Promise<void>;
+  updateUserProfile: (payload: {
+    fullName: string;
+    phone: string;
+    nationalId?: string;
+    birthDate?: string;
+    newsletterOptIn?: boolean;
+  }) => Promise<DemoUser>;
+  addUserAddress: (payload: Omit<UserAddress, 'id'>) => Promise<DemoUser>;
+  updateUserAddress: (id: string, payload: Omit<UserAddress, 'id'>) => Promise<DemoUser>;
+  setDefaultUserAddress: (id: string) => Promise<DemoUser>;
+  deleteUserAddress: (id: string) => Promise<DemoUser>;
   toasts: ToastItem[];
   showToast: (message: string, tone?: ToastItem['tone']) => void;
   dismissToast: (id: string) => void;
@@ -167,6 +185,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [stockAlerts, setStockAlerts] = useState<string[]>(() => storeRepository.loadStockAlerts());
   const [orders, setOrders] = useState<OrderRecord[]>(() => storeRepository.loadOrders());
   const [user, setUser] = useState<DemoUser | null>(() => storeRepository.loadUser());
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [resendStatus, setResendStatus] = useState<ResendServiceStatus | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
   const dismissToast = useCallback((id: string) => {
@@ -190,11 +210,27 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       storeRepository.fetchProducts(),
       storeRepository.fetchActiveCoupons(),
       storeRepository.fetchStoreSettings(),
-    ]).then(([fetchedProducts, fetchedCoupons, fetchedSettings]) => {
+      authApi.getStatus().catch(() => null),
+    ]).then(([fetchedProducts, fetchedCoupons, fetchedSettings, authStatus]) => {
       if (!active) return;
       setProducts(fetchedProducts);
       setCouponRules(fetchedCoupons);
       setStoreSettings(fetchedSettings);
+      if (authStatus) {
+        setResendStatus({
+          resendConfigured: authStatus.resendConfigured,
+          fromAddress: authStatus.fromAddress,
+          usingTestSender: authStatus.usingTestSender,
+        });
+        if (authStatus.authenticated && authStatus.user) {
+          setUser(authStatus.user);
+          storeRepository.saveUser(authStatus.user);
+        } else {
+          setUser(null);
+          storeRepository.saveUser(null);
+        }
+      }
+      setAuthLoading(false);
     });
     return () => {
       active = false;
@@ -483,14 +519,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const saved = await storeRepository.createOrder(newOrder);
       setOrders(storeRepository.loadOrders());
       clearCart();
+      if (user) {
+        void authApi.notifyOrderPlaced({
+          orderCode: saved.orderCode,
+          totalFormatted: formatToman(saved.totalAmount),
+          itemsCount: newOrder.items.length,
+        });
+      }
       showToast(`سفارش آزمایشی ${saved.orderCode} با موفقیت ثبت شد.`, 'success');
       return saved;
     },
-    [appliedCoupon, cart, clearCart, couponRules, showToast, storeSettings.freeShippingThreshold]
+    [appliedCoupon, cart, clearCart, couponRules, showToast, storeSettings.freeShippingThreshold, user]
   );
 
   const findOrder = useCallback(async (code: string) => {
     return storeRepository.findOrderByCode(code);
+  }, []);
+
+  const setAuthenticatedUser = useCallback((nextUser: DemoUser) => {
+    storeRepository.saveUser(nextUser);
+    setUser(nextUser);
   }, []);
 
   const loginDemoUser = useCallback(
@@ -502,11 +550,78 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [showToast]
   );
 
-  const logoutDemoUser = useCallback(() => {
-    storeRepository.saveUser(null);
-    setUser(null);
-    showToast('از حساب کاربری خارج شدید.', 'info');
-  }, [showToast]);
+  const logoutDemoUser = useCallback(
+    async (allDevices = false) => {
+      try {
+        await authApi.logout(allDevices);
+      } catch {
+        // Ignore offline fallback
+      }
+      storeRepository.saveUser(null);
+      setUser(null);
+      showToast(
+        allDevices ? 'از همه نشست‌ها و دستگاه‌ها خارج شدید.' : 'از حساب کاربری خارج شدید.',
+        'info'
+      );
+    },
+    [showToast]
+  );
+
+  const updateUserProfile = useCallback(
+    async (payload: {
+      fullName: string;
+      phone: string;
+      nationalId?: string;
+      birthDate?: string;
+      newsletterOptIn?: boolean;
+    }) => {
+      const res = await authApi.updateProfile(payload);
+      setAuthenticatedUser(res.user);
+      showToast('مشخصات حساب کاربری با موفقیت به‌روزرسانی شد.', 'success');
+      return res.user;
+    },
+    [setAuthenticatedUser, showToast]
+  );
+
+  const addUserAddress = useCallback(
+    async (payload: Omit<UserAddress, 'id'>) => {
+      const res = await authApi.addAddress(payload);
+      setAuthenticatedUser(res.user);
+      showToast('آدرس جدید به دفترچه آدرس‌ها اضافه شد.', 'success');
+      return res.user;
+    },
+    [setAuthenticatedUser, showToast]
+  );
+
+  const updateUserAddress = useCallback(
+    async (id: string, payload: Omit<UserAddress, 'id'>) => {
+      const res = await authApi.updateAddress(id, payload);
+      setAuthenticatedUser(res.user);
+      showToast('آدرس با موفقیت ویرایش شد.', 'success');
+      return res.user;
+    },
+    [setAuthenticatedUser, showToast]
+  );
+
+  const setDefaultUserAddress = useCallback(
+    async (id: string) => {
+      const res = await authApi.setDefaultAddress(id);
+      setAuthenticatedUser(res.user);
+      showToast('آدرس پیش‌فرض ارسال تغییر یافت.', 'success');
+      return res.user;
+    },
+    [setAuthenticatedUser, showToast]
+  );
+
+  const deleteUserAddress = useCallback(
+    async (id: string) => {
+      const res = await authApi.deleteAddress(id);
+      setAuthenticatedUser(res.user);
+      showToast('آدرس حذف شد.', 'info');
+      return res.user;
+    },
+    [setAuthenticatedUser, showToast]
+  );
 
   return (
     <StoreContext.Provider
@@ -542,8 +657,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         createDemoOrder,
         findOrder,
         user,
+        authLoading,
+        resendStatus,
+        setAuthenticatedUser,
         loginDemoUser,
         logoutDemoUser,
+        updateUserProfile,
+        addUserAddress,
+        updateUserAddress,
+        setDefaultUserAddress,
+        deleteUserAddress,
         toasts,
         showToast,
         dismissToast,

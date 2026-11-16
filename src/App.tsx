@@ -26,7 +26,7 @@ const ToastStack: React.FC = () => {
   return (
     <div
       aria-live="polite"
-      className="fixed top-24 left-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] no-print pointer-events-none"
+      className="fixed bottom-4 md:bottom-auto md:top-24 left-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] no-print pointer-events-none"
     >
       {toasts.slice(-2).map((toast) => (
         <div

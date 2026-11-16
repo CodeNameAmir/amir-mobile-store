@@ -152,10 +152,38 @@ export interface SupportTicket {
   createdAt: string;
 }
 
+export interface UserAddress {
+  id: string;
+  label: string;
+  receiverName: string;
+  phone: string;
+  city: string;
+  address: string;
+  postalCode: string;
+  isDefault: boolean;
+}
+
 export interface DemoUser {
+  id?: string;
   fullName: string;
   phone: string;
   email: string;
+  emailVerified?: boolean;
+  hasPassword?: boolean;
+  nationalId?: string;
+  birthDate?: string;
+  newsletterOptIn?: boolean;
+  addresses?: UserAddress[];
+  createdAt?: string;
+  lastLoginAt?: string;
+}
+
+export type OtpPurpose = 'signup' | 'login' | 'reset-password' | 'change-email';
+
+export interface ResendServiceStatus {
+  resendConfigured: boolean;
+  fromAddress: string;
+  usingTestSender: boolean;
 }
 
 export interface ProductReview {
