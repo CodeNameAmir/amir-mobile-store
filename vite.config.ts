@@ -1,13 +1,73 @@
+import {execSync} from 'child_process';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
+function readGit(command: string): string | null {
+  try {
+    const out = execSync(command, {stdio: ['ignore', 'pipe', 'ignore']})
+      .toString()
+      .trim();
+    return out || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBuildCommitInfo() {
+  const commitSha =
+    process.env.VITE_GIT_COMMIT_SHA ||
+    process.env.GITHUB_SHA ||
+    readGit('git rev-parse HEAD');
+  const branch =
+    process.env.VITE_GIT_BRANCH ||
+    process.env.GITHUB_REF_NAME ||
+    readGit('git rev-parse --abbrev-ref HEAD');
+  const repository =
+    process.env.VITE_GITHUB_REPO ||
+    process.env.GITHUB_REPOSITORY ||
+    readGit('git remote get-url origin');
+  const commitMessage =
+    process.env.VITE_GIT_COMMIT_MESSAGE || readGit('git log -1 --pretty=%s');
+  const commitAuthor =
+    process.env.VITE_GIT_COMMIT_AUTHOR || readGit('git log -1 --pretty=%an');
+  const commitDate =
+    process.env.VITE_GIT_COMMIT_DATE || readGit('git log -1 --pretty=%cI');
+  const runNumber =
+    process.env.VITE_GITHUB_RUN_NUMBER || process.env.GITHUB_RUN_NUMBER || null;
+  const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com';
+  const source =
+    process.env.GITHUB_ACTIONS === 'true'
+      ? 'github-actions'
+      : commitSha
+      ? 'git-local'
+      : 'local-preview';
+
+  return {
+    commitSha,
+    branch,
+    repository,
+    serverUrl,
+    commitMessage,
+    commitAuthor,
+    commitDate,
+    runNumber,
+    builtAt: new Date().toISOString(),
+    source,
+  };
+}
+
 export default defineConfig(() => {
+  const buildInfo = resolveBuildCommitInfo();
+
   return {
     // Relative base ensures assets resolve cleanly on GitHub Pages subpaths and ArvanCloud CDN
     base: process.env.VITE_BASE_PATH || './',
     plugins: [react(), tailwindcss()],
+    define: {
+      __APP_BUILD_INFO__: JSON.stringify(buildInfo),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

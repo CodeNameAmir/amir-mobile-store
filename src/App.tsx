@@ -2,6 +2,7 @@ import React from 'react';
 import { CheckCircle2, Info, X, AlertTriangle } from 'lucide-react';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
+import { TempCommitBanner } from './components/TempCommitBanner';
 import { StoreProvider, useStore } from './context/StoreContext';
 import { AboutPage } from './pages/AboutPage';
 import { AccountPage } from './pages/AccountPage';
@@ -98,6 +99,8 @@ const StoreShell: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-[#f8f9ff] text-[#0b1c30]">
       <Navbar />
+      {/* TEMPORARY: Delete TempCommitBanner when GitHub commit indicator is no longer needed */}
+      <TempCommitBanner />
       <main className="flex-1">{renderPage()}</main>
       <Footer />
       <ToastStack />
