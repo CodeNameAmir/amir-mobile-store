@@ -13,7 +13,7 @@ import { useStore } from '../context/StoreContext';
 import { storeRepository } from '../lib/supabase';
 
 export const Footer: React.FC = () => {
-  const { navigate, navigateToCatalog, showToast } = useStore();
+  const { navigate, navigateToCatalog, showToast, storeSettings } = useStore();
   const [newsletterInput, setNewsletterInput] = useState('');
   const [subscribed, setSubscribed] = useState(false);
 
@@ -95,7 +95,7 @@ export const Footer: React.FC = () => {
           </p>
           <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#f8f9ff] text-xs font-semibold text-[#0b1c30] tabular-nums-fa">
             <PhoneCall className="w-4 h-4 text-[#004ac6]" />
-            شماره تماس: ۰۲۱-۸۸۸۸۹۹۹۹ (شنبه تا پنجشنبه ۹ الی ۲۱)
+            شماره تماس: {storeSettings.supportPhone} (شنبه تا پنجشنبه ۹ الی ۲۱)
           </div>
         </div>
 
@@ -137,6 +137,24 @@ export const Footer: React.FC = () => {
                 className="hover:text-[#b54e00] transition-colors"
               >
                 تخفیف‌های شگفت‌انگیز
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => navigate('/compare')}
+                className="hover:text-[#004ac6] transition-colors"
+              >
+                مقایسه تخصصی موبایل‌ها
+              </button>
+            </li>
+            <li>
+              <button
+                type="button"
+                onClick={() => navigate('/installments')}
+                className="hover:text-[#004ac6] transition-colors"
+              >
+                محاسبه‌گر خرید اقساطی و تعویض
               </button>
             </li>
             <li>

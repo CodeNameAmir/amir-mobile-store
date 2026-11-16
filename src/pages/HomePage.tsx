@@ -303,6 +303,41 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
+      {/* Installments, Trade-In & Comparison Services Banner */}
+      <section className="max-w-[1440px] mx-auto px-4 lg:px-8">
+        <div className="rounded-3xl bg-gradient-to-l from-[#eff4ff] via-white to-[#f8f9ff] border border-[#dce9ff] p-6 sm:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-2 max-w-2xl">
+            <p className="text-xs font-extrabold text-[#004ac6]">
+              امکانات پیشرفته خرید هوشمند در فروشگاه موبایل امیر
+            </p>
+            <h2 className="text-lg sm:text-2xl font-black text-[#0b1c30]">
+              خرید اقساطی منعطف، معاوضه گوشی کارکرده و مقایسه فنی دقیق
+            </h2>
+            <p className="text-xs sm:text-sm text-[#434655] leading-6">
+              پیش از انتخاب نهایی، مشخصات فنی تا ۳ محصول را کنار هم مقایسه کنید یا قسط ماهانه و مبلغ کسرشده از طرح تعویض گوشی قبلی خود را آنلاین محاسبه نمایید.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => navigate('/installments')}
+              className="h-11 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 shadow-sm transition-colors"
+            >
+              <span>محاسبه‌گر اقساط و تعویض</span>
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/compare')}
+              className="h-11 px-5 rounded-xl bg-white hover:bg-[#eff4ff] border border-[#004ac6] text-[#004ac6] text-xs sm:text-sm font-bold transition-colors"
+            >
+              مقایسه تخصصی موبایل‌ها
+            </button>
+          </div>
+        </div>
+      </section>
+
       {/* Why Amir Mobile (3 concise proof cards) */}
       <section className="max-w-[1440px] mx-auto px-4 lg:px-8 grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
         <div className="bg-white rounded-2xl border border-[#e5eeff] p-6 space-y-2.5">
@@ -335,6 +370,9 @@ export const HomePage: React.FC = () => {
           </p>
         </div>
       </section>
+
+      {/* Recently Viewed Products Shelf */}
+      <RecentlyViewedHomeStrip />
 
       {/* Tech Magazine Articles */}
       <section className="max-w-[1440px] mx-auto px-4 lg:px-8 space-y-6">
@@ -414,5 +452,37 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
     </div>
+  );
+};
+
+const RecentlyViewedHomeStrip: React.FC = () => {
+  const { recentlyViewedIds, products } = useStore();
+  const recentProducts = useMemo(
+    () =>
+      recentlyViewedIds
+        .map((id) => products.find((p) => p.id === id))
+        .filter((p): p is NonNullable<typeof p> => Boolean(p))
+        .slice(0, 4),
+    [recentlyViewedIds, products]
+  );
+
+  if (recentProducts.length === 0) return null;
+
+  return (
+    <section className="max-w-[1440px] mx-auto px-4 lg:px-8 space-y-5">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <h2 className="text-xl sm:text-2xl font-black text-[#0b1c30]">بازدیدهای اخیر شما</h2>
+          <p className="text-xs sm:text-sm text-[#434655] mt-1">
+            بازگشت سریع به محصولاتی که اخیراً بررسی کرده‌اید
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+        {recentProducts.map((item) => (
+          <ProductCard key={item.id} product={item} compact />
+        ))}
+      </div>
+    </section>
   );
 };

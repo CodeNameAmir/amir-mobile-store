@@ -2,25 +2,35 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Bell,
+  Calculator,
   Camera,
   CheckCircle2,
   Cpu,
   Heart,
   Minus,
   Plus,
+  Scale,
   ShieldCheck,
+  ShieldPlus,
   ShoppingBag,
   Smartphone,
   Star,
   Truck,
   Zap,
 } from 'lucide-react';
+import { ProductCard } from '../components/ProductCard';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import { CATEGORY_ITEMS } from '../data/catalog';
 import { storeRepository } from '../lib/supabase';
 import type { ProductReview } from '../types/store';
-import { formatToman, getVariantPrice, toPersianDigits } from '../utils/storeLogic';
+import {
+  calculateCareInsurancePrice,
+  calculateInstallmentPlan,
+  formatToman,
+  getVariantPrice,
+  toPersianDigits,
+} from '../utils/storeLogic';
 
 interface ProductDetailPageProps {
   slug: string;
@@ -34,6 +44,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     addToCart,
     wishlist,
     toggleWishlist,
+    compareIds,
+    toggleCompare,
+    recentlyViewedIds,
+    markProductViewed,
     stockAlerts,
     toggleStockAlert,
     showToast,
@@ -46,6 +60,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
   const [selectedColorId, setSelectedColorId] = useState('');
   const [selectedStorage, setSelectedStorage] = useState('');
+  const [includeCarePlus, setIncludeCarePlus] = useState(false);
   const [qty, setQty] = useState(1);
   const [activeTab, setActiveTab] = useState<'specs' | 'review' | 'comments'>('specs');
   const [reviews, setReviews] = useState<ProductReview[]>([]);
@@ -55,11 +70,20 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
   useEffect(() => {
     if (!product) return;
+    let mounted = true;
     setSelectedColorId(product.colors[0]?.id || 'default');
     setSelectedStorage(product.storageOptions[0]?.label || product.specs.storageDefault);
+    setIncludeCarePlus(false);
     setQty(1);
+    markProductViewed(product.id);
     setReviews(storeRepository.loadReviews(product.id));
-  }, [product]);
+    storeRepository.fetchReviews(product.id).then((fetched) => {
+      if (mounted) setReviews(fetched);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, [product, markProductViewed]);
 
   const complementaryItems = useMemo(() => {
     if (!product) return [];
@@ -67,6 +91,15 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       .filter((p) => p.id !== product.id && p.inStock && (p.category === 'chargers' || p.category === 'cases' || p.category === 'audio'))
       .slice(0, 3);
   }, [products, product]);
+
+  const recentOtherProducts = useMemo(() => {
+    if (!product) return [];
+    return recentlyViewedIds
+      .filter((id) => id !== product.id)
+      .map((id) => products.find((p) => p.id === id))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p))
+      .slice(0, 4);
+  }, [recentlyViewedIds, products, product]);
 
   if (!product) {
     return (
@@ -89,9 +122,21 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     product,
     selectedStorage
   );
+  const carePlusPrice = calculateCareInsurancePrice(variantPrice, product.category);
+  const effectiveUnitPrice = includeCarePlus && carePlusPrice > 0 ? variantPrice + carePlusPrice : variantPrice;
+  const effectiveOriginalPrice =
+    includeCarePlus && carePlusPrice > 0 ? variantOriginal + carePlusPrice : variantOriginal;
+  const effectiveWarranty =
+    includeCarePlus && carePlusPrice > 0
+      ? `${product.warranty} + بیمه حوادث و شکستگی Amir Care+`
+      : product.warranty;
+
+  const installmentPreview = calculateInstallmentPlan(effectiveUnitPrice, 30, 12);
+
   const categoryLabel =
     CATEGORY_ITEMS.find((c) => c.id === product.category)?.label ?? 'محصولات';
   const isWishlisted = wishlist.includes(product.id);
+  const isCompared = compareIds.includes(product.id);
   const isAlerted = stockAlerts.includes(product.id);
 
   const handleAddToCart = (goToCart = false) => {
@@ -99,8 +144,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       colorName: activeColor?.name ?? product.colorLabel,
       colorHex: activeColor?.hex ?? '#1e293b',
       storageLabel: selectedStorage,
-      unitPrice: variantPrice,
-      originalUnitPrice: variantOriginal,
+      warranty: effectiveWarranty,
+      unitPrice: effectiveUnitPrice,
+      originalUnitPrice: effectiveOriginalPrice,
       qty,
     });
     if (goToCart) {
@@ -108,7 +154,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     }
   };
 
-  const handleSubmitReview = (e: React.FormEvent) => {
+  const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (reviewAuthor.trim().length < 2 || reviewText.trim().length < 8) {
       showToast('لطفاً نام و متن دیدگاه (حداقل ۸ کاراکتر) را وارد کنید.', 'error');
@@ -122,7 +168,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       comment: reviewText.trim(),
       verified: true,
     };
-    const updated = storeRepository.addReview(product.id, nextReview);
+    const updated = await storeRepository.addReview(product.id, nextReview);
     setReviews(updated);
     setReviewAuthor('');
     setReviewText('');
@@ -164,16 +210,30 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 {toPersianDigits(product.discountPercent)}٪ تخفیف ویژه
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => toggleWishlist(product.id)}
-              aria-label="افزودن به علاقه‌مندی‌ها"
-              className={`absolute top-4 left-4 w-10 h-10 rounded-xl flex items-center justify-center shadow-sm transition-colors ${
-                isWishlisted ? 'bg-rose-50 text-rose-600' : 'bg-white text-[#434655] hover:text-rose-600'
-              }`}
-            >
-              <Heart className={`w-5 h-5 ${isWishlisted ? 'fill-current' : ''}`} />
-            </button>
+            <div className="absolute top-4 left-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => toggleWishlist(product.id)}
+                aria-label="افزودن به علاقه‌مندی‌ها"
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm transition-colors ${
+                  isWishlisted ? 'bg-rose-50 text-rose-600' : 'bg-white text-[#434655] hover:text-rose-600'
+                }`}
+              >
+                <Heart className={`w-5 h-5 ${isWishlisted ? 'fill-current' : ''}`} />
+              </button>
+              <button
+                type="button"
+                data-testid="pdp-compare-toggle"
+                onClick={() => toggleCompare(product.id)}
+                aria-label="افزودن به مقایسه"
+                title="مقایسه محصول"
+                className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm transition-colors ${
+                  isCompared ? 'bg-[#004ac6] text-white' : 'bg-white text-[#434655] hover:text-[#004ac6]'
+                }`}
+              >
+                <Scale className="w-5 h-5" />
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-xs">
@@ -325,13 +385,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
             {product.inStock ? (
               <>
                 <div className="space-y-1">
-                  {variantOriginal > variantPrice && (
+                  {effectiveOriginalPrice > effectiveUnitPrice && (
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-[#434655] line-through tabular-nums-fa">
-                        {formatToman(variantOriginal)} تومان
+                        {formatToman(effectiveOriginalPrice)} تومان
                       </span>
                       <span className="px-2 py-0.5 rounded-md bg-[#ffdbca] text-[#8e3c00] font-extrabold text-[11px] tabular-nums-fa">
-                        سود شما: {formatToman(variantOriginal - variantPrice)}
+                        سود شما: {formatToman(effectiveOriginalPrice - effectiveUnitPrice)}
                       </span>
                     </div>
                   )}
@@ -339,13 +399,41 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     data-testid="pdp-price"
                     className="text-2xl font-black text-[#0b1c30] tabular-nums-fa pt-1"
                   >
-                    {formatToman(variantPrice)}{' '}
+                    {formatToman(effectiveUnitPrice)}{' '}
                     <span className="text-xs font-bold text-[#434655]">تومان</span>
                   </p>
                   <p className="text-[11px] font-bold text-emerald-700">
                     ● موجود در انبار امیر ({toPersianDigits(product.stockCount)} عدد آماده ارسال)
                   </p>
                 </div>
+
+                {/* Amir Care+ Screen & Accident Protection Toggle */}
+                {carePlusPrice > 0 && (
+                  <label className="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-[#dce9ff] cursor-pointer hover:border-[#004ac6] transition-colors">
+                    <input
+                      type="checkbox"
+                      data-testid="pdp-care-plus-toggle"
+                      checked={includeCarePlus}
+                      onChange={(e) => setIncludeCarePlus(e.target.checked)}
+                      className="mt-1 w-4 h-4 rounded accent-[#004ac6] shrink-0"
+                    />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-xs font-extrabold text-[#0b1c30]">
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                          <ShieldPlus className="w-3.5 h-3.5 text-[#004ac6] shrink-0" />
+                          <span>بیمه حوادث</span>
+                          <span dir="ltr">Care+</span>
+                        </span>
+                        <span dir="ltr" className="text-[#004ac6] tabular-nums-fa whitespace-nowrap">
+                          +{formatToman(carePlusPrice)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#434655] leading-5">
+                        پوشش ۱۲ ماهه شکستگی نمایشگر، آب‌خوردگی و نوسان برق
+                      </p>
+                    </div>
+                  </label>
+                )}
 
                 {/* Quantity stepper */}
                 <div className="flex items-center justify-between bg-white rounded-xl border border-[#e5eeff] p-2">
@@ -392,6 +480,24 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     <ArrowLeft className="w-4 h-4" />
                   </button>
                 </div>
+
+                {/* Inline Installment Preview */}
+                <button
+                  type="button"
+                  onClick={() => navigate('/installments')}
+                  className="w-full p-3 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-right transition-colors flex items-center justify-between gap-2"
+                >
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] font-extrabold text-[#004ac6] inline-flex items-center gap-1">
+                      <Calculator className="w-3.5 h-3.5" />
+                      امکان خرید اقساطی ۱۲ ماهه
+                    </p>
+                    <p className="text-[11px] text-[#0b1c30] font-bold tabular-nums-fa">
+                      ماهانه حدود {formatToman(installmentPreview.monthlyPayment)} تومان
+                    </p>
+                  </div>
+                  <ArrowLeft className="w-4 h-4 text-[#004ac6] shrink-0" />
+                </button>
               </>
             ) : (
               <div className="space-y-4">
@@ -605,6 +711,18 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
           )}
         </div>
       </section>
+
+      {/* Recently Viewed Products */}
+      {recentOtherProducts.length > 0 && (
+        <section className="space-y-4">
+          <h2 className="text-lg sm:text-xl font-black text-[#0b1c30]">محصولات اخیراً مشاهده‌شده</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+            {recentOtherProducts.map((item) => (
+              <ProductCard key={item.id} product={item} compact />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 };

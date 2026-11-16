@@ -1,6 +1,9 @@
 -- ============================================================================
--- Amir Mobile Store (فروشگاه موبایل امیر) — Supabase Free Tier Schema
--- Run this script in Supabase Dashboard -> SQL Editor
+-- Amir Mobile Store (فروشگاه موبایل امیر) — Complete Storefront + Admin Schema
+-- Safe to run multiple times (idempotent) in Supabase Dashboard -> SQL Editor.
+-- Designed for two separate GitHub repositories sharing one Supabase project:
+--   1) Storefront Repo (GitHub Pages + ArvanCloud CDN)
+--   2) Future Admin Panel Repo (Supabase Auth + Full CRUD)
 -- ============================================================================
 
 create extension if not exists "pgcrypto";
@@ -19,7 +22,7 @@ create table if not exists public.products (
   in_stock boolean default true,
   stock_count integer default 10,
   express_delivery boolean default true,
-  warranty text not null,
+  warranty text not null default '۱۸ ماهه امیر سرویس + کد رجیستری همتا',
   rating numeric(2,1) default 4.8,
   review_count integer default 0,
   specs jsonb default '{}'::jsonb,
@@ -28,7 +31,17 @@ create table if not exists public.products (
   created_at timestamptz default now()
 );
 
--- 2. Demo Orders Table
+alter table public.products add column if not exists image_url text;
+alter table public.products add column if not exists color_label text default 'مشکی';
+alter table public.products add column if not exists badge_text text;
+alter table public.products add column if not exists recommend_percent integer default 95;
+alter table public.products add column if not exists is_featured_deal boolean default false;
+alter table public.products add column if not exists is_popular boolean default false;
+alter table public.products add column if not exists sales_rank integer default 100;
+alter table public.products add column if not exists release_order integer default 100;
+alter table public.products add column if not exists updated_at timestamptz default now();
+
+-- 2. Orders Table (Shared by Storefront Checkout/Tracking & Future Admin Panel)
 create table if not exists public.orders (
   id uuid primary key default gen_random_uuid(),
   order_code text unique not null,
@@ -48,6 +61,12 @@ create table if not exists public.orders (
   created_at timestamptz default now()
 );
 
+alter table public.orders add column if not exists city text default 'تهران';
+alter table public.orders add column if not exists delivery_slot text default 'express';
+alter table public.orders add column if not exists shaparak_ref text;
+alter table public.orders add column if not exists admin_note text;
+alter table public.orders add column if not exists updated_at timestamptz default now();
+
 -- 3. Support Tickets Table
 create table if not exists public.support_tickets (
   id uuid primary key default gen_random_uuid(),
@@ -60,6 +79,10 @@ create table if not exists public.support_tickets (
   created_at timestamptz default now()
 );
 
+alter table public.support_tickets add column if not exists status text default 'open';
+alter table public.support_tickets add column if not exists admin_reply text;
+alter table public.support_tickets add column if not exists updated_at timestamptz default now();
+
 -- 4. Newsletter Subscribers Table
 create table if not exists public.newsletter_subscribers (
   id uuid primary key default gen_random_uuid(),
@@ -67,19 +90,68 @@ create table if not exists public.newsletter_subscribers (
   created_at timestamptz default now()
 );
 
--- Row Level Security (RLS) for Static Frontend Portfolio Demo
+-- 5. Dynamic Coupons Table (Manageable from Future Admin Panel)
+create table if not exists public.coupons (
+  code text primary key,
+  discount_type text not null check (discount_type in ('fixed', 'percent')),
+  discount_value bigint not null,
+  max_discount bigint,
+  min_order_amount bigint default 0,
+  is_active boolean default true,
+  description_fa text,
+  created_at timestamptz default now()
+);
+
+insert into public.coupons (code, discount_type, discount_value, max_discount, min_order_amount, is_active, description_fa)
+values
+  ('AMIR-OFF', 'fixed', 500000, 500000, 0, true, 'کد تخفیف خوش‌آمدگویی ۵۰۰ هزار تومانی'),
+  ('VIP-10', 'percent', 10, 2000000, 1000000, true, 'تخفیف ۱۰ درصدی ویژه تا سقف ۲ میلیون تومان')
+on conflict (code) do nothing;
+
+-- 6. Product Reviews Table (Submitted on PDP, Moderated in Future Admin Panel)
+create table if not exists public.product_reviews (
+  id uuid primary key default gen_random_uuid(),
+  product_id text not null,
+  author text not null,
+  rating integer not null check (rating between 1 and 5),
+  comment text not null,
+  verified boolean default true,
+  is_approved boolean default true,
+  created_at timestamptz default now()
+);
+
+-- 7. Storefront Global Settings (Configurable from Future Admin Panel)
+create table if not exists public.store_settings (
+  key text primary key,
+  value jsonb not null,
+  updated_at timestamptz default now()
+);
+
+insert into public.store_settings (key, value)
+values
+  ('announcement_text', '"ارسال رایگان برای خریدهای بالای ۱ میلیون تومان به سراسر ایران"'::jsonb),
+  ('free_shipping_threshold', '1000000'::jsonb),
+  ('support_phone', '"۰۲۱-۸۸۸۸۹۹۹۹"'::jsonb)
+on conflict (key) do nothing;
+
+-- ============================================================================
+-- Row Level Security (RLS)
+-- Storefront uses anon key; Future Admin Panel uses Supabase Auth (authenticated).
+-- ============================================================================
 alter table public.products enable row level security;
 alter table public.orders enable row level security;
 alter table public.support_tickets enable row level security;
 alter table public.newsletter_subscribers enable row level security;
+alter table public.coupons enable row level security;
+alter table public.product_reviews enable row level security;
+alter table public.store_settings enable row level security;
 
--- Public read access for catalog products
+-- Public Storefront Policies
 drop policy if exists "Public can view products" on public.products;
 create policy "Public can view products"
   on public.products for select
   using (true);
 
--- Portfolio demo policies for orders, tickets, and newsletter
 drop policy if exists "Anyone can create demo orders" on public.orders;
 create policy "Anyone can create demo orders"
   on public.orders for insert
@@ -99,3 +171,72 @@ drop policy if exists "Anyone can subscribe to newsletter" on public.newsletter_
 create policy "Anyone can subscribe to newsletter"
   on public.newsletter_subscribers for insert
   with check (true);
+
+drop policy if exists "Public can view active coupons" on public.coupons;
+create policy "Public can view active coupons"
+  on public.coupons for select
+  using (is_active = true);
+
+drop policy if exists "Public can view approved reviews" on public.product_reviews;
+create policy "Public can view approved reviews"
+  on public.product_reviews for select
+  using (is_approved = true);
+
+drop policy if exists "Anyone can submit product review" on public.product_reviews;
+create policy "Anyone can submit product review"
+  on public.product_reviews for insert
+  with check (true);
+
+drop policy if exists "Public can view store settings" on public.store_settings;
+create policy "Public can view store settings"
+  on public.store_settings for select
+  using (true);
+
+-- Authenticated Admin Panel Policies (for your future separate Admin Repo using Supabase Auth)
+drop policy if exists "Authenticated admin full access products" on public.products;
+create policy "Authenticated admin full access products"
+  on public.products for all
+  to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "Authenticated admin update orders" on public.orders;
+create policy "Authenticated admin update orders"
+  on public.orders for update
+  to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "Authenticated admin full access tickets" on public.support_tickets;
+create policy "Authenticated admin full access tickets"
+  on public.support_tickets for all
+  to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "Authenticated admin full access coupons" on public.coupons;
+create policy "Authenticated admin full access coupons"
+  on public.coupons for all
+  to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "Authenticated admin full access reviews" on public.product_reviews;
+create policy "Authenticated admin full access reviews"
+  on public.product_reviews for all
+  to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "Authenticated admin full access settings" on public.store_settings;
+create policy "Authenticated admin full access settings"
+  on public.store_settings for all
+  to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "Authenticated admin view newsletter" on public.newsletter_subscribers;
+create policy "Authenticated admin view newsletter"
+  on public.newsletter_subscribers for select
+  to authenticated
+  using (true);

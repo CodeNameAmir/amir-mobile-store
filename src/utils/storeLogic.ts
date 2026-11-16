@@ -2,7 +2,9 @@ import type {
   CartItem,
   CheckoutFormData,
   ContactFormData,
+  CouponRule,
   FilterState,
+  InstallmentPlan,
   Product,
 } from '../types/store';
 
@@ -10,6 +12,26 @@ const PERSIAN_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '�
 
 export const FREE_SHIPPING_THRESHOLD = 1_000_000;
 export const STANDARD_SHIPPING_FEE = 150_000;
+export const DEFAULT_MONTHLY_INSTALLMENT_RATE = 2.2; // 2.2% monthly fee
+
+export const DEFAULT_COUPON_RULES: CouponRule[] = [
+  {
+    code: 'AMIR-OFF',
+    discountType: 'fixed',
+    discountValue: 500_000,
+    maxDiscount: 500_000,
+    minOrderAmount: 0,
+    descriptionFa: 'تخفیف ۵۰۰ هزار تومانی خرید اول',
+  },
+  {
+    code: 'VIP-10',
+    discountType: 'percent',
+    discountValue: 10,
+    maxDiscount: 2_000_000,
+    minOrderAmount: 1_000_000,
+    descriptionFa: 'تخفیف ۱۰ درصدی ویژه تا سقف ۲ میلیون تومان',
+  },
+];
 
 export function toPersianDigits(input: number | string): string {
   return String(input).replace(/\d/g, (digit) => PERSIAN_DIGITS[Number(digit)] ?? digit);
@@ -38,9 +60,82 @@ export function getVariantPrice(product: Product, storageLabel?: string): {
   return { price, originalPrice };
 }
 
-export function filterAndSortProducts(products: Product[], filters: FilterState): Product[] {
-  const normalizedQuery = toEnglishDigits(filters.searchQuery.trim().toLowerCase());
+export function calculateCareInsurancePrice(unitPrice: number, category: Product['category']): number {
+  if (category !== 'phones' && category !== 'tablets' && category !== 'smartwatches') {
+    return 0;
+  }
+  const fourPercent = Math.round((unitPrice * 0.04) / 10_000) * 10_000;
+  return Math.max(490_000, Math.min(3_200_000, fourPercent));
+}
 
+export function calculateInstallmentPlan(
+  totalPrice: number,
+  downPaymentPercent: number,
+  months: number,
+  monthlyRatePercent = DEFAULT_MONTHLY_INSTALLMENT_RATE
+): InstallmentPlan {
+  const safePrice = Math.max(0, Math.round(totalPrice));
+  const safeDownPct = Math.min(80, Math.max(10, downPaymentPercent));
+  const safeMonths = Math.max(3, Math.min(36, Math.round(months)));
+
+  const downPaymentAmount = Math.round((safePrice * safeDownPct) / 100);
+  const financedAmount = Math.max(0, safePrice - downPaymentAmount);
+  const totalFee = Math.round(financedAmount * (monthlyRatePercent / 100) * safeMonths);
+  const totalInstallmentsAmount = financedAmount + totalFee;
+  const monthlyPayment = Math.round(totalInstallmentsAmount / safeMonths);
+  const totalPayableWithPlan = downPaymentAmount + totalInstallmentsAmount;
+
+  return {
+    totalPrice: safePrice,
+    downPaymentPercent: safeDownPct,
+    downPaymentAmount,
+    financedAmount,
+    months: safeMonths,
+    monthlyRatePercent,
+    monthlyPayment,
+    totalInstallmentsAmount,
+    totalPayableWithPlan,
+  };
+}
+
+const PERSIAN_SEARCH_ALIASES: Record<string, string> = {
+  آیفون: 'iphone',
+  ایفون: 'iphone',
+  اپل: 'apple',
+  آیپد: 'ipad',
+  ایپد: 'ipad',
+  ایرپاد: 'airpods',
+  واچ: 'watch',
+  سامسونگ: 'samsung',
+  گلکسی: 'galaxy',
+  شیائومی: 'xiaomi',
+  شیامی: 'xiaomi',
+  انکر: 'anker',
+  اولترا: 'ultra',
+  پرو: 'pro',
+  مکس: 'max',
+};
+
+export function matchesProductSearch(product: Product, queryRaw: string): boolean {
+  const normalizedQuery = toEnglishDigits(queryRaw.trim().toLowerCase());
+  if (!normalizedQuery) return true;
+
+  const haystack = toEnglishDigits(
+    `${product.nameFa} ${product.nameEn} ${product.brand} ${product.specs.chipset} ${product.specs.storageDefault}`
+  ).toLowerCase();
+
+  if (haystack.includes(normalizedQuery)) return true;
+
+  const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return true;
+
+  return tokens.every((token) => {
+    const alias = PERSIAN_SEARCH_ALIASES[token];
+    return haystack.includes(token) || (alias ? haystack.includes(alias) : false);
+  });
+}
+
+export function filterAndSortProducts(products: Product[], filters: FilterState): Product[] {
   const filtered = products.filter((p) => {
     if (filters.category === 'offers') {
       if (!p.discountPercent || p.discountPercent <= 0) return false;
@@ -84,11 +179,8 @@ export function filterAndSortProducts(products: Product[], filters: FilterState)
       if (!hasColor) return false;
     }
 
-    if (normalizedQuery) {
-      const haystack = toEnglishDigits(
-        `${p.nameFa} ${p.nameEn} ${p.brand} ${p.specs.chipset} ${p.specs.storageDefault}`
-      ).toLowerCase();
-      if (!haystack.includes(normalizedQuery)) return false;
+    if (filters.searchQuery.trim() && !matchesProductSearch(p, filters.searchQuery)) {
+      return false;
     }
 
     return true;
@@ -124,8 +216,16 @@ export interface CouponEvaluation {
   message: string;
 }
 
-export function evaluateCoupon(codeRaw: string, netSubtotal: number): CouponEvaluation {
-  const code = toEnglishDigits(codeRaw).trim().toUpperCase();
+export function evaluateCoupon(
+  codeRaw: string,
+  netSubtotal: number,
+  customRules: CouponRule[] = DEFAULT_COUPON_RULES
+): CouponEvaluation {
+  let code = toEnglishDigits(codeRaw).trim().toUpperCase();
+  if (code === 'CNA-OFF' || code === 'تخفیف') {
+    code = 'AMIR-OFF';
+  }
+
   if (!code) {
     return {
       valid: false,
@@ -142,29 +242,41 @@ export function evaluateCoupon(codeRaw: string, netSubtotal: number): CouponEval
       message: 'سبد خرید شما خالی است.',
     };
   }
-  if (code === 'AMIR-OFF' || code === 'CNA-OFF' || code === 'تخفیف') {
-    const discountAmount = Math.min(500_000, netSubtotal);
+
+  const rule = customRules.find((r) => r.code.toUpperCase() === code);
+  if (!rule) {
     return {
-      valid: true,
-      code: 'AMIR-OFF',
-      discountAmount,
-      message: `کد تخفیف AMIR-OFF اعمال شد (${formatToman(discountAmount)} تومان کسر گردید).`,
+      valid: false,
+      code: null,
+      discountAmount: 0,
+      message: 'کد تخفیف وارد شده معتبر نیست یا منقضی شده است.',
     };
   }
-  if (code === 'VIP-10') {
-    const discountAmount = Math.min(2_000_000, Math.round(netSubtotal * 0.1));
+
+  if (rule.minOrderAmount && netSubtotal < rule.minOrderAmount) {
     return {
-      valid: true,
-      code: 'VIP-10',
-      discountAmount,
-      message: `کد تخفیف ۱۰ درصدی VIP-10 اعمال شد (${formatToman(discountAmount)} تومان کسر گردید).`,
+      valid: false,
+      code: null,
+      discountAmount: 0,
+      message: `حداقل مبلغ سفارش برای کد ${rule.code} برابر ${formatToman(rule.minOrderAmount)} تومان است.`,
     };
   }
+
+  let discountAmount =
+    rule.discountType === 'fixed'
+      ? rule.discountValue
+      : Math.round((netSubtotal * rule.discountValue) / 100);
+
+  if (rule.maxDiscount && rule.maxDiscount > 0) {
+    discountAmount = Math.min(rule.maxDiscount, discountAmount);
+  }
+  discountAmount = Math.min(netSubtotal, Math.max(0, discountAmount));
+
   return {
-    valid: false,
-    code: null,
-    discountAmount: 0,
-    message: 'کد تخفیف وارد شده معتبر نیست یا منقضی شده است.',
+    valid: true,
+    code: rule.code,
+    discountAmount,
+    message: `کد تخفیف ${rule.code} اعمال شد (${formatToman(discountAmount)} تومان کسر گردید).`,
   };
 }
 
@@ -180,7 +292,12 @@ export interface CartSummary {
   totalSavings: number;
 }
 
-export function calculateCartSummary(items: CartItem[], couponCode: string | null): CartSummary {
+export function calculateCartSummary(
+  items: CartItem[],
+  couponCode: string | null,
+  customRules: CouponRule[] = DEFAULT_COUPON_RULES,
+  freeShippingThreshold: number = FREE_SHIPPING_THRESHOLD
+): CartSummary {
   let itemCount = 0;
   let originalSubtotal = 0;
   let netSubtotal = 0;
@@ -194,12 +311,12 @@ export function calculateCartSummary(items: CartItem[], couponCode: string | nul
 
   const productDiscount = Math.max(0, originalSubtotal - netSubtotal);
   const couponEval = couponCode
-    ? evaluateCoupon(couponCode, netSubtotal)
+    ? evaluateCoupon(couponCode, netSubtotal, customRules)
     : { valid: false, code: null, discountAmount: 0, message: '' };
   const couponDiscount = couponEval.valid ? couponEval.discountAmount : 0;
 
   const afterDiscounts = Math.max(0, netSubtotal - couponDiscount);
-  const freeShippingEligible = afterDiscounts >= FREE_SHIPPING_THRESHOLD || items.length === 0;
+  const freeShippingEligible = afterDiscounts >= freeShippingThreshold || items.length === 0;
   const shippingCost = items.length === 0 || freeShippingEligible ? 0 : STANDARD_SHIPPING_FEE;
   const totalPayable = afterDiscounts + shippingCost;
   const totalSavings = productDiscount + couponDiscount;

@@ -5,14 +5,18 @@ import type {
   CartItem,
   CategoryId,
   CheckoutFormData,
+  CouponRule,
   DemoUser,
   FilterState,
   OrderRecord,
   Product,
+  StoreSettings,
 } from '../types/store';
 import {
   calculateCartSummary,
+  DEFAULT_COUPON_RULES,
   evaluateCoupon,
+  FREE_SHIPPING_THRESHOLD,
   generateOrderCode,
   toEnglishDigits,
   toPersianDigits,
@@ -23,6 +27,8 @@ export type AppRoute =
   | { page: 'home' }
   | { page: 'catalog' }
   | { page: 'product'; slug: string }
+  | { page: 'compare' }
+  | { page: 'installments' }
   | { page: 'cart' }
   | { page: 'checkout' }
   | { page: 'order-confirmed'; code: string }
@@ -73,6 +79,8 @@ function parseHashRoute(hashRaw: string): { route: AppRoute; categoryParam?: Cat
     const slug = decodeURIComponent(path.replace('/product/', '').trim());
     return slug ? { route: { page: 'product', slug } } : { route: { page: 'not-found', path } };
   }
+  if (path === '/compare') return { route: { page: 'compare' } };
+  if (path === '/installments') return { route: { page: 'installments' } };
   if (path === '/cart') return { route: { page: 'cart' } };
   if (path === '/checkout') return { route: { page: 'checkout' } };
   if (path.startsWith('/order-confirmed/')) {
@@ -100,12 +108,14 @@ interface StoreContextValue {
   navigate: (to: string) => void;
   navigateToCatalog: (opts?: { category?: CategoryId; searchQuery?: string; discountedOnly?: boolean }) => void;
   products: Product[];
+  couponRules: CouponRule[];
+  storeSettings: StoreSettings;
   filters: FilterState;
   setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
   resetFilters: () => void;
   cart: CartItem[];
   cartSummary: CartSummary;
-  addToCart: (product: Product, opts?: { colorName?: string; colorHex?: string; storageLabel?: string; unitPrice?: number; originalUnitPrice?: number; qty?: number }) => void;
+  addToCart: (product: Product, opts?: { colorName?: string; colorHex?: string; storageLabel?: string; warranty?: string; unitPrice?: number; originalUnitPrice?: number; qty?: number }) => void;
   updateCartQty: (key: string, delta: number) => void;
   removeCartItem: (key: string) => void;
   clearCart: () => void;
@@ -114,6 +124,11 @@ interface StoreContextValue {
   removeCoupon: () => void;
   wishlist: string[];
   toggleWishlist: (productId: string) => void;
+  compareIds: string[];
+  toggleCompare: (productId: string) => void;
+  clearCompare: () => void;
+  recentlyViewedIds: string[];
+  markProductViewed: (productId: string) => void;
   stockAlerts: string[];
   toggleStockAlert: (productId: string) => void;
   orders: OrderRecord[];
@@ -133,6 +148,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const initialParsed = useMemo(() => parseHashRoute(window.location.hash), []);
   const [route, setRoute] = useState<AppRoute>(initialParsed.route);
   const [products, setProducts] = useState<Product[]>(SEED_PRODUCTS);
+  const [couponRules, setCouponRules] = useState<CouponRule[]>(DEFAULT_COUPON_RULES);
+  const [storeSettings, setStoreSettings] = useState<StoreSettings>({
+    announcementText: 'ارسال رایگان برای خریدهای بالای ۱ میلیون تومان به سراسر ایران',
+    freeShippingThreshold: FREE_SHIPPING_THRESHOLD,
+    supportPhone: '۰۲۱-۸۸۸۸۹۹۹۹',
+  });
   const [filters, setFilters] = useState<FilterState>(() => ({
     ...DEFAULT_FILTERS,
     category: initialParsed.categoryParam ?? 'all',
@@ -141,6 +162,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [cart, setCart] = useState<CartItem[]>(() => storeRepository.loadCart());
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
   const [wishlist, setWishlist] = useState<string[]>(() => storeRepository.loadWishlist());
+  const [compareIds, setCompareIds] = useState<string[]>(() => storeRepository.loadCompare());
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>(() => storeRepository.loadRecent());
   const [stockAlerts, setStockAlerts] = useState<string[]>(() => storeRepository.loadStockAlerts());
   const [orders, setOrders] = useState<OrderRecord[]>(() => storeRepository.loadOrders());
   const [user, setUser] = useState<DemoUser | null>(() => storeRepository.loadUser());
@@ -163,8 +186,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     let active = true;
-    storeRepository.fetchProducts().then((fetched) => {
-      if (active) setProducts(fetched);
+    Promise.all([
+      storeRepository.fetchProducts(),
+      storeRepository.fetchActiveCoupons(),
+      storeRepository.fetchStoreSettings(),
+    ]).then(([fetchedProducts, fetchedCoupons, fetchedSettings]) => {
+      if (!active) return;
+      setProducts(fetchedProducts);
+      setCouponRules(fetchedCoupons);
+      setStoreSettings(fetchedSettings);
     });
     return () => {
       active = false;
@@ -229,6 +259,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         colorName?: string;
         colorHex?: string;
         storageLabel?: string;
+        warranty?: string;
         unitPrice?: number;
         originalUnitPrice?: number;
         qty?: number;
@@ -243,10 +274,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const colorName = opts?.colorName ?? color?.name ?? product.colorLabel;
       const colorHex = opts?.colorHex ?? color?.hex ?? '#1e293b';
       const storageLabel = opts?.storageLabel ?? storage?.label ?? product.specs.storageDefault;
+      const warranty = opts?.warranty ?? product.warranty;
       const unitPrice = opts?.unitPrice ?? product.price;
       const originalUnitPrice = opts?.originalUnitPrice ?? product.originalPrice ?? product.price;
       const addQty = Math.max(1, opts?.qty ?? 1);
-      const key = `${product.id}__${colorName}__${storageLabel}`;
+      const key = `${product.id}__${colorName}__${storageLabel}__${warranty}`;
 
       setCart((prev) => {
         const idx = prev.findIndex((item) => item.key === key);
@@ -270,7 +302,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               colorName,
               colorHex,
               storageLabel,
-              warranty: product.warranty,
+              warranty,
               unitPrice,
               originalUnitPrice,
               qty: Math.min(product.stockCount || 10, addQty),
@@ -320,13 +352,19 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const cartSummary = useMemo(
-    () => calculateCartSummary(cart, appliedCoupon),
-    [cart, appliedCoupon]
+    () =>
+      calculateCartSummary(
+        cart,
+        appliedCoupon,
+        couponRules,
+        storeSettings.freeShippingThreshold
+      ),
+    [cart, appliedCoupon, couponRules, storeSettings.freeShippingThreshold]
   );
 
   const applyCoupon = useCallback(
     (code: string) => {
-      const evaluation = evaluateCoupon(code, cartSummary.netSubtotal);
+      const evaluation = evaluateCoupon(code, cartSummary.netSubtotal, couponRules);
       if (evaluation.valid && evaluation.code) {
         setAppliedCoupon(evaluation.code);
         showToast(evaluation.message, 'success');
@@ -335,7 +373,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       return { valid: evaluation.valid, message: evaluation.message };
     },
-    [cartSummary.netSubtotal, showToast]
+    [cartSummary.netSubtotal, couponRules, showToast]
   );
 
   const removeCoupon = useCallback(() => {
@@ -359,6 +397,41 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [showToast]
   );
 
+  const toggleCompare = useCallback(
+    (productId: string) => {
+      setCompareIds((prev) => {
+        if (prev.includes(productId)) {
+          const updated = prev.filter((id) => id !== productId);
+          storeRepository.saveCompare(updated);
+          showToast('محصول از لیست مقایسه حذف شد.', 'info');
+          return updated;
+        }
+        if (prev.length >= 3) {
+          showToast('حداکثر ۳ کالا به‌طور هم‌زمان قابل مقایسه هستند.', 'error');
+          return prev;
+        }
+        const updated = [...prev, productId];
+        storeRepository.saveCompare(updated);
+        showToast('محصول به لیست مقایسه اضافه شد.', 'success');
+        return updated;
+      });
+    },
+    [showToast]
+  );
+
+  const clearCompare = useCallback(() => {
+    setCompareIds([]);
+    storeRepository.saveCompare([]);
+  }, []);
+
+  const markProductViewed = useCallback((productId: string) => {
+    setRecentlyViewedIds((prev) => {
+      const updated = [productId, ...prev.filter((id) => id !== productId)].slice(0, 6);
+      storeRepository.saveRecent(updated);
+      return updated;
+    });
+  }, []);
+
   const toggleStockAlert = useCallback(
     (productId: string) => {
       const updated = storeRepository.toggleStockAlert(productId);
@@ -376,7 +449,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const createDemoOrder = useCallback(
     async (form: CheckoutFormData): Promise<OrderRecord> => {
-      const summary = calculateCartSummary(cart, appliedCoupon);
+      const summary = calculateCartSummary(
+        cart,
+        appliedCoupon,
+        couponRules,
+        storeSettings.freeShippingThreshold
+      );
       const code = generateOrderCode();
       const now = new Date();
       const hh = String(now.getHours()).padStart(2, '0');
@@ -408,7 +486,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       showToast(`سفارش آزمایشی ${saved.orderCode} با موفقیت ثبت شد.`, 'success');
       return saved;
     },
-    [appliedCoupon, cart, clearCart, showToast]
+    [appliedCoupon, cart, clearCart, couponRules, showToast, storeSettings.freeShippingThreshold]
   );
 
   const findOrder = useCallback(async (code: string) => {
@@ -437,6 +515,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         navigate,
         navigateToCatalog,
         products,
+        couponRules,
+        storeSettings,
         filters,
         setFilters,
         resetFilters,
@@ -451,6 +531,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         removeCoupon,
         wishlist,
         toggleWishlist,
+        compareIds,
+        toggleCompare,
+        clearCompare,
+        recentlyViewedIds,
+        markProductViewed,
         stockAlerts,
         toggleStockAlert,
         orders,

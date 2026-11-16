@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   KeyRound,
   MapPin,
+  MessageSquareText,
   Navigation,
   Package,
   Search,
@@ -17,6 +18,13 @@ import { formatToman, toPersianDigits } from '../utils/storeLogic';
 interface OrderTrackingPageProps {
   initialCode?: string;
 }
+
+const STATUS_INDEX: Record<OrderRecord['status'], number> = {
+  paid: 0,
+  preparing: 1,
+  shipped: 2,
+  delivered: 3,
+};
 
 export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCode }) => {
   const { orders, findOrder, navigate } = useStore();
@@ -58,6 +66,8 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
     }
   };
 
+  const currentStage = order ? STATUS_INDEX[order.status] ?? 1 : 1;
+
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-6">
       {/* Lookup Bar */}
@@ -77,7 +87,7 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
               >
                 {DEMO_SAMPLE_ORDER.orderCode}
               </button>
-              ) را برای مشاهده موقعیت مرسوله و اطلاعات رجیستری وارد کنید.
+              ) را برای مشاهده موقعیت مرسوله و آخرین وضعیت ثبت‌شده در پایگاه داده وارد کنید.
             </p>
           </div>
 
@@ -130,36 +140,47 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
               </div>
             </div>
 
+            {order.adminNote && (
+              <div className="p-3.5 rounded-2xl bg-[#eff4ff] border border-[#dce9ff] text-xs font-bold text-[#0b1c30] flex items-center gap-2">
+                <MessageSquareText className="w-4 h-4 text-[#004ac6] shrink-0" />
+                <span>یادداشت واحد ارسال: {order.adminNote}</span>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
               {[
-                { title: 'ثبت و تایید سفارش', sub: toPersianDigits(order.createdAt), done: true },
-                { title: 'ثبت IMEI و کنترل کیفیت', sub: 'در حال پردازش انبار مرکزی', active: true },
-                { title: 'تحویل به سفیر اکسپرس', sub: 'بازه امروز · ۱۶:۰۰ تا ۱۹:۰۰', done: false },
-                { title: 'تحویل نهایی به خریدار', sub: `نشانی: ${order.city || 'تهران'}`, done: false },
-              ].map((st, idx) => (
-                <div
-                  key={st.title}
-                  className={`p-4 rounded-2xl border ${
-                    st.active
-                      ? 'bg-[#eff4ff] border-[#004ac6]'
-                      : st.done
-                      ? 'bg-[#f8f9ff] border-[#dce9ff]'
-                      : 'bg-[#f8f9ff] border-[#eff4ff] opacity-75'
-                  }`}
-                >
-                  <p className="text-xs font-extrabold text-[#0b1c30] flex items-center gap-1.5">
-                    <CheckCircle2
-                      className={`w-4 h-4 ${
-                        st.active || st.done ? 'text-[#004ac6]' : 'text-[#434655]/40'
-                      }`}
-                    />
-                    <span>
-                      {toPersianDigits(idx + 1)}. {st.title}
-                    </span>
-                  </p>
-                  <p className="text-[11px] text-[#434655] mt-1">{st.sub}</p>
-                </div>
-              ))}
+                { title: 'ثبت و تایید سفارش', sub: toPersianDigits(order.createdAt) },
+                { title: 'ثبت IMEI و کنترل کیفیت', sub: 'پردازش انبار مرکزی' },
+                { title: 'تحویل به سفیر اکسپرس', sub: 'در مسیر ارسال به مقصد' },
+                { title: 'تحویل نهایی به خریدار', sub: `نشانی: ${order.city || 'تهران'}` },
+              ].map((st, idx) => {
+                const done = idx < currentStage;
+                const active = idx === currentStage;
+                return (
+                  <div
+                    key={st.title}
+                    className={`p-4 rounded-2xl border ${
+                      active
+                        ? 'bg-[#eff4ff] border-[#004ac6]'
+                        : done
+                        ? 'bg-[#f8f9ff] border-[#dce9ff]'
+                        : 'bg-[#f8f9ff] border-[#eff4ff] opacity-70'
+                    }`}
+                  >
+                    <p className="text-xs font-extrabold text-[#0b1c30] flex items-center gap-1.5">
+                      <CheckCircle2
+                        className={`w-4 h-4 ${
+                          active || done ? 'text-[#004ac6]' : 'text-[#434655]/40'
+                        }`}
+                      />
+                      <span>
+                        {toPersianDigits(idx + 1)}. {st.title}
+                      </span>
+                    </p>
+                    <p className="text-[11px] text-[#434655] mt-1">{st.sub}</p>
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -203,7 +224,11 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                   </span>
                   <span className="px-3 py-1 rounded-xl bg-[#004ac6] text-white text-xs font-extrabold shadow-sm inline-flex items-center gap-1.5">
                     <Truck className="w-3.5 h-3.5" />
-                    آماده بارگیری
+                    {order.status === 'delivered'
+                      ? 'تحویل داده شده'
+                      : order.status === 'shipped'
+                      ? 'در مسیر ارسال'
+                      : 'آماده بارگیری'}
                   </span>
                 </div>
 

@@ -1,17 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  calculateCareInsurancePrice,
   calculateCartSummary,
+  calculateInstallmentPlan,
   evaluateCoupon,
   filterAndSortProducts,
   formatToman,
   getVariantPrice,
+  matchesProductSearch,
   toEnglishDigits,
   toPersianDigits,
   validateCheckoutForm,
   validateContactForm,
 } from './storeLogic';
-import type { CartItem, FilterState, Product } from '../types/store';
+import type { CartItem, CouponRule, FilterState, Product } from '../types/store';
 
 const sampleProducts: Product[] = [
   {
@@ -181,6 +184,9 @@ test('filterAndSortProducts filters by brand, stock, search, and sorts by price'
   });
   assert.equal(searchResult.length, 1);
   assert.equal(searchResult[0].id, 'p2');
+
+  assert.equal(matchesProductSearch(sampleProducts[0], 'آیفون'), true);
+  assert.equal(matchesProductSearch(sampleProducts[1], 'گلکسی اولترا'), true);
 });
 
 test('calculateCartSummary computes discounts, coupons, and free shipping accurately', () => {
@@ -216,6 +222,22 @@ test('calculateCartSummary computes discounts, coupons, and free shipping accura
   assert.equal(invalidCoupon.valid, false);
 });
 
+test('evaluateCoupon supports dynamic admin-defined Supabase coupon rules', () => {
+  const adminRules: CouponRule[] = [
+    {
+      code: 'ADMIN-2M',
+      discountType: 'fixed',
+      discountValue: 2_000_000,
+      minOrderAmount: 20_000_000,
+    },
+  ];
+  const denied = evaluateCoupon('ADMIN-2M', 10_000_000, adminRules);
+  assert.equal(denied.valid, false);
+  const applied = evaluateCoupon('ADMIN-2M', 30_000_000, adminRules);
+  assert.equal(applied.valid, true);
+  assert.equal(applied.discountAmount, 2_000_000);
+});
+
 test('calculateCartSummary applies shipping fee below threshold', () => {
   const lowItem: CartItem[] = [
     {
@@ -239,6 +261,19 @@ test('calculateCartSummary applies shipping fee below threshold', () => {
   assert.equal(summary.freeShippingEligible, false);
   assert.equal(summary.shippingCost, 150_000);
   assert.equal(summary.totalPayable, 750_000);
+});
+
+test('calculateInstallmentPlan and calculateCareInsurancePrice return accurate figures', () => {
+  const plan = calculateInstallmentPlan(100_000_000, 30, 12, 2);
+  assert.equal(plan.downPaymentAmount, 30_000_000);
+  assert.equal(plan.financedAmount, 70_000_000);
+  // 2% * 12 = 24% fee on 70M = 16.8M => total installments 86.8M
+  assert.equal(plan.totalInstallmentsAmount, 86_800_000);
+  assert.equal(plan.totalPayableWithPlan, 116_800_000);
+
+  assert.equal(calculateCareInsurancePrice(60_000_000, 'phones'), 2_400_000);
+  assert.equal(calculateCareInsurancePrice(100_000_000, 'phones'), 3_200_000);
+  assert.equal(calculateCareInsurancePrice(5_000_000, 'chargers'), 0);
 });
 
 test('validateCheckoutForm and validateContactForm catch invalid inputs', () => {

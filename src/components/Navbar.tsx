@@ -1,18 +1,26 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
+  Calculator,
   Menu,
+  PackageSearch,
+  Scale,
   Search,
+  ShieldCheck,
   ShoppingBag,
   Smartphone,
   Truck,
-  ShieldCheck,
   User,
   X,
-  PackageSearch,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import type { CategoryId } from '../types/store';
-import { toPersianDigits } from '../utils/storeLogic';
+import {
+  formatToman,
+  matchesProductSearch,
+  toEnglishDigits,
+  toPersianDigits,
+} from '../utils/storeLogic';
+import { SmartImage } from './SmartImage';
 
 const NAV_LINKS: { label: string; category?: CategoryId; path?: string; accent?: boolean }[] = [
   { label: 'صفحه اصلی', path: '/' },
@@ -22,18 +30,37 @@ const NAV_LINKS: { label: string; category?: CategoryId; path?: string; accent?:
   { label: 'هندزفری', category: 'audio' },
   { label: 'پاوربانک و شارژر', category: 'chargers' },
   { label: 'قاب و محافظ', category: 'cases' },
-  { label: 'لوازم گیمینگ', category: 'gaming' },
   { label: 'پیشنهادات طلایی', category: 'offers', accent: true },
-  { label: 'رهگیری سفارش', path: '/tracking' },
+  { label: 'خرید اقساطی', path: '/installments' },
+  { label: 'مقایسه', path: '/compare' },
 ];
 
 export const Navbar: React.FC = () => {
-  const { route, navigate, navigateToCatalog, cartSummary, user, filters } = useStore();
+  const {
+    route,
+    navigate,
+    navigateToCatalog,
+    products,
+    cartSummary,
+    compareIds,
+    storeSettings,
+    user,
+    filters,
+  } = useStore();
   const [searchValue, setSearchValue] = useState(filters.searchQuery || '');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const blurTimerRef = useRef<number | null>(null);
+
+  const liveSuggestions = useMemo(() => {
+    const q = toEnglishDigits(searchValue.trim().toLowerCase());
+    if (q.length < 2) return [];
+    return products.filter((p) => matchesProductSearch(p, q)).slice(0, 5);
+  }, [products, searchValue]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setSearchFocused(false);
     navigateToCatalog({ category: 'all', searchQuery: searchValue });
     setMobileMenuOpen(false);
   };
@@ -54,20 +81,21 @@ export const Navbar: React.FC = () => {
 
   const isNavItemActive = (item: (typeof NAV_LINKS)[number]) => {
     if (item.path === '/' && route.page === 'home') return true;
-    if (item.path === '/tracking' && route.page === 'tracking') return true;
+    if (item.path === '/installments' && route.page === 'installments') return true;
+    if (item.path === '/compare' && route.page === 'compare') return true;
     if (item.category && route.page === 'catalog' && filters.category === item.category) return true;
     return false;
   };
 
   return (
     <>
-      {/* Top utility announcement bar (non-sticky so mobile sticky height stays minimal) */}
-      <div className="bg-[#213145] text-[#d6e3ff] text-xs py-2 hidden md:block">
+      {/* Top utility announcement bar */}
+      <div className="bg-[#213145] text-[#d6e3ff] text-xs py-2 hidden md:block no-print">
         <div className="max-w-[1440px] mx-auto px-4 lg:px-8 flex items-center justify-between gap-4">
           <div className="flex items-center gap-6 whitespace-nowrap">
             <span className="inline-flex items-center gap-1.5">
               <Truck className="w-3.5 h-3.5 text-[#ffdbca]" />
-              ارسال رایگان برای خریدهای بالای ۱ میلیون تومان به سراسر ایران
+              {storeSettings.announcementText}
             </span>
           </div>
           <div className="flex items-center gap-6 whitespace-nowrap">
@@ -83,14 +111,14 @@ export const Navbar: React.FC = () => {
               }}
               className="hover:text-white transition-colors tabular-nums-fa"
             >
-              پشتیبانی: ۰۲۱-۸۸۸۸۹۹۹۹
+              پشتیبانی: {toPersianDigits(storeSettings.supportPhone)}
             </a>
           </div>
         </div>
       </div>
 
       {/* Main Sticky Header */}
-      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-[#e5eeff] shadow-[0_2px_14px_rgba(11,28,48,0.04)]">
+      <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-[#e5eeff] shadow-[0_2px_14px_rgba(11,28,48,0.04)] no-print">
         <div className="max-w-[1440px] mx-auto px-4 lg:px-8 h-16 md:h-[72px] flex items-center justify-between gap-3 md:gap-6">
           {/* Right side: Mobile menu toggle + Brand */}
           <div className="flex items-center gap-2.5 shrink-0">
@@ -125,31 +153,85 @@ export const Navbar: React.FC = () => {
             </a>
           </div>
 
-          {/* Center: Search bar on desktop */}
-          <form
-            onSubmit={handleSearchSubmit}
-            className="hidden md:flex flex-1 max-w-xl relative"
-            role="search"
-          >
-            <input
-              type="search"
-              value={searchValue}
-              onChange={(e) => setSearchValue(e.target.value)}
-              placeholder="جستجوی گوشی، ساعت هوشمند، شارژر، ایرپاد..."
-              aria-label="جستجوی محصولات"
-              className="w-full h-11 pr-11 pl-4 rounded-xl bg-[#eff4ff] text-sm text-[#0b1c30] placeholder:text-[#434655]/70 border border-transparent focus:border-[#2563eb] focus:bg-white focus:outline-none transition-all"
-            />
-            <button
-              type="submit"
-              aria-label="جستجو"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#434655] hover:text-[#004ac6] transition-colors"
-            >
-              <Search className="w-4 h-4" />
-            </button>
-          </form>
+          {/* Center: Search bar with live autocomplete dropdown on desktop */}
+          <div className="hidden md:block flex-1 max-w-xl relative">
+            <form onSubmit={handleSearchSubmit} role="search">
+              <input
+                type="search"
+                value={searchValue}
+                onFocus={() => {
+                  if (blurTimerRef.current) window.clearTimeout(blurTimerRef.current);
+                  setSearchFocused(true);
+                }}
+                onBlur={() => {
+                  blurTimerRef.current = window.setTimeout(() => setSearchFocused(false), 180);
+                }}
+                onChange={(e) => {
+                  setSearchValue(e.target.value);
+                  setSearchFocused(true);
+                }}
+                placeholder="جستجوی گوشی، ساعت هوشمند، شارژر، ایرپاد..."
+                aria-label="جستجوی محصولات"
+                className="w-full h-11 pr-11 pl-4 rounded-xl bg-[#eff4ff] text-sm text-[#0b1c30] placeholder:text-[#434655]/70 border border-transparent focus:border-[#2563eb] focus:bg-white focus:outline-none transition-all"
+              />
+              <button
+                type="submit"
+                aria-label="جستجو"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#434655] hover:text-[#004ac6] transition-colors"
+              >
+                <Search className="w-4 h-4" />
+              </button>
+            </form>
 
-          {/* Left side: Account & Cart CTA */}
-          <div className="flex items-center gap-2 md:gap-3 shrink-0">
+            {searchFocused && liveSuggestions.length > 0 && (
+              <div
+                data-testid="live-search-dropdown"
+                className="absolute top-12 right-0 left-0 bg-white rounded-2xl border border-[#dce9ff] shadow-xl overflow-hidden z-50"
+              >
+                <div className="divide-y divide-[#eff4ff]">
+                  {liveSuggestions.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setSearchFocused(false);
+                        navigate(`/product/${item.slug}`);
+                      }}
+                      className="w-full p-3 flex items-center gap-3 hover:bg-[#f8f9ff] text-right transition-colors"
+                    >
+                      <div className="w-11 h-11 rounded-xl bg-[#eff4ff] overflow-hidden shrink-0">
+                        <SmartImage src={item.image} alt={item.nameFa} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-extrabold text-[#0b1c30] truncate">{item.nameFa}</p>
+                        <p className="text-[11px] text-[#434655] mt-0.5">
+                          {item.brand} · {item.specs.storageDefault}
+                        </p>
+                      </div>
+                      <span className="text-xs font-black text-[#004ac6] tabular-nums-fa shrink-0">
+                        {item.inStock ? `${formatToman(item.price)} تومان` : 'ناموجود'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setSearchFocused(false);
+                    navigateToCatalog({ category: 'all', searchQuery: searchValue });
+                  }}
+                  className="w-full py-2.5 bg-[#eff4ff] hover:bg-[#dce9ff] text-xs font-extrabold text-[#004ac6] transition-colors"
+                >
+                  مشاهده همه نتایج برای «{searchValue}»
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Left side: Tracking, Account & Cart CTA */}
+          <div className="flex items-center gap-2 md:gap-2.5 shrink-0">
             <button
               type="button"
               onClick={() => navigate('/tracking')}
@@ -200,7 +282,7 @@ export const Navbar: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleNavClick(item)}
-                      className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                      className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1 ${
                         active
                           ? 'bg-[#eff4ff] text-[#004ac6]'
                           : item.accent
@@ -208,7 +290,14 @@ export const Navbar: React.FC = () => {
                           : 'text-[#434655] hover:text-[#0b1c30] hover:bg-[#f8f9ff]'
                       }`}
                     >
-                      {item.label}
+                      {item.path === '/compare' && <Scale className="w-3.5 h-3.5" />}
+                      {item.path === '/installments' && <Calculator className="w-3.5 h-3.5" />}
+                      <span>{item.label}</span>
+                      {item.path === '/compare' && compareIds.length > 0 && (
+                        <span className="px-1.5 py-0.2 rounded bg-[#004ac6] text-white text-[10px] font-bold tabular-nums-fa">
+                          {toPersianDigits(compareIds.length)}
+                        </span>
+                      )}
                     </button>
                   </li>
                 );
@@ -216,6 +305,13 @@ export const Navbar: React.FC = () => {
             </ul>
 
             <div className="flex items-center gap-4 text-xs font-medium text-[#434655] shrink-0">
+              <button
+                type="button"
+                onClick={() => navigate('/tracking')}
+                className="hover:text-[#004ac6] transition-colors whitespace-nowrap"
+              >
+                پیگیری سفارش
+              </button>
               <button
                 type="button"
                 onClick={() => navigate('/about')}
@@ -268,14 +364,14 @@ export const Navbar: React.FC = () => {
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-[#eff4ff] text-xs font-semibold text-[#434655]">
+              <button type="button" onClick={() => { setMobileMenuOpen(false); navigate('/tracking'); }}>
+                رهگیری سفارش
+              </button>
               <button type="button" onClick={() => { setMobileMenuOpen(false); navigate('/about'); }}>
                 درباره فروشگاه
               </button>
               <button type="button" onClick={() => { setMobileMenuOpen(false); navigate('/contact'); }}>
                 پشتیبانی و تماس
-              </button>
-              <button type="button" onClick={() => { setMobileMenuOpen(false); navigate('/terms'); }}>
-                قوانین و ضمانت
               </button>
             </div>
           </div>

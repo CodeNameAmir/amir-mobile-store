@@ -1,5 +1,6 @@
 import React from 'react';
 import { CheckCircle2, Info, X, AlertTriangle } from 'lucide-react';
+import { CompareTray } from './components/CompareTray';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
 import { TempCommitBanner } from './components/TempCommitBanner';
@@ -8,8 +9,10 @@ import { AboutPage } from './pages/AboutPage';
 import { AccountPage } from './pages/AccountPage';
 import { CartCheckoutPage } from './pages/CartCheckoutPage';
 import { CatalogPage } from './pages/CatalogPage';
+import { ComparePage } from './pages/ComparePage';
 import { ContactPage } from './pages/ContactPage';
 import { HomePage } from './pages/HomePage';
+import { InstallmentsPage } from './pages/InstallmentsPage';
 import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
 import { OrderTrackingPage } from './pages/OrderTrackingPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
@@ -23,13 +26,13 @@ const ToastStack: React.FC = () => {
   return (
     <div
       aria-live="polite"
-      className="fixed bottom-4 left-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] no-print"
+      className="fixed top-24 left-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] no-print pointer-events-none"
     >
-      {toasts.map((toast) => (
+      {toasts.slice(-2).map((toast) => (
         <div
           key={toast.id}
           role="status"
-          className={`rounded-2xl px-4 py-3 shadow-lg flex items-center justify-between gap-3 text-xs font-bold border ${
+          className={`pointer-events-auto rounded-2xl px-4 py-3 shadow-lg flex items-center justify-between gap-3 text-xs font-bold border ${
             toast.tone === 'error'
               ? 'bg-rose-950 text-white border-rose-800'
               : toast.tone === 'info'
@@ -62,7 +65,8 @@ const ToastStack: React.FC = () => {
 };
 
 const StoreShell: React.FC = () => {
-  const { route } = useStore();
+  const { route, compareIds } = useStore();
+  const showCompareSpacer = compareIds.length > 0 && route.page !== 'compare';
 
   const renderPage = () => {
     switch (route.page) {
@@ -72,6 +76,10 @@ const StoreShell: React.FC = () => {
         return <CatalogPage />;
       case 'product':
         return <ProductDetailPage slug={route.slug} />;
+      case 'compare':
+        return <ComparePage />;
+      case 'installments':
+        return <InstallmentsPage />;
       case 'cart':
         return <CartCheckoutPage mode="cart" />;
       case 'checkout':
@@ -97,12 +105,13 @@ const StoreShell: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f8f9ff] text-[#0b1c30]">
+    <div className={`min-h-screen flex flex-col bg-[#f8f9ff] text-[#0b1c30] ${showCompareSpacer ? 'pb-20' : ''}`}>
       <Navbar />
       {/* TEMPORARY: Delete TempCommitBanner when GitHub commit indicator is no longer needed */}
       <TempCommitBanner />
       <main className="flex-1">{renderPage()}</main>
       <Footer />
+      <CompareTray />
       <ToastStack />
     </div>
   );

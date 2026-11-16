@@ -1,5 +1,5 @@
 import React from 'react';
-import { Bell, Heart, ShoppingBag, Star } from 'lucide-react';
+import { Bell, Heart, Scale, ShoppingBag, Star } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import type { Product } from '../types/store';
 import { formatToman, toPersianDigits } from '../utils/storeLogic';
@@ -11,10 +11,19 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = false }) => {
-  const { navigate, addToCart, wishlist, toggleWishlist, stockAlerts, toggleStockAlert } =
-    useStore();
+  const {
+    navigate,
+    addToCart,
+    wishlist,
+    toggleWishlist,
+    compareIds,
+    toggleCompare,
+    stockAlerts,
+    toggleStockAlert,
+  } = useStore();
 
   const isWishlisted = wishlist.includes(product.id);
+  const isCompared = compareIds.includes(product.id);
   const isAlerted = stockAlerts.includes(product.id);
 
   const openProduct = () => navigate(`/product/${product.slug}`);
@@ -56,18 +65,35 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
           </span>
         )}
 
-        <button
-          type="button"
-          onClick={() => toggleWishlist(product.id)}
-          aria-label={isWishlisted ? 'حذف از علاقه‌مندی' : 'افزودن به علاقه‌مندی'}
-          className={`absolute top-3 left-3 w-8 h-8 rounded-xl flex items-center justify-center transition-colors shadow-sm ${
-            isWishlisted
-              ? 'bg-rose-50 text-rose-600'
-              : 'bg-white/90 text-[#434655] hover:text-rose-600'
-          }`}
-        >
-          <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-current' : ''}`} />
-        </button>
+        <div className="absolute top-3 left-3 flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => toggleWishlist(product.id)}
+            aria-label={isWishlisted ? 'حذف از علاقه‌مندی' : 'افزودن به علاقه‌مندی'}
+            className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors shadow-sm ${
+              isWishlisted
+                ? 'bg-rose-50 text-rose-600'
+                : 'bg-white/90 text-[#434655] hover:text-rose-600'
+            }`}
+          >
+            <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-current' : ''}`} />
+          </button>
+
+          <button
+            type="button"
+            data-testid={`compare-toggle-${product.slug}`}
+            onClick={() => toggleCompare(product.id)}
+            aria-label={isCompared ? 'حذف از مقایسه' : 'افزودن به مقایسه'}
+            title={isCompared ? 'در لیست مقایسه' : 'مقایسه محصول'}
+            className={`w-8 h-8 rounded-xl flex items-center justify-center transition-colors shadow-sm ${
+              isCompared
+                ? 'bg-[#004ac6] text-white'
+                : 'bg-white/90 text-[#434655] hover:text-[#004ac6]'
+            }`}
+          >
+            <Scale className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Body */}
@@ -88,9 +114,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
           {product.nameFa}
         </button>
 
-        <p className="text-[11px] text-[#434655] line-clamp-1">
-          {product.specs.storageDefault} · {product.specs.ram} رم · {product.colorLabel}
-        </p>
+        <div className="flex items-center justify-between gap-2 text-[11px] text-[#434655]">
+          <span className="line-clamp-1">
+            {product.specs.storageDefault} · {product.specs.ram} رم · {product.colorLabel}
+          </span>
+          {product.inStock && product.stockCount <= 3 && (
+            <span className="text-[#b54e00] font-bold shrink-0 tabular-nums-fa">
+              تنها {toPersianDigits(product.stockCount)} عدد
+            </span>
+          )}
+        </div>
 
         {/* Price + Action */}
         <div className="mt-auto pt-3 border-t border-[#eff4ff] flex items-end justify-between gap-2">

@@ -127,6 +127,7 @@ export interface OrderRecord {
   status: 'paid' | 'preparing' | 'shipped' | 'delivered';
   deliveryPin: string;
   imeiSample: string;
+  adminNote?: string;
   items: CartItem[];
   createdAt: string;
 }
@@ -146,6 +147,8 @@ export interface SupportTicket {
   department: string;
   orderCode: string;
   message: string;
+  status?: 'open' | 'in_progress' | 'resolved';
+  adminReply?: string;
   createdAt: string;
 }
 
@@ -162,4 +165,31 @@ export interface ProductReview {
   rating: number;
   comment: string;
   verified: boolean;
+}
+
+export interface CouponRule {
+  code: string;
+  discountType: 'fixed' | 'percent';
+  discountValue: number;
+  maxDiscount?: number;
+  minOrderAmount?: number;
+  descriptionFa?: string;
+}
+
+export interface InstallmentPlan {
+  totalPrice: number;
+  downPaymentPercent: number;
+  downPaymentAmount: number;
+  financedAmount: number;
+  months: number;
+  monthlyRatePercent: number;
+  monthlyPayment: number;
+  totalInstallmentsAmount: number;
+  totalPayableWithPlan: number;
+}
+
+export interface StoreSettings {
+  announcementText: string;
+  freeShippingThreshold: number;
+  supportPhone: string;
 }
