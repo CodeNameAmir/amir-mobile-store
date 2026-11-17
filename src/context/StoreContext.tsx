@@ -179,11 +179,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }));
   const [cart, setCart] = useState<CartItem[]>(() => storeRepository.loadCart());
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
-  const [wishlist, setWishlist] = useState<string[]>(() => storeRepository.loadWishlist());
+  const [guestWishlist, setGuestWishlist] = useState<string[]>(() => storeRepository.loadWishlist());
   const [compareIds, setCompareIds] = useState<string[]>(() => storeRepository.loadCompare());
   const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>(() => storeRepository.loadRecent());
   const [stockAlerts, setStockAlerts] = useState<string[]>(() => storeRepository.loadStockAlerts());
-  const [orders, setOrders] = useState<OrderRecord[]>(() => storeRepository.loadOrders());
+  const [guestOrders, setGuestOrders] = useState<OrderRecord[]>(() => storeRepository.loadOrders());
+  const [userOrders, setUserOrders] = useState<OrderRecord[]>([]);
   const [user, setUser] = useState<DemoUser | null>(() => storeRepository.loadUser());
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [resendStatus, setResendStatus] = useState<ResendServiceStatus | null>(null);
@@ -227,6 +228,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           storeRepository.saveUser(authStatus.user);
         } else {
           setUser(null);
+          setUserOrders([]);
           storeRepository.saveUser(null);
         }
       }
@@ -236,6 +238,37 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setUserOrders([]);
+      return;
+    }
+    let active = true;
+    authApi
+      .getMyOrders()
+      .then((res) => {
+        if (!active) return;
+        setUserOrders(Array.isArray(res.orders) ? res.orders : []);
+      })
+      .catch(() => {
+        if (!active) return;
+        setUserOrders([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  const wishlist = useMemo(
+    () => (user ? user.wishlist ?? [] : guestWishlist),
+    [user, guestWishlist]
+  );
+
+  const orders = useMemo(
+    () => (user ? userOrders : guestOrders),
+    [user, userOrders, guestOrders]
+  );
 
   useEffect(() => {
     const onHashChange = () => {
@@ -419,7 +452,42 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const toggleWishlist = useCallback(
     (productId: string) => {
-      setWishlist((prev) => {
+      if (user) {
+        const previousWishlist = user.wishlist ?? [];
+        const exists = previousWishlist.includes(productId);
+        const optimisticWishlist = exists
+          ? previousWishlist.filter((id) => id !== productId)
+          : [...previousWishlist, productId];
+
+        const optimisticUser = { ...user, wishlist: optimisticWishlist };
+        setUser(optimisticUser);
+        storeRepository.saveUser(optimisticUser);
+
+        void authApi
+          .toggleWishlist(productId)
+          .then((res) => {
+            setUser(res.user);
+            storeRepository.saveUser(res.user);
+            showToast(
+              res.added
+                ? 'به لیست علاقه‌مندی‌های حساب کاربری اضافه شد.'
+                : 'از لیست علاقه‌مندی‌ها حذف شد.',
+              'info'
+            );
+          })
+          .catch((err) => {
+            const revertedUser = { ...user, wishlist: previousWishlist };
+            setUser(revertedUser);
+            storeRepository.saveUser(revertedUser);
+            showToast(
+              err instanceof Error ? err.message : 'خطا در ذخیره علاقه‌مندی در پایگاه داده.',
+              'error'
+            );
+          });
+        return;
+      }
+
+      setGuestWishlist((prev) => {
         const exists = prev.includes(productId);
         const updated = exists ? prev.filter((id) => id !== productId) : [...prev, productId];
         storeRepository.saveWishlist(updated);
@@ -430,7 +498,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return updated;
       });
     },
-    [showToast]
+    [showToast, user]
   );
 
   const toggleCompare = useCallback(
@@ -516,25 +584,49 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         items: [...cart],
         createdAt: `امروز · ساعت ${toPersianDigits(hh)}:${toPersianDigits(mm)}`,
       };
-      const saved = await storeRepository.createOrder(newOrder);
-      setOrders(storeRepository.loadOrders());
-      clearCart();
+      let saved: OrderRecord;
       if (user) {
-        void authApi.notifyOrderPlaced({
-          orderCode: saved.orderCode,
-          totalFormatted: formatToman(saved.totalAmount),
-          itemsCount: newOrder.items.length,
-        });
+        try {
+          const res = await authApi.createOrder(newOrder);
+          saved = res.order;
+          setUserOrders((prev) => [
+            saved,
+            ...prev.filter((o) => o.orderCode !== saved.orderCode),
+          ]);
+        } catch {
+          saved = await storeRepository.createOrder(newOrder, { skipLocalCache: true });
+          setUserOrders((prev) => [
+            saved,
+            ...prev.filter((o) => o.orderCode !== saved.orderCode),
+          ]);
+          void authApi.notifyOrderPlaced({
+            orderCode: saved.orderCode,
+            totalFormatted: formatToman(saved.totalAmount),
+            itemsCount: newOrder.items.length,
+          });
+        }
+      } else {
+        saved = await storeRepository.createOrder(newOrder);
+        setGuestOrders(storeRepository.loadOrders());
       }
+      clearCart();
       showToast(`سفارش آزمایشی ${saved.orderCode} با موفقیت ثبت شد.`, 'success');
       return saved;
     },
     [appliedCoupon, cart, clearCart, couponRules, showToast, storeSettings.freeShippingThreshold, user]
   );
 
-  const findOrder = useCallback(async (code: string) => {
-    return storeRepository.findOrderByCode(code);
-  }, []);
+  const findOrder = useCallback(
+    async (code: string) => {
+      const normalized = code.trim().toUpperCase().replace(/^#/, '');
+      const fromSupabase = await storeRepository.findOrderByCode(code);
+      if (fromSupabase) return fromSupabase;
+      const fromState = orders.find((o) => o.orderCode.toUpperCase() === normalized);
+      if (fromState) return fromState;
+      return authApi.findOrderByCode(code);
+    },
+    [orders]
+  );
 
   const setAuthenticatedUser = useCallback((nextUser: DemoUser) => {
     storeRepository.saveUser(nextUser);
@@ -558,6 +650,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Ignore offline fallback
       }
       storeRepository.saveUser(null);
+      setUserOrders([]);
       setUser(null);
       showToast(
         allDevices ? 'از همه نشست‌ها و دستگاه‌ها خارج شدید.' : 'از حساب کاربری خارج شدید.',

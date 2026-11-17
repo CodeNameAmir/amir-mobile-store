@@ -13,6 +13,7 @@ import {
   type AuthStorageAdapter,
   type OtpPurpose,
   type StoredAddress,
+  type StoredOrderRecord,
   type StoredUserRecord,
 } from './server/authStore.ts';
 import {
@@ -1058,6 +1059,175 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       }
     }
   );
+
+  app.put('/api/auth/wishlist', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const currentUser = req.authUser!;
+      const rawList = Array.isArray(req.body?.wishlist) ? (req.body.wishlist as unknown[]) : null;
+      if (!rawList) {
+        res.status(400).json({ error: 'لیست علاقه‌مندی‌ها باید به‌صورت آرایه ارسال شود.' });
+        return;
+      }
+
+      const cleaned: string[] = Array.from(
+        new Set<string>(rawList.map((item) => String(item ?? '').trim()).filter(Boolean))
+      ).slice(0, 100);
+
+      const updated = await authService.updateUserRecord(currentUser.id, (prev) => ({
+        ...prev,
+        wishlist: cleaned,
+      }));
+
+      if (!updated) {
+        res.status(404).json({ error: 'حساب کاربری یافت نشد.' });
+        return;
+      }
+
+      res.json({ user: toPublicUser(updated), wishlist: updated.wishlist });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/auth/wishlist/toggle', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const currentUser = req.authUser!;
+      const productId = String(req.body?.productId || '').trim();
+      if (!productId || productId.length > 120) {
+        res.status(400).json({ error: 'شناسه محصول معتبر نیست.' });
+        return;
+      }
+
+      let added = false;
+      const updated = await authService.updateUserRecord(currentUser.id, (prev) => {
+        const exists = prev.wishlist.includes(productId);
+        added = !exists;
+        const nextWishlist = exists
+          ? prev.wishlist.filter((id) => id !== productId)
+          : [...prev.wishlist, productId].slice(0, 100);
+        return {
+          ...prev,
+          wishlist: nextWishlist,
+        };
+      });
+
+      if (!updated) {
+        res.status(404).json({ error: 'حساب کاربری یافت نشد.' });
+        return;
+      }
+
+      res.json({
+        user: toPublicUser(updated),
+        wishlist: updated.wishlist,
+        added,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/orders/mine', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const orders = await authService.listUserOrders(req.authUser!.id);
+      res.json({ orders });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/orders', async (req, res, next) => {
+    try {
+      const auth = await getAuthFromRequest(req);
+      const body = req.body || {};
+      const orderCode = String(body.orderCode || '')
+        .trim()
+        .toUpperCase();
+      const customerName = String(body.customerName || '').trim();
+      const customerPhone = toEnglishDigits(String(body.customerPhone || '')).trim();
+      const city = String(body.city || '').trim();
+      const shippingAddress = String(body.shippingAddress || '').trim();
+      const postalCode = toEnglishDigits(String(body.postalCode || '')).trim();
+      const items = Array.isArray(body.items) ? body.items : [];
+
+      if (
+        !orderCode ||
+        customerName.length < 2 ||
+        !customerPhone ||
+        !shippingAddress ||
+        items.length === 0
+      ) {
+        res.status(400).json({ error: 'اطلاعات سفارش ناقص یا نامعتبر است.' });
+        return;
+      }
+
+      const orderPayload: StoredOrderRecord = {
+        orderCode,
+        shaparakRef: String(body.shaparakRef || '84729104'),
+        customerName,
+        customerPhone,
+        city,
+        shippingAddress,
+        postalCode,
+        deliverySlot: body.deliverySlot === 'standard' ? 'standard' : 'express',
+        couponCode: body.couponCode ? String(body.couponCode) : null,
+        subtotal: Number(body.subtotal || 0),
+        productDiscount: Number(body.productDiscount || 0),
+        couponDiscount: Number(body.couponDiscount || 0),
+        shippingCost: Number(body.shippingCost || 0),
+        totalAmount: Number(body.totalAmount || 0),
+        status:
+          body.status === 'paid' || body.status === 'shipped' || body.status === 'delivered'
+            ? body.status
+            : 'preparing',
+        deliveryPin: String(body.deliveryPin || ''),
+        imeiSample: String(body.imeiSample || ''),
+        items,
+        createdAt: String(body.createdAt || 'ثبت شده در حساب کاربری'),
+      };
+
+      const saved = await authService.createOrder(auth?.user.id ?? null, orderPayload);
+
+      if (auth?.user) {
+        const totalFormatted = new Intl.NumberFormat('fa-IR').format(saved.totalAmount);
+        const emailContent = buildOrderReceiptEmailContent({
+          fullName: auth.user.fullName,
+          orderCode: saved.orderCode,
+          totalFormatted,
+          itemsCount: saved.items.length,
+        });
+
+        void dispatchEmail({
+          to: auth.user.email,
+          subject: emailContent.subject,
+          html: emailContent.html,
+          idempotencyKey: `order-receipt-${saved.orderCode}`,
+          tags: [{ name: 'category', value: 'order_receipt' }],
+        });
+      }
+
+      res.status(201).json({ order: saved, syncedToDatabase: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/orders/:code', async (req, res, next) => {
+    try {
+      const code = String(req.params.code || '').trim();
+      if (!code) {
+        res.status(400).json({ error: 'کد سفارش الزامی است.' });
+        return;
+      }
+      const order = await authService.findOrderByCode(code);
+      if (!order) {
+        res.status(404).json({ error: 'سفارش یافت نشد.' });
+        return;
+      }
+      res.json({ order });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   app.post('/api/orders/notify', requireAuth, async (req: AuthenticatedRequest, res, next) => {
     try {

@@ -337,16 +337,17 @@ export const storeRepository = {
 
   loadOrders(): OrderRecord[] {
     const stored = readStorage<OrderRecord[]>(KEYS.ORDERS, []);
-    if (stored.length === 0) {
-      return [DEMO_SAMPLE_ORDER];
-    }
-    const hasSample = stored.some((o) => o.orderCode === DEMO_SAMPLE_ORDER.orderCode);
-    return hasSample ? stored : [...stored, DEMO_SAMPLE_ORDER];
+    return stored.filter((o) => o.orderCode !== DEMO_SAMPLE_ORDER.orderCode);
   },
 
-  async createOrder(order: OrderRecord): Promise<OrderRecord & { syncedToSupabase: boolean; syncError?: string }> {
-    const existing = this.loadOrders().filter((o) => o.orderCode !== order.orderCode);
-    writeStorage(KEYS.ORDERS, [order, ...existing]);
+  async createOrder(
+    order: OrderRecord,
+    opts?: { skipLocalCache?: boolean }
+  ): Promise<OrderRecord & { syncedToSupabase: boolean; syncError?: string }> {
+    if (!opts?.skipLocalCache) {
+      const existing = this.loadOrders().filter((o) => o.orderCode !== order.orderCode);
+      writeStorage(KEYS.ORDERS, [order, ...existing]);
+    }
 
     if (supabase) {
       const corePayload = {
@@ -444,7 +445,11 @@ export const storeRepository = {
     const localMatch = this.loadOrders().find(
       (o) => o.orderCode.toUpperCase() === normalized
     );
-    return localMatch || null;
+    if (localMatch) return localMatch;
+    if (normalized === DEMO_SAMPLE_ORDER.orderCode) {
+      return DEMO_SAMPLE_ORDER;
+    }
+    return null;
   },
 
   async submitSupportTicket(ticket: SupportTicket): Promise<SupportTicket & { syncedToSupabase: boolean }> {

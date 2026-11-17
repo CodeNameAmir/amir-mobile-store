@@ -1,4 +1,10 @@
-import type { DemoUser, OtpPurpose, ResendServiceStatus, UserAddress } from '../types/store';
+import type {
+  DemoUser,
+  OrderRecord,
+  OtpPurpose,
+  ResendServiceStatus,
+  UserAddress,
+} from '../types/store';
 
 export interface SendOtpPayload {
   email: string;
@@ -195,6 +201,49 @@ export const authApi = {
     return requestJson<{ user: DemoUser }>(`/api/auth/addresses/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
+  },
+
+  async saveWishlist(wishlist: string[]): Promise<{ user: DemoUser; wishlist: string[] }> {
+    return requestJson<{ user: DemoUser; wishlist: string[] }>('/api/auth/wishlist', {
+      method: 'PUT',
+      body: JSON.stringify({ wishlist }),
+    });
+  },
+
+  async toggleWishlist(
+    productId: string
+  ): Promise<{ user: DemoUser; wishlist: string[]; added: boolean }> {
+    return requestJson<{ user: DemoUser; wishlist: string[]; added: boolean }>(
+      '/api/auth/wishlist/toggle',
+      {
+        method: 'POST',
+        body: JSON.stringify({ productId }),
+      }
+    );
+  },
+
+  async getMyOrders(): Promise<{ orders: OrderRecord[] }> {
+    return requestJson<{ orders: OrderRecord[] }>('/api/orders/mine');
+  },
+
+  async createOrder(
+    order: OrderRecord
+  ): Promise<{ order: OrderRecord; syncedToDatabase: boolean }> {
+    return requestJson<{ order: OrderRecord; syncedToDatabase: boolean }>('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify(order),
+    });
+  },
+
+  async findOrderByCode(orderCode: string): Promise<OrderRecord | null> {
+    try {
+      const data = await requestJson<{ order: OrderRecord }>(
+        `/api/orders/${encodeURIComponent(orderCode.trim().toUpperCase())}`
+      );
+      return data.order || null;
+    } catch {
+      return null;
+    }
   },
 
   async notifyOrderPlaced(payload: {

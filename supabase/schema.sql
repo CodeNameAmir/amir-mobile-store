@@ -259,6 +259,7 @@ create table if not exists public.app_users (
   two_factor_enabled boolean default false,
   password_hash text,
   addresses jsonb default '[]'::jsonb,
+  wishlist jsonb default '[]'::jsonb,
   active_session_ids jsonb default '[]'::jsonb,
   created_at timestamptz default now(),
   last_login_at timestamptz default now()
@@ -266,6 +267,12 @@ create table if not exists public.app_users (
 
 alter table public.app_users
   add column if not exists two_factor_enabled boolean default false;
+alter table public.app_users
+  add column if not exists wishlist jsonb default '[]'::jsonb;
+
+alter table public.orders
+  add column if not exists user_id uuid references public.app_users(id) on delete set null;
+create index if not exists idx_orders_user_id on public.orders (user_id);
 
 create index if not exists idx_app_users_email on public.app_users (email);
 

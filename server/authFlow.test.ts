@@ -122,6 +122,7 @@ test('Production config guards reject missing secrets, CORS_ORIGIN, and Supabase
 test('Supabase auth storage adapter persists users & OTP challenges to PostgreSQL tables', async () => {
   const userRows = new Map<string, Record<string, unknown>>();
   const otpRows = new Map<string, Record<string, unknown>>();
+  const orderRows = new Map<string, Record<string, unknown>>();
 
   const mockSupabase = {
     from(table: string) {
@@ -204,6 +205,40 @@ test('Supabase auth storage adapter persists users & OTP challenges to PostgreSQ
         };
       }
 
+      if (table === 'orders') {
+        return {
+          select() {
+            return {
+              eq(field: string, value: string) {
+                const matched = [...orderRows.values()].filter((r) => r[field] === value);
+                return {
+                  order() {
+                    return Promise.resolve({ data: matched, error: null });
+                  },
+                  maybeSingle: async () => ({ data: matched[0] || null, error: null }),
+                };
+              },
+            };
+          },
+          insert(row: Record<string, unknown>) {
+            orderRows.set(String(row.order_code), {
+              ...row,
+              created_at: new Date().toISOString(),
+            });
+            return {
+              select() {
+                return {
+                  single: async () => ({
+                    data: orderRows.get(String(row.order_code)) || row,
+                    error: null,
+                  }),
+                };
+              },
+            };
+          },
+        };
+      }
+
       throw new Error(`Unexpected table ${table}`);
     },
   } as unknown as SupabaseClient;
@@ -220,9 +255,43 @@ test('Supabase auth storage adapter persists users & OTP challenges to PostgreSQ
     passwordHash: 'salt:hash',
   });
   assert.equal(created.email, 'buyer@codenameamir.ir');
+  assert.deepEqual(created.wishlist, []);
+
+  const updatedWishlist = await adapter.updateUser(created.id, (u) => ({
+    ...u,
+    wishlist: ['iphone-16-pro-max'],
+  }));
+  assert.deepEqual(updatedWishlist?.wishlist, ['iphone-16-pro-max']);
 
   const fetched = await adapter.findUserByEmail('buyer@codenameamir.ir');
   assert.equal(fetched?.id, created.id);
+  assert.deepEqual(fetched?.wishlist, ['iphone-16-pro-max']);
+
+  assert.deepEqual(await adapter.listUserOrders(created.id), []);
+  await adapter.createOrder(created.id, {
+    orderCode: 'AMIR-99001',
+    shaparakRef: '12345678',
+    customerName: 'امیرحسین رضایی',
+    customerPhone: '09121234567',
+    city: 'تهران',
+    shippingAddress: 'خیابان ولیعصر',
+    postalCode: '1234567890',
+    deliverySlot: 'express',
+    couponCode: null,
+    subtotal: 10_000_000,
+    productDiscount: 0,
+    couponDiscount: 0,
+    shippingCost: 0,
+    totalAmount: 10_000_000,
+    status: 'preparing',
+    deliveryPin: '1234',
+    imeiSample: '359182390000001',
+    items: [],
+    createdAt: 'امروز',
+  });
+  const listedOrders = await adapter.listUserOrders(created.id);
+  assert.equal(listedOrders.length, 1);
+  assert.equal(listedOrders[0]?.orderCode, 'AMIR-99001');
 
   await adapter.upsertOtpChallenge({
     challengeKey: 'login::buyer@codenameamir.ir',
@@ -567,6 +636,78 @@ test('Full HTTP production auth flow: CORS, signup, OTP login, password login, r
     assert.equal(loginNewPw.res.status, 200);
     assert.equal(loginNewPw.body.authenticated, true);
     assert.equal(loginNewPw.body.user.email, email2);
+
+    // 12. Fresh account has 0 orders & empty wishlist, then wishlist & orders persist in DB scoped per user
+    assert.deepEqual(loginNewPw.body.user.wishlist, []);
+    const myOrdersBefore = await apiFetch('/api/orders/mine', { method: 'GET' });
+    assert.equal(myOrdersBefore.res.status, 200);
+    assert.deepEqual(myOrdersBefore.body.orders, []);
+
+    const toggleAdd = await apiFetch('/api/auth/wishlist/toggle', {
+      method: 'POST',
+      body: JSON.stringify({ productId: 'iphone-16-pro-max' }),
+    });
+    assert.equal(toggleAdd.res.status, 200);
+    assert.equal(toggleAdd.body.added, true);
+    assert.deepEqual(toggleAdd.body.wishlist, ['iphone-16-pro-max']);
+
+    const meWithWishlist = await apiFetch('/api/auth/me', { method: 'GET' });
+    assert.deepEqual(meWithWishlist.body.user.wishlist, ['iphone-16-pro-max']);
+
+    const placedOrder = await apiFetch('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        orderCode: 'AMIR-77881',
+        shaparakRef: '88221144',
+        customerName: 'امیرحسین کریمی',
+        customerPhone: '09123456789',
+        city: 'تهران',
+        shippingAddress: 'خیابان ولیعصر، پلاک ۱۰۰',
+        postalCode: '1234567890',
+        deliverySlot: 'express',
+        couponCode: null,
+        subtotal: 94_200_000,
+        productDiscount: 0,
+        couponDiscount: 0,
+        shippingCost: 0,
+        totalAmount: 94_200_000,
+        status: 'preparing',
+        deliveryPin: '۴۲۱۲',
+        imeiSample: '359182390192999',
+        items: [{ key: 'k1', productId: 'iphone-16-pro-max', qty: 1 }],
+      }),
+    });
+    assert.equal(placedOrder.res.status, 201);
+
+    const myOrdersAfter = await apiFetch('/api/orders/mine', { method: 'GET' });
+    assert.equal(myOrdersAfter.res.status, 200);
+    assert.equal(myOrdersAfter.body.orders.length, 1);
+    assert.equal(myOrdersAfter.body.orders[0].orderCode, 'AMIR-77881');
+
+    // Second brand-new user must see 0 orders and empty wishlist (no cross-user or sample leakage)
+    await apiFetch('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
+    const email3 = 'brandnew@codenameamir.ir';
+    await apiFetch('/api/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: email3,
+        purpose: 'signup',
+        fullName: 'کاربر جدید',
+        phone: '09120001122',
+        password: 'FreshUser2026!',
+      }),
+    });
+    const code3 = issuedOtps.get(`signup::${email3}`);
+    const signup3 = await apiFetch('/api/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email: email3, purpose: 'signup', code: code3 }),
+    });
+    assert.equal(signup3.res.status, 200);
+    assert.deepEqual(signup3.body.user.wishlist, []);
+
+    const user3Orders = await apiFetch('/api/orders/mine', { method: 'GET' });
+    assert.equal(user3Orders.res.status, 200);
+    assert.deepEqual(user3Orders.body.orders, []);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve()))

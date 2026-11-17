@@ -470,42 +470,59 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-black text-[#0b1c30]">آخرین سفارش‌ها</h2>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('orders')}
-                  className="text-xs font-bold text-[#004ac6] hover:underline"
-                >
-                  مشاهده همه
-                </button>
+                {orders.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('orders')}
+                    className="text-xs font-bold text-[#004ac6] hover:underline"
+                  >
+                    مشاهده همه
+                  </button>
+                )}
               </div>
-              {orders.slice(0, 2).map((ord) => (
-                <div
-                  key={ord.orderCode}
-                  className="p-4 rounded-2xl bg-[#f8f9ff] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                >
-                  <div className="space-y-1">
-                    <p className="text-xs text-[#434655]">
-                      <strong dir="ltr" className="text-sm text-[#004ac6] font-black">
-                        {ord.orderCode}
-                      </strong>{' '}
-                      · {STATUS_LABELS[ord.status]} · {ord.createdAt}
-                    </p>
-                    <p className="text-xs text-[#0b1c30] tabular-nums-fa">
-                      {ord.customerName} · {toPersianDigits(ord.items.length)} کالا ·{' '}
-                      <strong>{formatToman(ord.totalAmount)} تومان</strong>
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/tracking/${ord.orderCode}`)}
-                      className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold"
-                    >
-                      رهگیری مرسوله
-                    </button>
-                  </div>
+              {orders.length === 0 ? (
+                <div className="p-6 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
+                  <p className="text-xs sm:text-sm text-[#434655]">
+                    هنوز سفارشی در حساب کاربری شما ثبت نشده است.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/catalog')}
+                    className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+                  >
+                    مشاهده فروشگاه و خرید
+                  </button>
                 </div>
-              ))}
+              ) : (
+                orders.slice(0, 2).map((ord) => (
+                  <div
+                    key={ord.orderCode}
+                    className="p-4 rounded-2xl bg-[#f8f9ff] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-xs text-[#434655]">
+                        <strong dir="ltr" className="text-sm text-[#004ac6] font-black">
+                          {ord.orderCode}
+                        </strong>{' '}
+                        · {STATUS_LABELS[ord.status]} · {ord.createdAt}
+                      </p>
+                      <p className="text-xs text-[#0b1c30] tabular-nums-fa">
+                        {ord.customerName} · {toPersianDigits(ord.items.length)} کالا ·{' '}
+                        <strong>{formatToman(ord.totalAmount)} تومان</strong>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/tracking/${ord.orderCode}`)}
+                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold"
+                      >
+                        رهگیری مرسوله
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </section>
           </div>
         )}
@@ -981,7 +998,20 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               </div>
             </div>
 
-            {filteredOrders.length === 0 ? (
+            {orders.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
+                <p className="text-xs sm:text-sm text-[#434655]">
+                  هنوز سفارشی در حساب کاربری شما ثبت نشده است.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => navigate('/catalog')}
+                  className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+                >
+                  شروع خرید از فروشگاه
+                </button>
+              </div>
+            ) : filteredOrders.length === 0 ? (
               <div className="p-8 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
                 <p className="text-xs sm:text-sm text-[#434655]">
                   سفارشی با این وضعیت یافت نشد.
@@ -1035,9 +1065,14 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
         {activeTab === 'wishlist' && (
           <div className="space-y-6">
             <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
-              <h1 className="text-lg font-black text-[#0b1c30]">
-                لیست علاقه‌مندی‌ها ({toPersianDigits(wishlistProducts.length)})
-              </h1>
+              <div>
+                <h1 className="text-lg font-black text-[#0b1c30]">
+                  لیست علاقه‌مندی‌ها ({toPersianDigits(wishlistProducts.length)})
+                </h1>
+                <p className="text-xs text-[#434655] mt-1">
+                  محصولات منتخب شما در حساب کاربری و پایگاه داده ذخیره می‌شوند و در همه دستگاه‌ها در دسترس هستند.
+                </p>
+              </div>
               {wishlistProducts.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {wishlistProducts.map((p) => (

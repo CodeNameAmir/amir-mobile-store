@@ -15,6 +15,46 @@ export interface StoredAddress {
   isDefault: boolean;
 }
 
+export interface StoredOrderItem {
+  key: string;
+  productId: string;
+  slug: string;
+  nameFa: string;
+  brand: string;
+  image: string;
+  colorName: string;
+  colorHex: string;
+  storageLabel: string;
+  warranty: string;
+  unitPrice: number;
+  originalUnitPrice: number;
+  qty: number;
+  stockCount: number;
+}
+
+export interface StoredOrderRecord {
+  orderCode: string;
+  shaparakRef: string;
+  customerName: string;
+  customerPhone: string;
+  city: string;
+  shippingAddress: string;
+  postalCode: string;
+  deliverySlot: 'express' | 'standard';
+  couponCode: string | null;
+  subtotal: number;
+  productDiscount: number;
+  couponDiscount: number;
+  shippingCost: number;
+  totalAmount: number;
+  status: 'paid' | 'preparing' | 'shipped' | 'delivered';
+  deliveryPin: string;
+  imeiSample: string;
+  adminNote?: string;
+  items: StoredOrderItem[];
+  createdAt: string;
+}
+
 export interface StoredUserRecord {
   id: string;
   email: string;
@@ -27,6 +67,7 @@ export interface StoredUserRecord {
   twoFactorEnabled: boolean;
   passwordHash?: string;
   addresses: StoredAddress[];
+  wishlist: string[];
   activeSessionIds: string[];
   createdAt: string;
   lastLoginAt: string;
@@ -44,6 +85,7 @@ export interface PublicUserDTO {
   twoFactorEnabled: boolean;
   hasPassword: boolean;
   addresses: StoredAddress[];
+  wishlist: string[];
   createdAt: string;
   lastLoginAt: string;
 }
@@ -83,6 +125,9 @@ export interface AuthStorageAdapter {
   getOtpChallenge(challengeKey: string): Promise<OtpChallengeRecord | null>;
   upsertOtpChallenge(challenge: OtpChallengeRecord): Promise<void>;
   deleteOtpChallenge(challengeKey: string): Promise<void>;
+  listUserOrders(userId: string): Promise<StoredOrderRecord[]>;
+  createOrder(userId: string | null, order: StoredOrderRecord): Promise<StoredOrderRecord>;
+  findOrderByCode(orderCode: string): Promise<StoredOrderRecord | null>;
 }
 
 export function hashPassword(password: string): string {
@@ -118,6 +163,7 @@ export function toPublicUser(user: StoredUserRecord): PublicUserDTO {
     twoFactorEnabled: user.twoFactorEnabled,
     hasPassword: Boolean(user.passwordHash),
     addresses: user.addresses,
+    wishlist: user.wishlist,
     createdAt: user.createdAt,
     lastLoginAt: user.lastLoginAt,
   };
@@ -125,6 +171,51 @@ export function toPublicUser(user: StoredUserRecord): PublicUserDTO {
 
 function otpKey(email: string, purpose: OtpPurpose): string {
   return `${purpose}::${email}`;
+}
+
+function formatPersianTimestamp(raw: unknown): string {
+  if (!raw) return 'ثبت‌شده در حساب کاربری';
+  const dt = new Date(String(raw));
+  if (Number.isNaN(dt.getTime())) return String(raw);
+  try {
+    return new Intl.DateTimeFormat('fa-IR', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(dt);
+  } catch {
+    return dt.toISOString();
+  }
+}
+
+function mapSupabaseOrderRow(row: Record<string, unknown>): StoredOrderRecord {
+  const statusRaw = String(row.status || 'preparing');
+  const status: StoredOrderRecord['status'] =
+    statusRaw === 'paid' || statusRaw === 'shipped' || statusRaw === 'delivered'
+      ? statusRaw
+      : 'preparing';
+
+  return {
+    orderCode: String(row.order_code || ''),
+    shaparakRef: String(row.shaparak_ref || '84729104'),
+    customerName: String(row.customer_name || ''),
+    customerPhone: String(row.customer_phone || ''),
+    city: String(row.city || ''),
+    shippingAddress: String(row.shipping_address || ''),
+    postalCode: String(row.postal_code || ''),
+    deliverySlot: row.delivery_slot === 'standard' ? 'standard' : 'express',
+    couponCode: row.coupon_code ? String(row.coupon_code) : null,
+    subtotal: Number(row.subtotal || 0),
+    productDiscount: Number(row.discount_total || 0),
+    couponDiscount: 0,
+    shippingCost: Number(row.shipping_cost || 0),
+    totalAmount: Number(row.total_amount || 0),
+    status,
+    deliveryPin: String(row.delivery_pin || ''),
+    imeiSample: String(row.imei_sample || ''),
+    adminNote: row.admin_note ? String(row.admin_note) : undefined,
+    items: Array.isArray(row.items) ? (row.items as StoredOrderItem[]) : [],
+    createdAt: formatPersianTimestamp(row.created_at),
+  };
 }
 
 function mapSupabaseUserRow(row: Record<string, unknown>): StoredUserRecord {
@@ -140,6 +231,9 @@ function mapSupabaseUserRow(row: Record<string, unknown>): StoredUserRecord {
     twoFactorEnabled: row.two_factor_enabled === true,
     passwordHash: row.password_hash ? String(row.password_hash) : undefined,
     addresses: Array.isArray(row.addresses) ? (row.addresses as StoredAddress[]) : [],
+    wishlist: Array.isArray(row.wishlist)
+      ? Array.from(new Set(row.wishlist.map((item) => String(item).trim()).filter(Boolean)))
+      : [],
     activeSessionIds: Array.isArray(row.active_session_ids)
       ? (row.active_session_ids as string[])
       : [],
@@ -212,6 +306,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         two_factor_enabled: false,
         password_hash: params.passwordHash ?? null,
         addresses: [],
+        wishlist: [],
         active_session_ids: [],
         created_at: nowIso,
         last_login_at: nowIso,
@@ -241,6 +336,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
           two_factor_enabled: next.twoFactorEnabled,
           password_hash: next.passwordHash ?? null,
           addresses: next.addresses,
+          wishlist: next.wishlist,
           active_session_ids: next.activeSessionIds,
           last_login_at: next.lastLoginAt,
         })
@@ -287,12 +383,66 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         .eq('challenge_key', challengeKey);
       if (error) throw new Error(`Supabase OTP delete failed: ${error.message}`);
     },
+
+    async listUserOrders(userId: string) {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(`Supabase list user orders failed: ${error.message}`);
+      return (data || []).map((row) => mapSupabaseOrderRow(row as Record<string, unknown>));
+    },
+
+    async createOrder(userId: string | null, order: StoredOrderRecord) {
+      const normalizedAddress =
+        order.city && !order.shippingAddress.startsWith(order.city)
+          ? `${order.city}، ${order.shippingAddress}`
+          : order.shippingAddress;
+      const payload = {
+        order_code: order.orderCode,
+        user_id: userId,
+        customer_name: order.customerName,
+        customer_phone: order.customerPhone,
+        city: order.city,
+        shipping_address: normalizedAddress,
+        postal_code: order.postalCode,
+        delivery_slot: order.deliverySlot,
+        shaparak_ref: order.shaparakRef,
+        coupon_code: order.couponCode,
+        subtotal: order.subtotal,
+        discount_total: order.productDiscount + order.couponDiscount,
+        shipping_cost: order.shippingCost,
+        total_amount: order.totalAmount,
+        status: order.status,
+        delivery_pin: order.deliveryPin,
+        imei_sample: order.imeiSample,
+        items: order.items,
+      };
+      const { data, error } = await supabase.from('orders').insert(payload).select('*').single();
+      if (error || !data) {
+        throw new Error(`Supabase create order failed: ${error?.message || 'no row returned'}`);
+      }
+      return mapSupabaseOrderRow(data as Record<string, unknown>);
+    },
+
+    async findOrderByCode(orderCode: string) {
+      const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .eq('order_code', normalized)
+        .maybeSingle();
+      if (error) throw new Error(`Supabase order lookup failed: ${error.message}`);
+      return data ? mapSupabaseOrderRow(data as Record<string, unknown>) : null;
+    },
   };
 }
 
 export function createMemoryAuthStorage(): AuthStorageAdapter {
   const users = new Map<string, StoredUserRecord>();
   const otps = new Map<string, OtpChallengeRecord>();
+  const orders: Array<{ userId: string | null; order: StoredOrderRecord }> = [];
 
   return {
     mode: 'dev-memory',
@@ -307,14 +457,28 @@ export function createMemoryAuthStorage(): AuthStorageAdapter {
 
     async findUserByEmail(email: string) {
       for (const user of users.values()) {
-        if (user.email === email) return { ...user, addresses: [...user.addresses], activeSessionIds: [...user.activeSessionIds] };
+        if (user.email === email) {
+          return {
+            ...user,
+            addresses: [...user.addresses],
+            wishlist: [...user.wishlist],
+            activeSessionIds: [...user.activeSessionIds],
+          };
+        }
       }
       return null;
     },
 
     async findUserById(userId: string) {
       const user = users.get(userId);
-      return user ? { ...user, addresses: [...user.addresses], activeSessionIds: [...user.activeSessionIds] } : null;
+      return user
+        ? {
+            ...user,
+            addresses: [...user.addresses],
+            wishlist: [...user.wishlist],
+            activeSessionIds: [...user.activeSessionIds],
+          }
+        : null;
     },
 
     async createUser(params) {
@@ -329,12 +493,13 @@ export function createMemoryAuthStorage(): AuthStorageAdapter {
         twoFactorEnabled: false,
         passwordHash: params.passwordHash,
         addresses: [],
+        wishlist: [],
         activeSessionIds: [],
         createdAt: nowIso,
         lastLoginAt: nowIso,
       };
       users.set(record.id, record);
-      return { ...record, addresses: [], activeSessionIds: [] };
+      return { ...record, addresses: [], wishlist: [], activeSessionIds: [] };
     },
 
     async updateUser(userId, updater) {
@@ -343,10 +508,16 @@ export function createMemoryAuthStorage(): AuthStorageAdapter {
       const updated = updater({
         ...existing,
         addresses: [...existing.addresses],
+        wishlist: [...existing.wishlist],
         activeSessionIds: [...existing.activeSessionIds],
       });
       users.set(userId, updated);
-      return { ...updated, addresses: [...updated.addresses], activeSessionIds: [...updated.activeSessionIds] };
+      return {
+        ...updated,
+        addresses: [...updated.addresses],
+        wishlist: [...updated.wishlist],
+        activeSessionIds: [...updated.activeSessionIds],
+      };
     },
 
     async getOtpChallenge(challengeKey: string) {
@@ -360,6 +531,25 @@ export function createMemoryAuthStorage(): AuthStorageAdapter {
 
     async deleteOtpChallenge(challengeKey: string) {
       otps.delete(challengeKey);
+    },
+
+    async listUserOrders(userId: string) {
+      return orders.filter((entry) => entry.userId === userId).map((entry) => ({ ...entry.order }));
+    },
+
+    async createOrder(userId: string | null, order: StoredOrderRecord) {
+      const copy: StoredOrderRecord = {
+        ...order,
+        items: order.items.map((item) => ({ ...item })),
+      };
+      orders.unshift({ userId, order: copy });
+      return copy;
+    },
+
+    async findOrderByCode(orderCode: string) {
+      const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+      const match = orders.find((entry) => entry.order.orderCode.toUpperCase() === normalized);
+      return match ? { ...match.order } : null;
     },
   };
 }
@@ -414,6 +604,18 @@ export class AuthService {
 
   updateUserRecord(userId: string, updater: (user: StoredUserRecord) => StoredUserRecord) {
     return this.storage.updateUser(userId, updater);
+  }
+
+  listUserOrders(userId: string) {
+    return this.storage.listUserOrders(userId);
+  }
+
+  createOrder(userId: string | null, order: StoredOrderRecord) {
+    return this.storage.createOrder(userId, order);
+  }
+
+  findOrderByCode(orderCode: string) {
+    return this.storage.findOrderByCode(orderCode);
   }
 
   async createOtpChallenge(params: {

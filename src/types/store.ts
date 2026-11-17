@@ -175,6 +175,7 @@ export interface DemoUser {
   birthDate?: string;
   newsletterOptIn?: boolean;
   addresses?: UserAddress[];
+  wishlist?: string[];
   createdAt?: string;
   lastLoginAt?: string;
 }
