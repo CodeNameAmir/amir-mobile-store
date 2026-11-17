@@ -98,9 +98,12 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   // Strict CORS middleware for cross-origin credentials between GitHub Pages & Render API
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
+    const host = req.get('host');
+    const proto = isHttpsRequest(req) ? 'https' : req.protocol || 'http';
+    const selfOrigin = host ? `${proto}://${host}` : undefined;
 
     if (origin) {
-      if (!isOriginAllowed(origin, corsCfg.allowedOrigins, isProd)) {
+      if (!isOriginAllowed(origin, corsCfg.allowedOrigins, isProd, selfOrigin)) {
         res.status(403).json({ error: 'Origin not allowed by CORS' });
         return;
       }

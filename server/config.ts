@@ -20,10 +20,14 @@ export function parseCorsOrigins(raw?: string): string[] {
 export function isOriginAllowed(
   origin: string | undefined,
   allowedOrigins: string[],
-  isProd: boolean
+  isProd: boolean,
+  selfOrigin?: string
 ): boolean {
   if (!origin) return true;
   const normalized = origin.trim().replace(/\/+$/, '');
+  if (selfOrigin && normalized === selfOrigin.trim().replace(/\/+$/, '')) {
+    return true;
+  }
   if (allowedOrigins.length > 0) {
     return allowedOrigins.includes(normalized);
   }

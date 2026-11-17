@@ -27,12 +27,28 @@ export interface AuthStatusResponse extends ResendServiceStatus {
   user: DemoUser | null;
 }
 
-const rawApiBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim() || '';
-export const API_BASE_URL = rawApiBase.replace(/\/+$/, '');
+export function resolveApiBaseUrl(envApiUrl?: string, runtimeHostname?: string): string {
+  const configured = (envApiUrl || '').trim().replace(/\/+$/, '');
+  if (configured) return configured;
 
-export function buildApiUrl(path: string): string {
+  if (runtimeHostname === 'amir-mobile-store.codenameamir.ir') {
+    return 'https://api.codenameamir.ir';
+  }
+  return '';
+}
+
+const viteEnv =
+  typeof import.meta !== 'undefined' &&
+  (import.meta as { env?: Record<string, string | undefined> }).env
+    ? (import.meta as { env?: Record<string, string | undefined> }).env
+    : undefined;
+const runtimeHostname = typeof window !== 'undefined' ? window.location.hostname : undefined;
+
+export const API_BASE_URL = resolveApiBaseUrl(viteEnv?.VITE_API_URL, runtimeHostname);
+
+export function buildApiUrl(path: string, baseUrl = API_BASE_URL): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath;
+  return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {

@@ -3,6 +3,7 @@ import http from 'node:http';
 import test from 'node:test';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerApp } from '../server.ts';
+import { buildApiUrl, resolveApiBaseUrl } from '../src/lib/authApi.ts';
 import {
   createMemoryAuthStorage,
   createSupabaseAuthStorage,
@@ -317,6 +318,37 @@ test('Full HTTP production auth flow: CORS, signup, OTP login, password login, r
     const evilCors = await apiFetch('/api/auth/me', { method: 'GET' }, 'https://evil.example.com');
     assert.equal(evilCors.res.status, 403);
 
+    // Same-origin POST (e.g. Render service serving its own preview URL with Origin matching Host)
+    const renderHostStatus = await new Promise<number>((resolve, reject) => {
+      const payload = JSON.stringify({
+        email: 'same-origin@codenameamir.ir',
+        purpose: 'login',
+      });
+      const req = http.request(
+        {
+          hostname: '127.0.0.1',
+          port: address.port,
+          path: '/api/auth/send-otp',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(payload),
+            Host: 'amir-mobile-store.onrender.com',
+            Origin: 'https://amir-mobile-store.onrender.com',
+            'X-Forwarded-Proto': 'https',
+          },
+        },
+        (res) => {
+          res.resume();
+          res.on('end', () => resolve(res.statusCode || 0));
+        }
+      );
+      req.on('error', reject);
+      req.write(payload);
+      req.end();
+    });
+    assert.equal(renderHostStatus, 200);
+
     // 3. Signup with OTP + HttpOnly cross-site cookie check
     const email1 = 'customer@codenameamir.ir';
     const initialPw = 'AmirStore2026!';
@@ -478,4 +510,21 @@ test('Full HTTP production auth flow: CORS, signup, OTP login, password login, r
       server.close((err) => (err ? reject(err) : resolve()))
     );
   }
+});
+
+test('Frontend API base URL resolves VITE_API_URL and guards amir-mobile-store.codenameamir.ir against relative 405 calls', () => {
+  assert.equal(
+    resolveApiBaseUrl('https://api.codenameamir.ir/', 'amir-mobile-store.codenameamir.ir'),
+    'https://api.codenameamir.ir'
+  );
+  assert.equal(
+    resolveApiBaseUrl('', 'amir-mobile-store.codenameamir.ir'),
+    'https://api.codenameamir.ir'
+  );
+  assert.equal(resolveApiBaseUrl('', 'amir-mobile-store.onrender.com'), '');
+  assert.equal(resolveApiBaseUrl('', 'localhost'), '');
+  assert.equal(
+    buildApiUrl('/api/auth/send-otp', 'https://api.codenameamir.ir'),
+    'https://api.codenameamir.ir/api/auth/send-otp'
+  );
 });
