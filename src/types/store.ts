@@ -109,6 +109,8 @@ export interface CheckoutFormData {
   deliverySlot: 'express' | 'standard';
 }
 
+export type OrderStatus = 'paid' | 'preparing' | 'shipped' | 'delivered' | 'cancelled';
+
 export interface OrderRecord {
   orderCode: string;
   shaparakRef: string;
@@ -124,12 +126,31 @@ export interface OrderRecord {
   couponDiscount: number;
   shippingCost: number;
   totalAmount: number;
-  status: 'paid' | 'preparing' | 'shipped' | 'delivered';
+  status: OrderStatus;
   deliveryPin: string;
   imeiSample: string;
   adminNote?: string;
   items: CartItem[];
   createdAt: string;
+}
+
+export interface OrderSummary {
+  orderCode: string;
+  status: OrderStatus;
+  deliverySlot: 'express' | 'standard';
+  createdAt: string;
+  requiresVerification: true;
+  isGuestOrder: boolean;
+}
+
+export interface OrderLookupResult {
+  found: boolean;
+  authorized: boolean;
+  requiresVerification: boolean;
+  isGuestOrder: boolean;
+  order: OrderRecord | null;
+  summary?: OrderSummary;
+  error?: string;
 }
 
 export interface ContactFormData {
@@ -163,11 +184,14 @@ export interface UserAddress {
   isDefault: boolean;
 }
 
+export type UserRole = 'customer' | 'admin';
+
 export interface DemoUser {
   id?: string;
   fullName: string;
   phone: string;
   email: string;
+  role?: UserRole;
   emailVerified?: boolean;
   twoFactorEnabled?: boolean;
   hasPassword?: boolean;

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import { createAdminRouter } from './server/adminRoutes.ts';
 import {
   AuthService,
   createDefaultAuthStorage,
@@ -29,6 +30,14 @@ import {
   buildWelcomeEmailContent,
 } from './server/emailTemplates.ts';
 import { getResendProviderStatus, sendEmailWithResend } from './server/resendService.ts';
+import {
+  calculateOrderTotalsServer,
+  CATEGORY_ITEMS,
+  evaluateCouponServer,
+  normalizePhone,
+  normalizeRole,
+  toSummaryOrderDTO,
+} from './server/storeData.ts';
 
 const SESSION_COOKIE_NAME = 'amir_session';
 const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -112,7 +121,10 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, X-Order-Tracking-Token'
+      );
     }
 
     if (req.method === 'OPTIONS') {
@@ -169,6 +181,40 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     } catch (err) {
       next(err);
     }
+  };
+
+  const requireAdmin = (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): void => {
+    if (!req.authUser) {
+      res.status(401).json({ error: 'لطفاً ابتدا وارد حساب کاربری خود شوید.' });
+      return;
+    }
+    if (normalizeRole(req.authUser.role) !== 'admin') {
+      res.status(403).json({ error: 'شما مجوز دسترسی به پنل مدیریت را ندارید.' });
+      return;
+    }
+    next();
+  };
+
+  const issueOrderTrackingToken = (orderCode: string): string => {
+    const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+    const sig = crypto
+      .createHmac('sha256', sessionSecret)
+      .update(`order-track:${normalized}`)
+      .digest('hex');
+    return sig;
+  };
+
+  const verifyOrderTrackingToken = (orderCode: string, candidate: unknown): boolean => {
+    if (typeof candidate !== 'string' || !candidate.trim()) return false;
+    const expected = issueOrderTrackingToken(orderCode);
+    const a = Buffer.from(candidate.trim(), 'hex');
+    const b = Buffer.from(expected, 'hex');
+    if (a.length !== b.length || a.length === 0) return false;
+    return crypto.timingSafeEqual(a, b);
   };
 
   app.get('/api/health', async (_req, res) => {
@@ -1126,6 +1172,176 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
+  // ============================================================================
+  // Storefront Public Catalog, Reviews, Coupons, Config, Support & Newsletter APIs
+  // ============================================================================
+  app.get('/api/categories', (_req, res) => {
+    res.json({ categories: CATEGORY_ITEMS });
+  });
+
+  app.get('/api/store/config', async (_req, res, next) => {
+    try {
+      const [coupons, settings] = await Promise.all([
+        storage.listActiveCoupons(),
+        storage.getStoreSettings(),
+      ]);
+      res.json({ coupons, settings });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/products', async (req, res, next) => {
+    try {
+      const minPrice = req.query.minPrice !== undefined ? Number(req.query.minPrice) : undefined;
+      const maxPrice = req.query.maxPrice !== undefined ? Number(req.query.maxPrice) : undefined;
+      const products = await storage.listProducts({
+        category: typeof req.query.category === 'string' ? req.query.category : undefined,
+        q: typeof req.query.q === 'string' ? req.query.q : undefined,
+        brand: typeof req.query.brand === 'string' ? req.query.brand : undefined,
+        inStock: req.query.inStock === 'true',
+        discounted: req.query.discounted === 'true',
+        express: req.query.express === 'true',
+        minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
+        maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
+        sort: typeof req.query.sort === 'string' ? req.query.sort : undefined,
+      });
+      res.json({ products, total: products.length });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/products/:slug', async (req, res, next) => {
+    try {
+      const slug = String(req.params.slug || '').trim();
+      const product = await storage.findProductByIdOrSlug(slug);
+      if (!product) {
+        res.status(404).json({ error: 'محصول مورد نظر یافت نشد.' });
+        return;
+      }
+      const reviews = await storage.listProductReviews(product.id);
+      res.json({ product, reviews });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/coupons/validate', async (req, res, next) => {
+    try {
+      const code = String(req.body?.code || '');
+      const subtotal = Number(req.body?.subtotal || 0);
+      const coupons = await storage.listActiveCoupons();
+      const evaluation = evaluateCouponServer(code, subtotal, coupons);
+      res.json(evaluation);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/products/:id/reviews', async (req, res, next) => {
+    try {
+      const id = String(req.params.id || '').trim();
+      const product = await storage.findProductByIdOrSlug(id);
+      if (!product) {
+        res.status(404).json({ error: 'محصول یافت نشد.' });
+        return;
+      }
+      const reviews = await storage.listProductReviews(product.id);
+      res.json({ reviews });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/products/:id/reviews', async (req, res, next) => {
+    try {
+      const id = String(req.params.id || '').trim();
+      const product = await storage.findProductByIdOrSlug(id);
+      if (!product) {
+        res.status(404).json({ error: 'محصول یافت نشد.' });
+        return;
+      }
+
+      const auth = await getAuthFromRequest(req);
+      const author = String(req.body?.author || auth?.user.fullName || '').trim();
+      const comment = String(req.body?.comment || '').trim();
+      const rating = Math.round(Number(req.body?.rating ?? 5));
+
+      if (author.length < 2 || comment.length < 8) {
+        res.status(400).json({ error: 'لطفاً نام و متن دیدگاه (حداقل ۸ کاراکتر) را وارد کنید.' });
+        return;
+      }
+      if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+        res.status(400).json({ error: 'امتیاز باید بین ۱ تا ۵ باشد.' });
+        return;
+      }
+
+      const review = await storage.createProductReview({
+        id: crypto.randomUUID(),
+        productId: product.id,
+        author,
+        dateLabel: 'هم‌اکنون',
+        rating,
+        comment,
+        verified: Boolean(auth),
+        isApproved: true,
+        createdAt: new Date().toISOString(),
+      });
+
+      res.status(201).json({ review });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/support-tickets', async (req, res, next) => {
+    try {
+      const fullName = String(req.body?.fullName || '').trim();
+      const phone = normalizePhone(req.body?.phone);
+      const department = String(req.body?.department || 'فروش و مشاوره تخصصی').trim();
+      const orderCode = String(req.body?.orderCode || '').trim().toUpperCase();
+      const message = String(req.body?.message || '').trim();
+
+      if (fullName.length < 3 || !/^09\d{9}$/.test(phone) || message.length < 10) {
+        res.status(400).json({ error: 'لطفاً نام، شماره موبایل معتبر و شرح پیام (حداقل ۱۰ کاراکتر) را وارد کنید.' });
+        return;
+      }
+
+      const ticket = await storage.createSupportTicket({
+        ticketCode: `TKT-${crypto.randomInt(1000, 99999)}`,
+        fullName,
+        phone,
+        department,
+        orderCode,
+        message,
+        status: 'open',
+        createdAt: new Date().toISOString(),
+      });
+
+      res.status(201).json({ ticket, syncedToDatabase: true });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/newsletter', async (req, res, next) => {
+    try {
+      const contact = toEnglishDigits(String(req.body?.contact || '')).trim();
+      if (contact.length < 5) {
+        res.status(400).json({ error: 'لطفاً شماره موبایل یا ایمیل معتبر وارد کنید.' });
+        return;
+      }
+      const result = await storage.subscribeNewsletter(contact);
+      res.status(201).json({ ok: true, alreadySubscribed: result.alreadySubscribed });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ============================================================================
+  // Orders (Server-Side Price/Stock Computation & Ownership/Verification Security)
+  // ============================================================================
   app.get('/api/orders/mine', requireAuth, async (req: AuthenticatedRequest, res, next) => {
     try {
       const orders = await authService.listUserOrders(req.authUser!.id);
@@ -1139,53 +1355,87 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     try {
       const auth = await getAuthFromRequest(req);
       const body = req.body || {};
-      const orderCode = String(body.orderCode || '')
-        .trim()
-        .toUpperCase();
+
       const customerName = String(body.customerName || '').trim();
-      const customerPhone = toEnglishDigits(String(body.customerPhone || '')).trim();
+      const customerPhone = normalizePhone(body.customerPhone);
       const city = String(body.city || '').trim();
       const shippingAddress = String(body.shippingAddress || '').trim();
-      const postalCode = toEnglishDigits(String(body.postalCode || '')).trim();
+      const postalCode = toEnglishDigits(String(body.postalCode || '')).replace(/[\s-]/g, '').trim();
       const items = Array.isArray(body.items) ? body.items : [];
 
       if (
-        !orderCode ||
-        customerName.length < 2 ||
-        !customerPhone ||
-        !shippingAddress ||
+        customerName.length < 3 ||
+        !/^09\d{9}$/.test(customerPhone) ||
+        city.length < 2 ||
+        shippingAddress.length < 10 ||
+        !/^\d{10}$/.test(postalCode) ||
         items.length === 0
       ) {
         res.status(400).json({ error: 'اطلاعات سفارش ناقص یا نامعتبر است.' });
         return;
       }
 
+      const [catalogProducts, activeCoupons, storeSettings] = await Promise.all([
+        storage.listProducts(),
+        storage.listActiveCoupons(),
+        storage.getStoreSettings(),
+      ]);
+
+      const totals = calculateOrderTotalsServer({
+        items,
+        products: catalogProducts,
+        couponCode: body.couponCode ? String(body.couponCode) : null,
+        couponRules: activeCoupons,
+        freeShippingThreshold: storeSettings.freeShippingThreshold,
+      });
+
+      if (!totals.ok) {
+        res.status(totals.statusCode).json({ error: totals.error });
+        return;
+      }
+
+      let orderCode = String(body.orderCode || '')
+        .trim()
+        .toUpperCase()
+        .replace(/^#/, '');
+      if (!/^AMIR-[A-Z0-9]{4,12}$/.test(orderCode)) {
+        orderCode = `AMIR-${crypto.randomInt(10000, 99999)}`;
+      }
+      const existingOrder = await authService.findOrderByCode(orderCode);
+      if (existingOrder) {
+        orderCode = `AMIR-${crypto.randomInt(100000, 999999)}`;
+      }
+
       const orderPayload: StoredOrderRecord = {
         orderCode,
-        shaparakRef: String(body.shaparakRef || '84729104'),
+        userId: auth?.user.id ?? null,
+        shaparakRef: String(crypto.randomInt(10000000, 99999999)),
         customerName,
         customerPhone,
         city,
         shippingAddress,
         postalCode,
         deliverySlot: body.deliverySlot === 'standard' ? 'standard' : 'express',
-        couponCode: body.couponCode ? String(body.couponCode) : null,
-        subtotal: Number(body.subtotal || 0),
-        productDiscount: Number(body.productDiscount || 0),
-        couponDiscount: Number(body.couponDiscount || 0),
-        shippingCost: Number(body.shippingCost || 0),
-        totalAmount: Number(body.totalAmount || 0),
-        status:
-          body.status === 'paid' || body.status === 'shipped' || body.status === 'delivered'
-            ? body.status
-            : 'preparing',
-        deliveryPin: String(body.deliveryPin || ''),
-        imeiSample: String(body.imeiSample || ''),
-        items,
-        createdAt: String(body.createdAt || 'ثبت شده در حساب کاربری'),
+        couponCode: totals.couponCode,
+        subtotal: totals.subtotal,
+        productDiscount: totals.productDiscount,
+        couponDiscount: totals.couponDiscount,
+        shippingCost: totals.shippingCost,
+        totalAmount: totals.totalAmount,
+        status: 'preparing',
+        deliveryPin: String(crypto.randomInt(1000, 9999)),
+        imeiSample: `35918239${crypto.randomInt(1000000, 9999999)}`,
+        items: totals.items,
+        createdAt: new Date().toISOString(),
       };
 
       const saved = await authService.createOrder(auth?.user.id ?? null, orderPayload);
+
+      for (const dec of totals.stockDecrements) {
+        await storage.decrementProductStock(dec.productId, dec.qty);
+      }
+
+      const trackingToken = issueOrderTrackingToken(saved.orderCode);
 
       if (auth?.user) {
         const totalFormatted = new Intl.NumberFormat('fa-IR').format(saved.totalAmount);
@@ -1205,7 +1455,52 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         });
       }
 
-      res.status(201).json({ order: saved, syncedToDatabase: true });
+      res.status(201).json({
+        order: saved,
+        syncedToDatabase: true,
+        trackingToken,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/orders/:code/verify', async (req, res, next) => {
+    try {
+      const code = String(req.params.code || '').trim();
+      const phone = normalizePhone(req.body?.phone);
+      if (!code || !/^09\d{9}$/.test(phone)) {
+        res.status(400).json({ error: 'کد سفارش و شماره موبایل معتبر الزامی است.' });
+        return;
+      }
+
+      const order = await authService.findOrderByCode(code);
+      if (!order) {
+        res.status(404).json({ error: 'سفارش یافت نشد.' });
+        return;
+      }
+
+      const auth = await getAuthFromRequest(req);
+      const isAdmin = Boolean(auth && normalizeRole(auth.user.role) === 'admin');
+      const isOwner = Boolean(auth && order.userId && auth.user.id === order.userId);
+
+      if (order.userId && !isOwner && !isAdmin) {
+        res.status(403).json({
+          error: 'این سفارش متعلق به یک حساب کاربری ثبت‌شده است. لطفاً ابتدا وارد حساب خود شوید.',
+          requiresLogin: true,
+        });
+        return;
+      }
+
+      if (!isOwner && !isAdmin && normalizePhone(order.customerPhone) !== phone) {
+        res.status(403).json({ error: 'شماره موبایل با شماره ثبت‌شده در این سفارش مطابقت ندارد.' });
+        return;
+      }
+
+      res.json({
+        order,
+        trackingToken: issueOrderTrackingToken(order.orderCode),
+      });
     } catch (err) {
       next(err);
     }
@@ -1223,7 +1518,38 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         res.status(404).json({ error: 'سفارش یافت نشد.' });
         return;
       }
-      res.json({ order });
+
+      const auth = await getAuthFromRequest(req);
+      const isAdmin = Boolean(auth && normalizeRole(auth.user.role) === 'admin');
+      const isOwner = Boolean(auth && order.userId && auth.user.id === order.userId);
+      const isGuestOrder = !order.userId;
+
+      const headerToken = req.headers['x-order-tracking-token'];
+      const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
+      const queryPhone = typeof req.query.phone === 'string' ? normalizePhone(req.query.phone) : '';
+
+      const guestTokenValid =
+        isGuestOrder &&
+        (verifyOrderTrackingToken(order.orderCode, headerToken) ||
+          verifyOrderTrackingToken(order.orderCode, queryToken) ||
+          (Boolean(queryPhone) && queryPhone === normalizePhone(order.customerPhone)));
+
+      if (isAdmin || isOwner || guestTokenValid) {
+        res.json({
+          order,
+          authorized: true,
+          requiresVerification: false,
+        });
+        return;
+      }
+
+      res.json({
+        order: null,
+        authorized: false,
+        requiresVerification: true,
+        isGuestOrder,
+        summary: toSummaryOrderDTO(order, isGuestOrder),
+      });
     } catch (err) {
       next(err);
     }
@@ -1233,26 +1559,37 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     try {
       const currentUser = req.authUser!;
       const orderCode = String(req.body?.orderCode || '').trim();
-      const totalFormatted = String(req.body?.totalFormatted || '').trim();
-      const itemsCount = Number(req.body?.itemsCount || 1);
 
       if (!orderCode) {
         res.status(400).json({ error: 'orderCode is required' });
         return;
       }
 
+      const order = await authService.findOrderByCode(orderCode);
+      if (!order) {
+        res.status(404).json({ error: 'سفارش یافت نشد.' });
+        return;
+      }
+
+      const isAdmin = normalizeRole(currentUser.role) === 'admin';
+      if (order.userId && order.userId !== currentUser.id && !isAdmin) {
+        res.status(403).json({ error: 'شما مجوز ارسال اعلان برای این سفارش را ندارید.' });
+        return;
+      }
+
+      const totalFormatted = new Intl.NumberFormat('fa-IR').format(order.totalAmount);
       const emailContent = buildOrderReceiptEmailContent({
         fullName: currentUser.fullName,
-        orderCode,
+        orderCode: order.orderCode,
         totalFormatted,
-        itemsCount,
+        itemsCount: order.items.length,
       });
 
       const delivery = await dispatchEmail({
         to: currentUser.email,
         subject: emailContent.subject,
         html: emailContent.html,
-        idempotencyKey: `order-receipt-${orderCode}`,
+        idempotencyKey: `order-receipt-${order.orderCode}`,
         tags: [{ name: 'category', value: 'order_receipt' }],
       });
 
@@ -1261,6 +1598,11 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       next(err);
     }
   });
+
+  // ============================================================================
+  // Admin Panel Protected APIs (/api/admin/*) — RBAC: requireAuth + requireAdmin
+  // ============================================================================
+  app.use('/api/admin', requireAuth, requireAdmin, createAdminRouter(storage));
 
   if (!isProd && !options.disableVite) {
     const { createServer: createViteServer } = await import('vite');

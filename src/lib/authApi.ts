@@ -1,8 +1,15 @@
 import type {
+  CouponRule,
   DemoUser,
+  OrderLookupResult,
   OrderRecord,
+  OrderSummary,
   OtpPurpose,
+  Product,
+  ProductReview,
   ResendServiceStatus,
+  StoreSettings,
+  SupportTicket,
   UserAddress,
 } from '../types/store';
 
@@ -42,13 +49,41 @@ export interface PasswordLoginResponse extends AuthResponse {
 export interface AuthStatusResponse extends ResendServiceStatus {
   authenticated: boolean;
   user: DemoUser | null;
+  storageMode?: 'supabase' | 'dev-memory';
+}
+
+export interface BackendHealthResponse {
+  ok: boolean;
+  service: string;
+  environment: string;
+  storage: {
+    ok: boolean;
+    mode: 'supabase' | 'dev-memory';
+    detail?: string;
+  };
+  corsConfigured: boolean;
+  resend: ResendServiceStatus;
+  timestamp: string;
 }
 
 export function resolveApiBaseUrl(envApiUrl?: string, runtimeHostname?: string): string {
   const configured = (envApiUrl || '').trim().replace(/\/+$/, '');
+  const isLocalBrowser =
+    runtimeHostname === 'localhost' || runtimeHostname === '127.0.0.1';
+
+  if (isLocalBrowser) {
+    if (configured && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(configured)) {
+      return configured;
+    }
+    return '';
+  }
+
   if (configured) return configured;
 
-  if (runtimeHostname === 'amir-mobile-store.codenameamir.ir') {
+  if (
+    runtimeHostname === 'amir-mobile-store.codenameamir.ir' ||
+    Boolean(runtimeHostname && runtimeHostname.endsWith('.github.io'))
+  ) {
     return 'https://api.codenameamir.ir';
   }
   return '';
@@ -66,6 +101,36 @@ export const API_BASE_URL = resolveApiBaseUrl(viteEnv?.VITE_API_URL, runtimeHost
 export function buildApiUrl(path: string, baseUrl = API_BASE_URL): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
+}
+
+const ORDER_TRACKING_TOKENS_KEY = 'amir_order_tracking_tokens_v1';
+
+export function saveOrderTrackingToken(orderCode: string, token?: string): void {
+  if (typeof window === 'undefined' || !token) return;
+  const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+  if (!normalized) return;
+  try {
+    const raw = window.localStorage.getItem(ORDER_TRACKING_TOKENS_KEY);
+    const map = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    map[normalized] = token;
+    window.localStorage.setItem(ORDER_TRACKING_TOKENS_KEY, JSON.stringify(map));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+export function getOrderTrackingToken(orderCode: string): string | null {
+  if (typeof window === 'undefined') return null;
+  const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+  if (!normalized) return null;
+  try {
+    const raw = window.localStorage.getItem(ORDER_TRACKING_TOKENS_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw) as Record<string, string>;
+    return typeof map[normalized] === 'string' ? map[normalized] : null;
+  } catch {
+    return null;
+  }
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -228,22 +293,117 @@ export const authApi = {
 
   async createOrder(
     order: OrderRecord
-  ): Promise<{ order: OrderRecord; syncedToDatabase: boolean }> {
-    return requestJson<{ order: OrderRecord; syncedToDatabase: boolean }>('/api/orders', {
+  ): Promise<{ order: OrderRecord; syncedToDatabase: boolean; trackingToken?: string }> {
+    const res = await requestJson<{
+      order: OrderRecord;
+      syncedToDatabase: boolean;
+      trackingToken?: string;
+    }>('/api/orders', {
       method: 'POST',
       body: JSON.stringify(order),
     });
+    if (res.trackingToken && res.order?.orderCode) {
+      saveOrderTrackingToken(res.order.orderCode, res.trackingToken);
+    }
+    return res;
+  },
+
+  async lookupOrderByCode(orderCode: string): Promise<OrderLookupResult> {
+    const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+    if (!normalized) {
+      return {
+        found: false,
+        authorized: false,
+        requiresVerification: false,
+        isGuestOrder: false,
+        order: null,
+      };
+    }
+
+    const token = getOrderTrackingToken(normalized);
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['X-Order-Tracking-Token'] = token;
+    }
+
+    try {
+      const res = await fetch(buildApiUrl(`/api/orders/${encodeURIComponent(normalized)}`), {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        order?: OrderRecord | null;
+        authorized?: boolean;
+        requiresVerification?: boolean;
+        isGuestOrder?: boolean;
+        summary?: OrderSummary;
+        error?: string;
+      };
+      if (res.status === 404) {
+        return {
+          found: false,
+          authorized: false,
+          requiresVerification: false,
+          isGuestOrder: false,
+          order: null,
+          error: data.error,
+        };
+      }
+      if (!res.ok) {
+        return {
+          found: false,
+          authorized: false,
+          requiresVerification: false,
+          isGuestOrder: false,
+          order: null,
+          error: data.error || `خطای سرور (${res.status})`,
+        };
+      }
+      return {
+        found: true,
+        authorized: Boolean(data.authorized && data.order),
+        requiresVerification: Boolean(data.requiresVerification),
+        isGuestOrder: Boolean(data.isGuestOrder),
+        order: data.order || null,
+        summary: data.summary,
+      };
+    } catch {
+      return {
+        found: false,
+        authorized: false,
+        requiresVerification: false,
+        isGuestOrder: false,
+        order: null,
+        error: 'خطا در ارتباط با سرور برای بررسی سفارش.',
+      };
+    }
+  },
+
+  async verifyGuestOrder(
+    orderCode: string,
+    phone: string
+  ): Promise<{ order: OrderRecord; trackingToken?: string }> {
+    const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+    const res = await requestJson<{ order: OrderRecord; trackingToken?: string }>(
+      `/api/orders/${encodeURIComponent(normalized)}/verify`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ phone }),
+      }
+    );
+    if (res.trackingToken && res.order?.orderCode) {
+      saveOrderTrackingToken(res.order.orderCode, res.trackingToken);
+    }
+    return res;
   },
 
   async findOrderByCode(orderCode: string): Promise<OrderRecord | null> {
-    try {
-      const data = await requestJson<{ order: OrderRecord }>(
-        `/api/orders/${encodeURIComponent(orderCode.trim().toUpperCase())}`
-      );
-      return data.order || null;
-    } catch {
-      return null;
-    }
+    const result = await this.lookupOrderByCode(orderCode);
+    return result.order;
   },
 
   async notifyOrderPlaced(payload: {
@@ -257,5 +417,113 @@ export const authApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }).catch(() => undefined);
+  },
+};
+
+export const storeApi = {
+  async getHealth(): Promise<BackendHealthResponse> {
+    const res = await fetch(buildApiUrl('/api/health'), {
+      method: 'GET',
+      credentials: 'include',
+    });
+    const data = (await res.json().catch(() => ({}))) as BackendHealthResponse & { error?: string };
+    if (!res.ok && !data.service) {
+      throw new Error(data.error || `خطای بررسی وضعیت سرور (${res.status})`);
+    }
+    return data;
+  },
+
+  async getProducts(params?: {
+    category?: string;
+    q?: string;
+    brand?: string;
+    inStock?: boolean;
+    discounted?: boolean;
+    express?: boolean;
+    minPrice?: number;
+    maxPrice?: number;
+    sort?: string;
+  }): Promise<Product[]> {
+    const qs = new URLSearchParams();
+    if (params?.category) qs.set('category', params.category);
+    if (params?.q) qs.set('q', params.q);
+    if (params?.brand) qs.set('brand', params.brand);
+    if (params?.inStock) qs.set('inStock', 'true');
+    if (params?.discounted) qs.set('discounted', 'true');
+    if (params?.express) qs.set('express', 'true');
+    if (params?.minPrice !== undefined) qs.set('minPrice', String(params.minPrice));
+    if (params?.maxPrice !== undefined) qs.set('maxPrice', String(params.maxPrice));
+    if (params?.sort) qs.set('sort', params.sort);
+    const suffix = qs.toString();
+    const res = await requestJson<{ products: Product[] }>(
+      suffix ? `/api/products?${suffix}` : '/api/products'
+    );
+    return Array.isArray(res.products) ? res.products : [];
+  },
+
+  async getProductBySlug(slug: string): Promise<{ product: Product; reviews: ProductReview[] }> {
+    return requestJson<{ product: Product; reviews: ProductReview[] }>(
+      `/api/products/${encodeURIComponent(slug)}`
+    );
+  },
+
+  async getStoreConfig(): Promise<{ coupons: CouponRule[]; settings: StoreSettings }> {
+    return requestJson<{ coupons: CouponRule[]; settings: StoreSettings }>('/api/store/config');
+  },
+
+  async validateCoupon(
+    code: string,
+    subtotal: number
+  ): Promise<{ valid: boolean; code: string | null; discountAmount: number; message: string }> {
+    return requestJson('/api/coupons/validate', {
+      method: 'POST',
+      body: JSON.stringify({ code, subtotal }),
+    });
+  },
+
+  async getProductReviews(productId: string): Promise<ProductReview[]> {
+    const res = await requestJson<{ reviews: ProductReview[] }>(
+      `/api/products/${encodeURIComponent(productId)}/reviews`
+    );
+    return Array.isArray(res.reviews) ? res.reviews : [];
+  },
+
+  async submitProductReview(
+    productId: string,
+    payload: { author: string; rating: number; comment: string }
+  ): Promise<ProductReview> {
+    const res = await requestJson<{ review: ProductReview }>(
+      `/api/products/${encodeURIComponent(productId)}/reviews`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+    return res.review;
+  },
+
+  async submitSupportTicket(payload: {
+    fullName: string;
+    phone: string;
+    department: string;
+    orderCode?: string;
+    message: string;
+  }): Promise<{ ticket: SupportTicket; syncedToDatabase: boolean }> {
+    return requestJson<{ ticket: SupportTicket; syncedToDatabase: boolean }>(
+      '/api/support-tickets',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+  },
+
+  async subscribeNewsletter(
+    contact: string
+  ): Promise<{ ok: boolean; alreadySubscribed?: boolean }> {
+    return requestJson<{ ok: boolean; alreadySubscribed?: boolean }>('/api/newsletter', {
+      method: 'POST',
+      body: JSON.stringify({ contact }),
+    });
   },
 };

@@ -732,3 +732,50 @@ export const DEMO_SAMPLE_ORDER: OrderRecord = {
     },
   ],
 };
+
+const SEED_BY_ID = new Map(SEED_PRODUCTS.map((p) => [p.id, p]));
+
+export function resolveFallbackProductImage(brand?: string, category?: string): string {
+  if (category === 'chargers' || category === 'gaming' || brand === 'Anker') {
+    return STORE_ASSETS.ankerCharger;
+  }
+  if (category === 'audio' || category === 'smartwatches') {
+    return STORE_ASSETS.audioWearables;
+  }
+  if (brand === 'Samsung') return STORE_ASSETS.samsungUltra;
+  if (brand === 'Xiaomi') return STORE_ASSETS.xiaomiLeica;
+  return STORE_ASSETS.heroIphone;
+}
+
+export function resolveProductImage(
+  image: string | null | undefined,
+  productIdOrSlug?: string,
+  brand?: string,
+  category?: string
+): string {
+  const trimmed = typeof image === 'string' ? image.trim() : '';
+  if (trimmed) return trimmed;
+  if (productIdOrSlug) {
+    const seed = SEED_BY_ID.get(productIdOrSlug);
+    if (seed?.image) return seed.image;
+  }
+  return resolveFallbackProductImage(brand, category);
+}
+
+export function hydrateProduct(product: Product): Product {
+  return {
+    ...product,
+    image: resolveProductImage(product.image, product.id || product.slug, product.brand, product.category),
+  };
+}
+
+export function hydrateOrderImages(order: OrderRecord): OrderRecord {
+  return {
+    ...order,
+    items: (order.items || []).map((item) => ({
+      ...item,
+      image: resolveProductImage(item.image, item.productId || item.slug, item.brand),
+    })),
+  };
+}
+

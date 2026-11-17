@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   Copy,
+  Lock,
   MapPin,
   PackageCheck,
   Phone,
@@ -15,8 +16,7 @@ import {
 import { OrderConfirmationSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
-import { DEMO_SAMPLE_ORDER } from '../data/catalog';
-import type { OrderRecord } from '../types/store';
+import type { OrderLookupResult, OrderRecord } from '../types/store';
 import { formatToman, toPersianDigits } from '../utils/storeLogic';
 
 interface OrderConfirmationPageProps {
@@ -24,22 +24,57 @@ interface OrderConfirmationPageProps {
 }
 
 export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ orderCode }) => {
-  const { findOrder, navigate, showToast } = useStore();
+  const { lookupOrder, verifyGuestOrder, navigate, showToast } = useStore();
+  const [lookup, setLookup] = useState<OrderLookupResult | null>(null);
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [loading, setLoading] = useState(true);
+  const [verifyPhone, setVerifyPhone] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
-    findOrder(orderCode).then((res) => {
-      if (!active) return;
-      setOrder(res || DEMO_SAMPLE_ORDER);
-      setLoading(false);
-    });
+    setVerifyError(null);
+    lookupOrder(orderCode)
+      .then((res) => {
+        if (!active) return;
+        setLookup(res);
+        setOrder(res.order);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setLookup(null);
+        setOrder(null);
+        setLoading(false);
+      });
     return () => {
       active = false;
     };
-  }, [orderCode, findOrder]);
+  }, [orderCode, lookupOrder]);
+
+  const handleVerifyGuest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setVerifyError(null);
+    setVerifying(true);
+    try {
+      const verifiedOrder = await verifyGuestOrder(orderCode, verifyPhone);
+      setOrder(verifiedOrder);
+      setLookup({
+        found: true,
+        authorized: true,
+        requiresVerification: false,
+        isGuestOrder: true,
+        order: verifiedOrder,
+      });
+      showToast('هویت سفارش تایید شد.', 'success');
+    } catch (err) {
+      setVerifyError(err instanceof Error ? err.message : 'خطا در تایید شماره موبایل سفارش.');
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const copyText = (value: string, label: string) => {
     if (navigator.clipboard) {
@@ -48,8 +83,94 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
     showToast(`${label} در حافظه کپی شد.`, 'info');
   };
 
-  if (loading || !order) {
+  if (loading) {
     return <OrderConfirmationSkeleton />;
+  }
+
+  if (!order && lookup?.requiresVerification) {
+    return (
+      <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-12">
+        <div className="max-w-lg mx-auto bg-white rounded-3xl border border-[#e5eeff] p-7 sm:p-9 space-y-5 text-center shadow-sm">
+          <div className="w-14 h-14 rounded-2xl bg-[#eff4ff] text-[#004ac6] flex items-center justify-center mx-auto">
+            <Lock className="w-7 h-7" />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-lg sm:text-xl font-black text-[#0b1c30]">
+              تایید دسترسی به فاکتور سفارش <span dir="ltr">{orderCode}</span>
+            </h1>
+            <p className="text-xs sm:text-sm text-[#434655] leading-6">
+              {lookup.isGuestOrder
+                ? 'برای حفاظت از اطلاعات شخصی، جهت مشاهده جزئیات و فاکتور این سفارش مهمان، شماره موبایل ثبت‌شده را وارد کنید.'
+                : 'این سفارش متعلق به یک حساب کاربری ثبت‌شده است. برای مشاهده فاکتور، ابتدا وارد حساب کاربری خود شوید.'}
+            </p>
+          </div>
+
+          {lookup.isGuestOrder ? (
+            <form onSubmit={handleVerifyGuest} className="space-y-3 text-right">
+              <label htmlFor="confirm-verify-phone" className="text-xs font-bold text-[#0b1c30] block">
+                شماره موبایل ثبت‌شده در سفارش
+              </label>
+              <input
+                id="confirm-verify-phone"
+                type="tel"
+                dir="ltr"
+                value={verifyPhone}
+                onChange={(e) => setVerifyPhone(e.target.value)}
+                placeholder="09123456789"
+                className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+              />
+              {verifyError && <p className="text-xs font-bold text-rose-600">{verifyError}</p>}
+              <button
+                type="submit"
+                disabled={verifying}
+                className="w-full h-11 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-xs sm:text-sm font-extrabold"
+              >
+                {verifying ? 'در حال بررسی...' : 'تایید و نمایش فاکتور'}
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => navigate('/account')}
+              className="w-full h-11 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-extrabold"
+            >
+              ورود به حساب کاربری
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!order) {
+    return (
+      <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-14">
+        <div className="max-w-lg mx-auto bg-white rounded-3xl border border-[#e5eeff] p-8 text-center space-y-4">
+          <h1 className="text-xl font-black text-[#0b1c30]">
+            سفارشی با شماره <span dir="ltr">{orderCode}</span> یافت نشد
+          </h1>
+          <p className="text-xs sm:text-sm text-[#434655] leading-6">
+            ممکن است شماره سفارش اشتباه وارد شده باشد یا سفارش در پایگاه داده ثبت نشده باشد.
+          </p>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => navigate('/tracking')}
+              className="h-10 px-5 rounded-xl bg-[#004ac6] text-white text-xs font-bold"
+            >
+              پیگیری سفارش دیگر
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/catalog')}
+              className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+            >
+              بازگشت به فروشگاه
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

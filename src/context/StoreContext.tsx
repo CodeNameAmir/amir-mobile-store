@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { SEED_PRODUCTS } from '../data/catalog';
-import { authApi } from '../lib/authApi';
+import { hydrateOrderImages, hydrateProduct, SEED_PRODUCTS } from '../data/catalog';
+import { authApi, storeApi } from '../lib/authApi';
 import { storeRepository } from '../lib/supabase';
 import type {
   CartItem,
@@ -9,6 +9,7 @@ import type {
   CouponRule,
   DemoUser,
   FilterState,
+  OrderLookupResult,
   OrderRecord,
   Product,
   ResendServiceStatus,
@@ -19,7 +20,6 @@ import {
   calculateCartSummary,
   DEFAULT_COUPON_RULES,
   evaluateCoupon,
-  formatToman,
   FREE_SHIPPING_THRESHOLD,
   generateOrderCode,
   toEnglishDigits,
@@ -138,8 +138,11 @@ interface StoreContextValue {
   orders: OrderRecord[];
   ordersLoading: boolean;
   productsLoading: boolean;
+  refreshProducts: () => Promise<void>;
   createDemoOrder: (form: CheckoutFormData) => Promise<OrderRecord>;
   findOrder: (code: string) => Promise<OrderRecord | null>;
+  lookupOrder: (code: string) => Promise<OrderLookupResult>;
+  verifyGuestOrder: (code: string, phone: string) => Promise<OrderRecord>;
   user: DemoUser | null;
   authLoading: boolean;
   resendStatus: ResendServiceStatus | null;
@@ -212,19 +215,35 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [dismissToast]
   );
 
+  const refreshProducts = useCallback(async () => {
+    try {
+      const fetched = await storeApi.getProducts();
+      setProducts(fetched.map(hydrateProduct));
+    } catch {
+      // Keep current products if backend is temporarily unreachable
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     Promise.all([
-      storeRepository.fetchProducts(),
-      storeRepository.fetchActiveCoupons(),
-      storeRepository.fetchStoreSettings(),
+      storeApi.getProducts().catch(() => null),
+      storeApi.getStoreConfig().catch(() => null),
       authApi.getStatus().catch(() => null),
-    ]).then(([fetchedProducts, fetchedCoupons, fetchedSettings, authStatus]) => {
+    ]).then(([fetchedProducts, fetchedConfig, authStatus]) => {
       if (!active) return;
-      setProducts(fetchedProducts);
+      if (Array.isArray(fetchedProducts)) {
+        setProducts(fetchedProducts.map(hydrateProduct));
+      }
       setProductsLoading(false);
-      setCouponRules(fetchedCoupons);
-      setStoreSettings(fetchedSettings);
+      if (fetchedConfig) {
+        if (Array.isArray(fetchedConfig.coupons)) {
+          setCouponRules(fetchedConfig.coupons);
+        }
+        if (fetchedConfig.settings) {
+          setStoreSettings(fetchedConfig.settings);
+        }
+      }
       if (authStatus) {
         setResendStatus({
           resendConfigured: authStatus.resendConfigured,
@@ -265,7 +284,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (!active) return;
         setOrdersState({
           userId: uid,
-          list: Array.isArray(res.orders) ? res.orders : [],
+          list: Array.isArray(res.orders) ? res.orders.map(hydrateOrderImages) : [],
           loading: false,
         });
       })
@@ -586,7 +605,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const now = new Date();
       const hh = String(now.getHours()).padStart(2, '0');
       const mm = String(now.getMinutes()).padStart(2, '0');
-      const newOrder: OrderRecord = {
+      const draftOrder: OrderRecord = {
         orderCode: code,
         shaparakRef: String(Math.floor(10000000 + Math.random() * 89999999)),
         customerName: form.fullName.trim(),
@@ -607,51 +626,61 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         items: [...cart],
         createdAt: `امروز · ساعت ${toPersianDigits(hh)}:${toPersianDigits(mm)}`,
       };
-      let saved: OrderRecord;
+
+      const res = await authApi.createOrder(draftOrder);
+      const saved = hydrateOrderImages(res.order);
+
       if (user) {
         const uid = user.id ?? null;
-        try {
-          const res = await authApi.createOrder(newOrder);
-          saved = res.order;
-          setOrdersState((prev) => ({
-            userId: uid,
-            list: [saved, ...prev.list.filter((o) => o.orderCode !== saved.orderCode)],
-            loading: false,
-          }));
-        } catch {
-          saved = await storeRepository.createOrder(newOrder, { skipLocalCache: true });
-          setOrdersState((prev) => ({
-            userId: uid,
-            list: [saved, ...prev.list.filter((o) => o.orderCode !== saved.orderCode)],
-            loading: false,
-          }));
-          void authApi.notifyOrderPlaced({
-            orderCode: saved.orderCode,
-            totalFormatted: formatToman(saved.totalAmount),
-            itemsCount: newOrder.items.length,
-          });
-        }
+        setOrdersState((prev) => ({
+          userId: uid,
+          list: [saved, ...prev.list.filter((o) => o.orderCode !== saved.orderCode)],
+          loading: false,
+        }));
       } else {
-        saved = await storeRepository.createOrder(newOrder);
-        setGuestOrders(storeRepository.loadOrders());
+        setGuestOrders((prev) => [saved, ...prev.filter((o) => o.orderCode !== saved.orderCode)]);
       }
+
       clearCart();
-      showToast(`سفارش آزمایشی ${saved.orderCode} با موفقیت ثبت شد.`, 'success');
+      void refreshProducts();
+      showToast(`سفارش ${saved.orderCode} با موفقیت ثبت شد.`, 'success');
       return saved;
     },
-    [appliedCoupon, cart, clearCart, couponRules, showToast, storeSettings.freeShippingThreshold, user]
+    [appliedCoupon, cart, clearCart, couponRules, refreshProducts, showToast, storeSettings.freeShippingThreshold, user]
+  );
+
+  const lookupOrder = useCallback(async (code: string): Promise<OrderLookupResult> => {
+    const result = await authApi.lookupOrderByCode(code);
+    if (result.order) {
+      return {
+        ...result,
+        order: hydrateOrderImages(result.order),
+      };
+    }
+    return result;
+  }, []);
+
+  const verifyGuestOrder = useCallback(
+    async (code: string, phone: string): Promise<OrderRecord> => {
+      const res = await authApi.verifyGuestOrder(code, phone);
+      const hydrated = hydrateOrderImages(res.order);
+      if (!user) {
+        setGuestOrders((prev) => [
+          hydrated,
+          ...prev.filter((o) => o.orderCode !== hydrated.orderCode),
+        ]);
+      }
+      return hydrated;
+    },
+    [user]
   );
 
   const findOrder = useCallback(
     async (code: string) => {
-      const normalized = code.trim().toUpperCase().replace(/^#/, '');
-      const fromSupabase = await storeRepository.findOrderByCode(code);
-      if (fromSupabase) return fromSupabase;
-      const fromState = orders.find((o) => o.orderCode.toUpperCase() === normalized);
-      if (fromState) return fromState;
-      return authApi.findOrderByCode(code);
+      const res = await lookupOrder(code);
+      return res.order;
     },
-    [orders]
+    [lookupOrder]
   );
 
   const setAuthenticatedUser = useCallback((nextUser: DemoUser) => {
@@ -775,8 +804,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         orders,
         ordersLoading,
         productsLoading,
+        refreshProducts,
         createDemoOrder,
         findOrder,
+        lookupOrder,
+        verifyGuestOrder,
         user,
         authLoading,
         resendStatus,

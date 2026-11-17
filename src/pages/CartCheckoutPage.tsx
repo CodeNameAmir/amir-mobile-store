@@ -40,6 +40,7 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
     createDemoOrder,
     navigate,
     user,
+    showToast,
   } = useStore();
 
   const [couponInput, setCouponInput] = useState(appliedCoupon || '');
@@ -109,6 +110,11 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
     try {
       const order = await createDemoOrder(form);
       navigate(`/order-confirmed/${order.orderCode}`);
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : 'ثبت سفارش با خطا مواجه شد. لطفاً مجدداً تلاش کنید.',
+        'error'
+      );
     } finally {
       setSubmitting(false);
     }

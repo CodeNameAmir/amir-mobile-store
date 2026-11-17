@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   CheckCircle2,
   KeyRound,
+  Lock,
   MapPin,
   MessageSquareText,
   Navigation,
@@ -9,51 +10,75 @@ import {
   Search,
   ShieldCheck,
   Truck,
+  XCircle,
 } from 'lucide-react';
 import { TrackingPageSkeleton } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
-import { DEMO_SAMPLE_ORDER } from '../data/catalog';
-import type { OrderRecord } from '../types/store';
+import type { OrderLookupResult, OrderRecord, OrderStatus } from '../types/store';
 import { formatToman, toPersianDigits } from '../utils/storeLogic';
 
 interface OrderTrackingPageProps {
   initialCode?: string;
 }
 
-const STATUS_INDEX: Record<OrderRecord['status'], number> = {
+const STATUS_INDEX: Record<OrderStatus, number> = {
   paid: 0,
   preparing: 1,
   shipped: 2,
   delivered: 3,
+  cancelled: 0,
+};
+
+const STATUS_LABELS: Record<OrderStatus, string> = {
+  paid: 'پرداخت موفق',
+  preparing: 'در حال آماده‌سازی در انبار',
+  shipped: 'تحویل به پیک / پست',
+  delivered: 'تحویل‌شده به خریدار',
+  cancelled: 'لغو شده',
 };
 
 export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCode }) => {
-  const { orders, findOrder, navigate } = useStore();
-  const defaultCode = initialCode || orders[0]?.orderCode || DEMO_SAMPLE_ORDER.orderCode;
+  const { orders, lookupOrder, verifyGuestOrder, navigate, showToast } = useStore();
+  const defaultCode = initialCode || orders[0]?.orderCode || '';
   const [searchCode, setSearchCode] = useState(defaultCode);
+  const [lookup, setLookup] = useState<OrderLookupResult | null>(null);
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [notFoundCode, setNotFoundCode] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(defaultCode));
+  const [verifyPhone, setVerifyPhone] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    const target = initialCode || orders[0]?.orderCode || DEMO_SAMPLE_ORDER.orderCode;
+    const target = (initialCode || orders[0]?.orderCode || '').trim().toUpperCase();
     setSearchCode(target);
+    setVerifyError(null);
+    if (!target) {
+      setOrder(null);
+      setLookup(null);
+      setNotFoundCode(null);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    findOrder(target)
+    lookupOrder(target)
       .then((res) => {
         if (!active) return;
-        if (res) {
-          setOrder(res);
-          setNotFoundCode(null);
-        } else {
+        setLookup(res);
+        if (!res.found) {
           setOrder(null);
           setNotFoundCode(target);
+        } else {
+          setOrder(res.order);
+          setNotFoundCode(null);
         }
         setLoading(false);
       })
       .catch(() => {
         if (!active) return;
+        setLookup(null);
         setOrder(null);
         setNotFoundCode(target);
         setLoading(false);
@@ -61,24 +86,50 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
     return () => {
       active = false;
     };
-  }, [initialCode, orders, findOrder]);
+  }, [initialCode, orders, lookupOrder]);
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleaned = searchCode.trim().toUpperCase();
+    const cleaned = searchCode.trim().toUpperCase().replace(/^#/, '');
     if (!cleaned) return;
     setLoading(true);
+    setVerifyError(null);
     try {
-      const res = await findOrder(cleaned);
-      if (res) {
-        setOrder(res);
-        setNotFoundCode(null);
-      } else {
+      const res = await lookupOrder(cleaned);
+      setLookup(res);
+      if (!res.found) {
         setOrder(null);
         setNotFoundCode(cleaned);
+      } else {
+        setOrder(res.order);
+        setNotFoundCode(null);
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleVerifyGuest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = (lookup?.summary?.orderCode || searchCode).trim().toUpperCase();
+    if (!code) return;
+    setVerifyError(null);
+    setVerifying(true);
+    try {
+      const verified = await verifyGuestOrder(code, verifyPhone);
+      setOrder(verified);
+      setLookup({
+        found: true,
+        authorized: true,
+        requiresVerification: false,
+        isGuestOrder: true,
+        order: verified,
+      });
+      showToast('اطلاعات سفارش تایید و نمایش داده شد.', 'success');
+    } catch (err) {
+      setVerifyError(err instanceof Error ? err.message : 'شماره موبایل تایید نشد.');
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -94,16 +145,7 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
               پیگیری لحظه‌ای وضعیت سفارش
             </h1>
             <p className="text-xs sm:text-sm text-[#434655] mt-1">
-              شماره سفارش خود (مثال:{' '}
-              <button
-                type="button"
-                onClick={() => setSearchCode(DEMO_SAMPLE_ORDER.orderCode)}
-                className="font-extrabold text-[#004ac6] underline"
-                dir="ltr"
-              >
-                {DEMO_SAMPLE_ORDER.orderCode}
-              </button>
-              ) را برای مشاهده موقعیت مرسوله و آخرین وضعیت ثبت‌شده در پایگاه داده وارد کنید.
+              شماره سفارش خود را برای مشاهده موقعیت مرسوله و آخرین وضعیت ثبت‌شده در پایگاه داده وارد کنید.
             </p>
           </div>
 
@@ -139,7 +181,75 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
             سفارشی با شماره <span dir="ltr">{notFoundCode}</span> پیدا نشد
           </p>
           <p className="text-xs text-[#434655]">
-            لطفاً شماره سفارش را بررسی کنید یا از کد نمونه <span dir="ltr" className="font-bold">AMIR-10492</span> استفاده نمایید.
+            لطفاً شماره سفارش را دقیقاً مطابق رسید ثبت سفارش وارد کنید.
+          </p>
+        </div>
+      ) : !order && lookup?.requiresVerification && lookup.summary ? (
+        <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 max-w-2xl mx-auto space-y-5">
+          <div className="flex items-center gap-3 border-b border-[#eff4ff] pb-4">
+            <div className="w-12 h-12 rounded-2xl bg-[#eff4ff] text-[#004ac6] flex items-center justify-center shrink-0">
+              <Lock className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-black text-[#0b1c30]">
+                سفارش <span dir="ltr">{lookup.summary.orderCode}</span> —{' '}
+                {STATUS_LABELS[lookup.summary.status]}
+              </h2>
+              <p className="text-xs text-[#434655] mt-0.5 tabular-nums-fa">
+                تاریخ ثبت: {toPersianDigits(lookup.summary.createdAt)} · ارسال{' '}
+                {lookup.summary.deliverySlot === 'express' ? 'اکسپرس' : 'پیشتاز'}
+              </p>
+            </div>
+          </div>
+
+          {lookup.isGuestOrder ? (
+            <form onSubmit={handleVerifyGuest} className="space-y-4">
+              <p className="text-xs sm:text-sm text-[#434655] leading-6">
+                برای مشاهده آدرس، کد تحویل و جزئیات کامل این سفارش مهمان، شماره موبایل ثبت‌شده هنگام خرید را وارد کنید:
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <input
+                  type="tel"
+                  dir="ltr"
+                  value={verifyPhone}
+                  onChange={(e) => setVerifyPhone(e.target.value)}
+                  placeholder="09123456789"
+                  aria-label="شماره موبایل تایید سفارش"
+                  className="flex-1 h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                />
+                <button
+                  type="submit"
+                  disabled={verifying}
+                  data-testid="verify-guest-order-btn"
+                  className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-xs sm:text-sm font-extrabold shrink-0"
+                >
+                  {verifying ? 'در حال بررسی...' : 'تایید و مشاهده جزئیات'}
+                </button>
+              </div>
+              {verifyError && <p className="text-xs font-bold text-rose-600">{verifyError}</p>}
+            </form>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-xs sm:text-sm text-[#434655] leading-6">
+                این سفارش متعلق به یک حساب کاربری ثبت‌شده است. برای حفظ حریم خصوصی و مشاهده جزئیات کامل، لطفاً وارد حساب کاربری خود شوید.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate('/account')}
+                className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-extrabold"
+              >
+                ورود به حساب کاربری
+              </button>
+            </div>
+          )}
+        </section>
+      ) : !order ? (
+        <div className="bg-white rounded-3xl border border-[#e5eeff] p-10 text-center space-y-3">
+          <p className="text-base font-extrabold text-[#0b1c30]">
+            شماره سفارش خود را در کادر بالا وارد کنید
+          </p>
+          <p className="text-xs text-[#434655]">
+            پس از ثبت خرید، کد پیگیری با پیشوند <span dir="ltr" className="font-bold">AMIR-</span> صادر می‌شود و وضعیت لحظه‌ای مرسوله از این بخش قابل مشاهده است.
           </p>
         </div>
       ) : order ? (
@@ -153,10 +263,17 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                   تحویل‌گیرنده: {order.customerName} — مبلغ کل: {formatToman(order.totalAmount)} تومان
                 </h2>
               </div>
-              <div className="px-4 py-2 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-extrabold inline-flex items-center gap-2 tabular-nums-fa">
-                <KeyRound className="w-4 h-4" />
-                <span>پین تحویل امن به پیک: {toPersianDigits(order.deliveryPin)}</span>
-              </div>
+              {order.status === 'cancelled' ? (
+                <div className="px-4 py-2 rounded-xl bg-rose-50 text-rose-700 text-xs font-extrabold inline-flex items-center gap-2">
+                  <XCircle className="w-4 h-4" />
+                  <span>سفارش لغو شده است</span>
+                </div>
+              ) : (
+                <div className="px-4 py-2 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-extrabold inline-flex items-center gap-2 tabular-nums-fa">
+                  <KeyRound className="w-4 h-4" />
+                  <span>پین تحویل امن به پیک: {toPersianDigits(order.deliveryPin)}</span>
+                </div>
+              )}
             </div>
 
             {order.adminNote && (

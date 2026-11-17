@@ -13,7 +13,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: CORS_ORIGIN
-        value: https://amir-mobile-store.codenameamir.ir
+        value: "https://amir-mobile-store.codenameamir.ir,https://admin-panel-ams.codenameamir.ir"
       - key: RESEND_FROM_EMAIL
         value: "Amir Mobile <auth@codenameamir.ir>"
       - key: RESEND_API_KEY

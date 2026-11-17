@@ -10,7 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
-import { storeRepository } from '../lib/supabase';
+import { storeApi } from '../lib/authApi';
 import type { ContactFormData, SupportTicket } from '../types/store';
 import { validateContactForm } from '../utils/storeLogic';
 
@@ -35,17 +35,14 @@ export const ContactPage: React.FC = () => {
 
     setSending(true);
     try {
-      const ticket: SupportTicket = {
-        ticketCode: `TKT-${Math.floor(1000 + Math.random() * 8999)}`,
+      const res = await storeApi.submitSupportTicket({
         fullName: form.fullName.trim(),
         phone: form.phone.trim(),
         department: form.department,
         orderCode: form.orderCode.trim(),
         message: form.message.trim(),
-        createdAt: 'هم‌اکنون',
-      };
-      const saved = await storeRepository.submitSupportTicket(ticket);
-      setSubmittedTicket(saved);
+      });
+      setSubmittedTicket(res.ticket);
       setForm({
         fullName: '',
         phone: '',
@@ -53,7 +50,9 @@ export const ContactPage: React.FC = () => {
         orderCode: '',
         message: '',
       });
-      showToast(`تیکت پشتیبانی ${saved.ticketCode} با موفقیت ثبت شد.`, 'success');
+      showToast(`تیکت پشتیبانی ${res.ticket.ticketCode} با موفقیت ثبت شد.`, 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'خطا در ثبت پیام پشتیبانی.', 'error');
     } finally {
       setSending(false);
     }

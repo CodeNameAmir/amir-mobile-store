@@ -1,6 +1,32 @@
 import crypto from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { resolveSessionSecret, resolveSupabaseAdminConfig } from './config.ts';
+import {
+  DEFAULT_DEV_COUPONS,
+  DEFAULT_DEV_PRODUCTS,
+  DEFAULT_DEV_REVIEWS,
+  DEFAULT_DEV_SETTINGS,
+  filterAndSortProducts,
+  normalizeOrderStatus,
+  normalizePhone,
+  normalizeRole,
+  sanitizeAuditDetails,
+  type AdminAuditLogDTO,
+  type AdminCustomerDTO,
+  type AdminStatsDTO,
+  type CouponRuleDTO,
+  type OrderStatus,
+  type ProductCategory,
+  type ProductColorDTO,
+  type ProductDTO,
+  type ProductQueryParams,
+  type ProductReviewDTO,
+  type ProductSpecsDTO,
+  type StorageVariantDTO,
+  type StoreSettingsDTO,
+  type SupportTicketDTO,
+  type UserRole,
+} from './storeData.ts';
 
 export type OtpPurpose = 'signup' | 'login' | 'login-2fa' | 'reset-password' | 'change-email';
 
@@ -34,6 +60,7 @@ export interface StoredOrderItem {
 
 export interface StoredOrderRecord {
   orderCode: string;
+  userId?: string | null;
   shaparakRef: string;
   customerName: string;
   customerPhone: string;
@@ -47,7 +74,7 @@ export interface StoredOrderRecord {
   couponDiscount: number;
   shippingCost: number;
   totalAmount: number;
-  status: 'paid' | 'preparing' | 'shipped' | 'delivered';
+  status: OrderStatus;
   deliveryPin: string;
   imeiSample: string;
   adminNote?: string;
@@ -60,6 +87,7 @@ export interface StoredUserRecord {
   email: string;
   fullName: string;
   phone: string;
+  role: UserRole;
   nationalId?: string;
   birthDate?: string;
   newsletterOptIn: boolean;
@@ -78,6 +106,7 @@ export interface PublicUserDTO {
   email: string;
   fullName: string;
   phone: string;
+  role: UserRole;
   nationalId?: string;
   birthDate?: string;
   newsletterOptIn: boolean;
@@ -107,6 +136,15 @@ export interface OtpChallengeRecord {
   };
 }
 
+export interface AuditLogInput {
+  adminUserId: string;
+  adminEmail: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  details?: Record<string, unknown>;
+}
+
 export interface AuthStorageAdapter {
   mode: 'supabase' | 'dev-memory';
   checkHealth(): Promise<{ ok: boolean; mode: 'supabase' | 'dev-memory'; detail?: string }>;
@@ -117,6 +155,7 @@ export interface AuthStorageAdapter {
     fullName: string;
     phone: string;
     passwordHash?: string;
+    role?: UserRole;
   }): Promise<StoredUserRecord>;
   updateUser(
     userId: string,
@@ -128,6 +167,50 @@ export interface AuthStorageAdapter {
   listUserOrders(userId: string): Promise<StoredOrderRecord[]>;
   createOrder(userId: string | null, order: StoredOrderRecord): Promise<StoredOrderRecord>;
   findOrderByCode(orderCode: string): Promise<StoredOrderRecord | null>;
+  listAllOrders(params?: {
+    status?: string;
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ orders: StoredOrderRecord[]; total: number }>;
+  updateOrderStatus(
+    orderCode: string,
+    status: OrderStatus,
+    adminNote?: string
+  ): Promise<StoredOrderRecord | null>;
+  listProducts(query?: ProductQueryParams): Promise<ProductDTO[]>;
+  findProductByIdOrSlug(idOrSlug: string): Promise<ProductDTO | null>;
+  createProduct(product: ProductDTO): Promise<ProductDTO>;
+  updateProduct(id: string, patch: Partial<ProductDTO>): Promise<ProductDTO | null>;
+  updateProductInventory(
+    id: string,
+    stockCount: number,
+    inStock?: boolean
+  ): Promise<ProductDTO | null>;
+  deleteProduct(id: string): Promise<boolean>;
+  decrementProductStock(productId: string, qty: number): Promise<void>;
+  listActiveCoupons(): Promise<CouponRuleDTO[]>;
+  getStoreSettings(): Promise<StoreSettingsDTO>;
+  listProductReviews(productId: string): Promise<ProductReviewDTO[]>;
+  createProductReview(review: ProductReviewDTO): Promise<ProductReviewDTO>;
+  createSupportTicket(ticket: SupportTicketDTO): Promise<SupportTicketDTO>;
+  subscribeNewsletter(contact: string): Promise<{ alreadySubscribed: boolean }>;
+  listCustomers(params?: {
+    search?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ customers: AdminCustomerDTO[]; total: number }>;
+  getCustomerByIdWithOrders(
+    userId: string
+  ): Promise<{ customer: AdminCustomerDTO; orders: StoredOrderRecord[] } | null>;
+  createAuditLog(entry: AuditLogInput): Promise<AdminAuditLogDTO>;
+  listAuditLogs(params?: {
+    action?: string;
+    entityType?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ logs: AdminAuditLogDTO[]; total: number }>;
+  getDashboardStats(): Promise<AdminStatsDTO>;
 }
 
 export function hashPassword(password: string): string {
@@ -156,6 +239,7 @@ export function toPublicUser(user: StoredUserRecord): PublicUserDTO {
     email: user.email,
     fullName: user.fullName,
     phone: user.phone,
+    role: normalizeRole(user.role),
     nationalId: user.nationalId,
     birthDate: user.birthDate,
     newsletterOptIn: user.newsletterOptIn,
@@ -188,14 +272,10 @@ function formatPersianTimestamp(raw: unknown): string {
 }
 
 function mapSupabaseOrderRow(row: Record<string, unknown>): StoredOrderRecord {
-  const statusRaw = String(row.status || 'preparing');
-  const status: StoredOrderRecord['status'] =
-    statusRaw === 'paid' || statusRaw === 'shipped' || statusRaw === 'delivered'
-      ? statusRaw
-      : 'preparing';
-
+  const status = normalizeOrderStatus(row.status);
   return {
     orderCode: String(row.order_code || ''),
+    userId: row.user_id ? String(row.user_id) : null,
     shaparakRef: String(row.shaparak_ref || '84729104'),
     customerName: String(row.customer_name || ''),
     customerPhone: String(row.customer_phone || ''),
@@ -224,6 +304,7 @@ function mapSupabaseUserRow(row: Record<string, unknown>): StoredUserRecord {
     email: String(row.email),
     fullName: String(row.full_name || ''),
     phone: String(row.phone || ''),
+    role: normalizeRole(row.role),
     nationalId: row.national_id ? String(row.national_id) : undefined,
     birthDate: row.birth_date ? String(row.birth_date) : undefined,
     newsletterOptIn: row.newsletter_opt_in !== false,
@@ -258,6 +339,175 @@ function mapSupabaseOtpRow(row: Record<string, unknown>): OtpChallengeRecord {
         ? (row.pending_signup as OtpChallengeRecord['pendingSignup'])
         : undefined,
   };
+}
+
+function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
+  const rawSpecs = (row.specs && typeof row.specs === 'object' ? row.specs : {}) as Partial<ProductSpecsDTO>;
+  const rawColors = Array.isArray(row.colors) ? (row.colors as ProductColorDTO[]) : [];
+  const rawStorage = Array.isArray(row.storage_options)
+    ? (row.storage_options as StorageVariantDTO[])
+    : [];
+
+  return {
+    id: String(row.id || row.slug),
+    slug: String(row.slug || row.id),
+    nameFa: String(row.name_fa || ''),
+    nameEn: String(row.name_en || ''),
+    brand: String(row.brand || 'Apple'),
+    category: (String(row.category || 'phones') as ProductCategory),
+    price: Number(row.price || 0),
+    originalPrice:
+      row.original_price !== null && row.original_price !== undefined
+        ? Number(row.original_price)
+        : undefined,
+    discountPercent:
+      row.discount_percent !== null && row.discount_percent !== undefined
+        ? Number(row.discount_percent)
+        : undefined,
+    inStock: typeof row.in_stock === 'boolean' ? row.in_stock : Number(row.stock_count ?? 0) > 0,
+    stockCount: Number(row.stock_count ?? 0),
+    expressDelivery: row.express_delivery !== false,
+    warranty: String(row.warranty || '۱۸ ماهه امیر سرویس + کد رجیستری همتا'),
+    badgeText:
+      typeof row.badge_text === 'string' && row.badge_text.trim() ? row.badge_text : undefined,
+    rating: Number(row.rating ?? 4.8),
+    reviewCount: Number(row.review_count ?? 0),
+    recommendPercent: Number(row.recommend_percent ?? 95),
+    image: typeof row.image_url === 'string' && row.image_url.trim() ? row.image_url.trim() : '',
+    colorLabel: String(row.color_label || rawColors[0]?.name || 'مشکی'),
+    colors:
+      rawColors.length > 0 ? rawColors : [{ id: 'midnight', name: 'مشکی', hex: '#1e293b' }],
+    storageOptions:
+      rawStorage.length > 0
+        ? rawStorage
+        : [{ label: '۲۵۶ گیگابایت', subtitle: 'استاندارد', priceDelta: 0 }],
+    specs: {
+      display: rawSpecs.display || 'OLED 120Hz',
+      displayDetails: rawSpecs.displayDetails || 'کیفیت پرچمدار',
+      chipset: rawSpecs.chipset || 'پردازنده پرچمدار',
+      chipsetDetails: rawSpecs.chipsetDetails || 'نسل جدید',
+      camera: rawSpecs.camera || 'دوربین سه‌گانه حرفه‌ای',
+      cameraDetails: rawSpecs.cameraDetails || 'لرزشگیر اپتیکال',
+      battery: rawSpecs.battery || '۵۰۰۰ میلی‌آمپر',
+      batteryDetails: rawSpecs.batteryDetails || 'شارژ سریع',
+      storageDefault: rawSpecs.storageDefault || '۲۵۶ گیگابایت',
+      ram: rawSpecs.ram || '۸ گیگ',
+      os: rawSpecs.os || 'نسخه رسمی گلوبال',
+    },
+    isFeaturedDeal: row.is_featured_deal === true,
+    isPopular: row.is_popular === true,
+    salesRank: Number(row.sales_rank ?? 100),
+    releaseOrder: Number(row.release_order ?? 100),
+    createdAt: row.created_at ? String(row.created_at) : undefined,
+    updatedAt: row.updated_at ? String(row.updated_at) : undefined,
+  };
+}
+
+function toSupabaseProductRow(p: ProductDTO): Record<string, unknown> {
+  return {
+    id: p.id,
+    slug: p.slug,
+    name_fa: p.nameFa,
+    name_en: p.nameEn,
+    brand: p.brand,
+    category: p.category,
+    price: Math.round(p.price),
+    original_price: p.originalPrice ? Math.round(p.originalPrice) : null,
+    discount_percent: p.discountPercent ?? 0,
+    in_stock: p.inStock,
+    stock_count: Math.max(0, Math.floor(p.stockCount)),
+    express_delivery: p.expressDelivery,
+    warranty: p.warranty,
+    badge_text: p.badgeText ?? null,
+    rating: p.rating,
+    review_count: p.reviewCount,
+    recommend_percent: p.recommendPercent,
+    image_url: p.image || null,
+    color_label: p.colorLabel,
+    colors: p.colors,
+    storage_options: p.storageOptions,
+    specs: p.specs,
+    is_featured_deal: Boolean(p.isFeaturedDeal),
+    is_popular: Boolean(p.isPopular),
+    sales_rank: p.salesRank,
+    release_order: p.releaseOrder,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function mapSupabaseAuditRow(row: Record<string, unknown>): AdminAuditLogDTO {
+  const detailsRaw = row.details ?? row.metadata ?? row.payload ?? {};
+  const detailsObj =
+    detailsRaw && typeof detailsRaw === 'object' && !Array.isArray(detailsRaw)
+      ? (detailsRaw as Record<string, unknown>)
+      : {};
+
+  return {
+    id: String(row.id || crypto.randomUUID()),
+    adminUserId: String(
+      row.admin_user_id ?? row.actor_id ?? row.actor_user_id ?? row.user_id ?? row.admin_id ?? ''
+    ),
+    adminEmail: String(
+      row.admin_email ?? row.actor_email ?? row.email ?? detailsObj.adminEmail ?? ''
+    ),
+    action: String(row.action || ''),
+    entityType: String(
+      row.entity_type ?? row.resource_type ?? row.target_type ?? detailsObj.entityType ?? ''
+    ),
+    entityId: String(
+      row.entity_id ?? row.resource_id ?? row.target_id ?? detailsObj.entityId ?? ''
+    ),
+    details: sanitizeAuditDetails(detailsObj),
+    createdAt: String(row.created_at || new Date().toISOString()),
+  };
+}
+
+function buildCustomerStatsMap(
+  orders: StoredOrderRecord[]
+): Map<string, { count: number; totalSpent: number }> {
+  const stats = new Map<string, { count: number; totalSpent: number }>();
+  for (const ord of orders) {
+    if (!ord.userId) continue;
+    const prev = stats.get(ord.userId) || { count: 0, totalSpent: 0 };
+    prev.count += 1;
+    if (ord.status !== 'cancelled') {
+      prev.totalSpent += ord.totalAmount;
+    }
+    stats.set(ord.userId, prev);
+  }
+  return stats;
+}
+
+function toAdminCustomer(
+  user: StoredUserRecord,
+  stats?: { count: number; totalSpent: number }
+): AdminCustomerDTO {
+  return {
+    id: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    phone: user.phone,
+    role: normalizeRole(user.role),
+    emailVerified: user.emailVerified,
+    twoFactorEnabled: user.twoFactorEnabled,
+    newsletterOptIn: user.newsletterOptIn,
+    addressesCount: user.addresses.length,
+    wishlistCount: user.wishlist.length,
+    ordersCount: stats?.count ?? 0,
+    totalSpent: stats?.totalSpent ?? 0,
+    createdAt: user.createdAt,
+    lastLoginAt: user.lastLoginAt,
+  };
+}
+
+function isSchemaColumnMismatch(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false;
+  return (
+    err.code === 'PGRST204' ||
+    err.code === '42703' ||
+    err.code === '23502' ||
+    /column/i.test(err.message || '')
+  );
 }
 
 export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorageAdapter {
@@ -301,6 +551,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         email: params.email,
         full_name: params.fullName.trim(),
         phone: params.phone.trim(),
+        role: 'customer',
         newsletter_opt_in: true,
         email_verified: true,
         two_factor_enabled: false,
@@ -436,13 +687,509 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (error) throw new Error(`Supabase order lookup failed: ${error.message}`);
       return data ? mapSupabaseOrderRow(data as Record<string, unknown>) : null;
     },
+
+    async listAllOrders(params = {}) {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(`Supabase list orders failed: ${error.message}`);
+      let mapped = (data || []).map((row) => mapSupabaseOrderRow(row as Record<string, unknown>));
+
+      if (params.status && params.status !== 'all') {
+        mapped = mapped.filter((o) => o.status === params.status);
+      }
+      if (params.search && params.search.trim()) {
+        const q = params.search.trim().toLowerCase();
+        mapped = mapped.filter(
+          (o) =>
+            o.orderCode.toLowerCase().includes(q) ||
+            o.customerName.toLowerCase().includes(q) ||
+            normalizePhone(o.customerPhone).includes(normalizePhone(q))
+        );
+      }
+
+      const total = mapped.length;
+      const offset = Math.max(0, Number(params.offset || 0));
+      const limit = Math.min(200, Math.max(1, Number(params.limit || 50)));
+      return { orders: mapped.slice(offset, offset + limit), total };
+    },
+
+    async updateOrderStatus(orderCode: string, status: OrderStatus, adminNote?: string) {
+      const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+      const patch: Record<string, unknown> = {
+        status,
+        updated_at: new Date().toISOString(),
+      };
+      if (adminNote !== undefined) {
+        patch.admin_note = adminNote;
+      }
+      const { data, error } = await supabase
+        .from('orders')
+        .update(patch)
+        .eq('order_code', normalized)
+        .select('*')
+        .maybeSingle();
+      if (error) throw new Error(`Supabase update order failed: ${error.message}`);
+      return data ? mapSupabaseOrderRow(data as Record<string, unknown>) : null;
+    },
+
+    async listProducts(query = {}) {
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .order('release_order', { ascending: true });
+      if (error) throw new Error(`Supabase list products failed: ${error.message}`);
+      const mapped = (data || []).map((row) => mapSupabaseProductRow(row as Record<string, unknown>));
+      return filterAndSortProducts(mapped, query);
+    },
+
+    async findProductByIdOrSlug(idOrSlug: string) {
+      const clean = idOrSlug.trim();
+      const bySlug = await supabase.from('products').select('*').eq('slug', clean).maybeSingle();
+      if (bySlug.error) throw new Error(`Supabase product lookup failed: ${bySlug.error.message}`);
+      if (bySlug.data) return mapSupabaseProductRow(bySlug.data as Record<string, unknown>);
+
+      const byId = await supabase.from('products').select('*').eq('id', clean).maybeSingle();
+      if (byId.error) throw new Error(`Supabase product lookup failed: ${byId.error.message}`);
+      return byId.data ? mapSupabaseProductRow(byId.data as Record<string, unknown>) : null;
+    },
+
+    async createProduct(product: ProductDTO) {
+      const row = toSupabaseProductRow(product);
+      const { data, error } = await supabase.from('products').insert(row).select('*').single();
+      if (error || !data) {
+        throw new Error(`Supabase create product failed: ${error?.message || 'no row returned'}`);
+      }
+      return mapSupabaseProductRow(data as Record<string, unknown>);
+    },
+
+    async updateProduct(id: string, patch: Partial<ProductDTO>) {
+      const current = await this.findProductByIdOrSlug(id);
+      if (!current) return null;
+      const merged: ProductDTO = {
+        ...current,
+        ...patch,
+        id: current.id,
+        specs: patch.specs ? { ...current.specs, ...patch.specs } : current.specs,
+        colors: patch.colors ?? current.colors,
+        storageOptions: patch.storageOptions ?? current.storageOptions,
+      };
+      if (typeof patch.stockCount === 'number' && patch.inStock === undefined) {
+        merged.inStock = patch.stockCount > 0;
+      }
+      const row = toSupabaseProductRow(merged);
+      const { data, error } = await supabase
+        .from('products')
+        .update(row)
+        .eq('id', current.id)
+        .select('*')
+        .single();
+      if (error || !data) {
+        throw new Error(`Supabase update product failed: ${error?.message || 'no row returned'}`);
+      }
+      return mapSupabaseProductRow(data as Record<string, unknown>);
+    },
+
+    async updateProductInventory(id: string, stockCount: number, inStock?: boolean) {
+      const current = await this.findProductByIdOrSlug(id);
+      if (!current) return null;
+      const safeStock = Math.max(0, Math.floor(stockCount));
+      const nextInStock = typeof inStock === 'boolean' ? inStock : safeStock > 0;
+      const { data, error } = await supabase
+        .from('products')
+        .update({
+          stock_count: safeStock,
+          in_stock: nextInStock,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', current.id)
+        .select('*')
+        .single();
+      if (error || !data) {
+        throw new Error(`Supabase update inventory failed: ${error?.message || 'no row returned'}`);
+      }
+      return mapSupabaseProductRow(data as Record<string, unknown>);
+    },
+
+    async deleteProduct(id: string) {
+      const current = await this.findProductByIdOrSlug(id);
+      if (!current) return false;
+      const { error } = await supabase.from('products').delete().eq('id', current.id);
+      if (error) throw new Error(`Supabase delete product failed: ${error.message}`);
+      return true;
+    },
+
+    async decrementProductStock(productId: string, qty: number) {
+      const current = await this.findProductByIdOrSlug(productId);
+      if (!current) return;
+      const nextStock = Math.max(0, current.stockCount - Math.max(0, Math.floor(qty)));
+      await supabase
+        .from('products')
+        .update({
+          stock_count: nextStock,
+          in_stock: nextStock > 0,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', current.id);
+    },
+
+    async listActiveCoupons() {
+      const { data, error } = await supabase.from('coupons').select('*').eq('is_active', true);
+      if (error) throw new Error(`Supabase list coupons failed: ${error.message}`);
+      return (data || []).map((row) => ({
+        code: String(row.code),
+        discountType: (row.discount_type === 'percent' ? 'percent' : 'fixed') as 'fixed' | 'percent',
+        discountValue: Number(row.discount_value || 0),
+        maxDiscount: row.max_discount ? Number(row.max_discount) : undefined,
+        minOrderAmount: row.min_order_amount ? Number(row.min_order_amount) : 0,
+        isActive: row.is_active !== false,
+        descriptionFa: row.description_fa ? String(row.description_fa) : undefined,
+      }));
+    },
+
+    async getStoreSettings() {
+      const { data, error } = await supabase.from('store_settings').select('key, value');
+      if (error) throw new Error(`Supabase settings failed: ${error.message}`);
+      const map = new Map((data || []).map((r) => [String(r.key), r.value]));
+      const ann = map.get('announcement_text');
+      const threshold = map.get('free_shipping_threshold');
+      const phone = map.get('support_phone');
+      return {
+        announcementText: typeof ann === 'string' ? ann : DEFAULT_DEV_SETTINGS.announcementText,
+        freeShippingThreshold:
+          typeof threshold === 'number' && threshold > 0
+            ? threshold
+            : DEFAULT_DEV_SETTINGS.freeShippingThreshold,
+        supportPhone: typeof phone === 'string' ? phone : DEFAULT_DEV_SETTINGS.supportPhone,
+      };
+    },
+
+    async listProductReviews(productId: string) {
+      const { data, error } = await supabase
+        .from('product_reviews')
+        .select('*')
+        .eq('product_id', productId)
+        .eq('is_approved', true)
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(`Supabase reviews failed: ${error.message}`);
+      return (data || []).map((row) => ({
+        id: String(row.id),
+        productId: String(row.product_id || productId),
+        author: String(row.author || ''),
+        dateLabel: formatPersianTimestamp(row.created_at),
+        rating: Number(row.rating || 5),
+        comment: String(row.comment || ''),
+        verified: Boolean(row.verified),
+        isApproved: row.is_approved !== false,
+        createdAt: String(row.created_at || new Date().toISOString()),
+      }));
+    },
+
+    async createProductReview(review: ProductReviewDTO) {
+      const { data, error } = await supabase
+        .from('product_reviews')
+        .insert({
+          product_id: review.productId,
+          author: review.author,
+          rating: review.rating,
+          comment: review.comment,
+          verified: review.verified,
+          is_approved: review.isApproved,
+        })
+        .select('*')
+        .single();
+      if (error || !data) {
+        throw new Error(`Supabase create review failed: ${error?.message || 'no row returned'}`);
+      }
+      return {
+        id: String(data.id),
+        productId: String(data.product_id),
+        author: String(data.author),
+        dateLabel: 'هم‌اکنون',
+        rating: Number(data.rating),
+        comment: String(data.comment),
+        verified: Boolean(data.verified),
+        isApproved: data.is_approved !== false,
+        createdAt: String(data.created_at || review.createdAt),
+      };
+    },
+
+    async createSupportTicket(ticket: SupportTicketDTO) {
+      const { data, error } = await supabase
+        .from('support_tickets')
+        .insert({
+          ticket_code: ticket.ticketCode,
+          full_name: ticket.fullName,
+          phone: ticket.phone,
+          department: ticket.department,
+          order_code: ticket.orderCode || null,
+          message: ticket.message,
+          status: ticket.status,
+        })
+        .select('*')
+        .single();
+      if (error || !data) {
+        throw new Error(`Supabase support ticket failed: ${error?.message || 'no row returned'}`);
+      }
+      return {
+        id: String(data.id),
+        ticketCode: String(data.ticket_code),
+        fullName: String(data.full_name),
+        phone: String(data.phone),
+        department: String(data.department),
+        orderCode: data.order_code ? String(data.order_code) : '',
+        message: String(data.message),
+        status: (data.status as SupportTicketDTO['status']) || 'open',
+        createdAt: formatPersianTimestamp(data.created_at),
+      };
+    },
+
+    async subscribeNewsletter(contact: string) {
+      const { error } = await supabase.from('newsletter_subscribers').insert({ contact });
+      if (error) {
+        if (error.code === '23505') {
+          return { alreadySubscribed: true };
+        }
+        throw new Error(`Supabase newsletter subscribe failed: ${error.message}`);
+      }
+      return { alreadySubscribed: false };
+    },
+
+    async listCustomers(params = {}) {
+      const [usersRes, ordersRes] = await Promise.all([
+        supabase.from('app_users').select('*').order('created_at', { ascending: false }),
+        supabase.from('orders').select('order_code, user_id, total_amount, status'),
+      ]);
+      if (usersRes.error) {
+        throw new Error(`Supabase list customers failed: ${usersRes.error.message}`);
+      }
+      if (ordersRes.error) {
+        throw new Error(`Supabase list customer orders failed: ${ordersRes.error.message}`);
+      }
+
+      const ordersMapped = (ordersRes.data || []).map((row) =>
+        mapSupabaseOrderRow(row as Record<string, unknown>)
+      );
+      const statsMap = buildCustomerStatsMap(ordersMapped);
+
+      let customers = (usersRes.data || [])
+        .map((row) => mapSupabaseUserRow(row as Record<string, unknown>))
+        .map((u) => toAdminCustomer(u, statsMap.get(u.id)));
+
+      if (params.search && params.search.trim()) {
+        const q = params.search.trim().toLowerCase();
+        customers = customers.filter(
+          (c) =>
+            c.email.toLowerCase().includes(q) ||
+            c.fullName.toLowerCase().includes(q) ||
+            normalizePhone(c.phone).includes(normalizePhone(q))
+        );
+      }
+
+      const total = customers.length;
+      const offset = Math.max(0, Number(params.offset || 0));
+      const limit = Math.min(200, Math.max(1, Number(params.limit || 50)));
+      return { customers: customers.slice(offset, offset + limit), total };
+    },
+
+    async getCustomerByIdWithOrders(userId: string) {
+      const user = await this.findUserById(userId);
+      if (!user) return null;
+      const orders = await this.listUserOrders(userId);
+      const totalSpent = orders
+        .filter((o) => o.status !== 'cancelled')
+        .reduce((acc, o) => acc + o.totalAmount, 0);
+      return {
+        customer: toAdminCustomer(user, { count: orders.length, totalSpent }),
+        orders,
+      };
+    },
+
+    async createAuditLog(entry: AuditLogInput) {
+      const safeDetails = sanitizeAuditDetails(entry.details);
+      const nowIso = new Date().toISOString();
+
+      const candidatePayloads: Array<Record<string, unknown>> = [
+        {
+          admin_user_id: entry.adminUserId,
+          admin_email: entry.adminEmail,
+          action: entry.action,
+          entity_type: entry.entityType,
+          entity_id: entry.entityId,
+          details: safeDetails,
+        },
+        {
+          actor_id: entry.adminUserId,
+          actor_email: entry.adminEmail,
+          action: entry.action,
+          resource_type: entry.entityType,
+          resource_id: entry.entityId,
+          metadata: safeDetails,
+        },
+        {
+          user_id: entry.adminUserId,
+          action: entry.action,
+          entity_type: entry.entityType,
+          entity_id: entry.entityId,
+          details: { adminEmail: entry.adminEmail, ...safeDetails },
+        },
+        {
+          admin_id: entry.adminUserId,
+          action: entry.action,
+          target_type: entry.entityType,
+          target_id: entry.entityId,
+          details: { adminEmail: entry.adminEmail, ...safeDetails },
+        },
+      ];
+
+      let lastErr: { code?: string; message?: string } | null = null;
+      for (const payload of candidatePayloads) {
+        const { data, error } = await supabase
+          .from('admin_audit_logs')
+          .insert(payload)
+          .select('*')
+          .single();
+        if (!error && data) {
+          return mapSupabaseAuditRow(data as Record<string, unknown>);
+        }
+        lastErr = error;
+        if (!isSchemaColumnMismatch(error)) {
+          break;
+        }
+      }
+
+      // Never crash primary admin action if audit schema differs unexpectedly, but surface detail in logs
+      console.error('[AuditLog Insert Warning]', lastErr?.message || 'unknown audit log error');
+      return {
+        id: crypto.randomUUID(),
+        adminUserId: entry.adminUserId,
+        adminEmail: entry.adminEmail,
+        action: entry.action,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        details: safeDetails,
+        createdAt: nowIso,
+      };
+    },
+
+    async listAuditLogs(params = {}) {
+      const { data, error } = await supabase
+        .from('admin_audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(`Supabase list audit logs failed: ${error.message}`);
+
+      let logs = (data || []).map((row) => mapSupabaseAuditRow(row as Record<string, unknown>));
+      if (params.action && params.action.trim()) {
+        const act = params.action.trim().toLowerCase();
+        logs = logs.filter((l) => l.action.toLowerCase().includes(act));
+      }
+      if (params.entityType && params.entityType.trim()) {
+        const et = params.entityType.trim().toLowerCase();
+        logs = logs.filter((l) => l.entityType.toLowerCase() === et);
+      }
+
+      const total = logs.length;
+      const offset = Math.max(0, Number(params.offset || 0));
+      const limit = Math.min(200, Math.max(1, Number(params.limit || 50)));
+      return { logs: logs.slice(offset, offset + limit), total };
+    },
+
+    async getDashboardStats() {
+      const [productsRes, ordersRes, usersRes] = await Promise.all([
+        supabase.from('products').select('id, in_stock, stock_count'),
+        supabase
+          .from('orders')
+          .select('order_code, customer_name, total_amount, status, created_at')
+          .order('created_at', { ascending: false }),
+        supabase.from('app_users').select('id, role'),
+      ]);
+
+      if (productsRes.error) throw new Error(`Supabase stats products failed: ${productsRes.error.message}`);
+      if (ordersRes.error) throw new Error(`Supabase stats orders failed: ${ordersRes.error.message}`);
+      if (usersRes.error) throw new Error(`Supabase stats users failed: ${usersRes.error.message}`);
+
+      const productsRows = productsRes.data || [];
+      const ordersRows = ordersRes.data || [];
+      const usersRows = usersRes.data || [];
+
+      let totalRevenue = 0;
+      let pendingOrders = 0;
+      let preparingOrders = 0;
+      let shippedOrders = 0;
+      let deliveredOrders = 0;
+      let cancelledOrders = 0;
+
+      for (const row of ordersRows) {
+        const status = normalizeOrderStatus(row.status);
+        if (status !== 'cancelled') {
+          totalRevenue += Number(row.total_amount || 0);
+        }
+        if (status === 'paid') pendingOrders += 1;
+        if (status === 'preparing') preparingOrders += 1;
+        if (status === 'shipped') shippedOrders += 1;
+        if (status === 'delivered') deliveredOrders += 1;
+        if (status === 'cancelled') cancelledOrders += 1;
+      }
+
+      let outOfStockProducts = 0;
+      let lowStockProducts = 0;
+      for (const row of productsRows) {
+        const stock = Number(row.stock_count ?? 0);
+        const inStock = row.in_stock === true && stock > 0;
+        if (!inStock) outOfStockProducts += 1;
+        else if (stock <= 3) lowStockProducts += 1;
+      }
+
+      let adminUsersCount = 0;
+      for (const row of usersRows) {
+        if (normalizeRole(row.role) === 'admin') adminUsersCount += 1;
+      }
+
+      return {
+        totalRevenue,
+        totalOrders: ordersRows.length,
+        pendingOrders,
+        preparingOrders,
+        shippedOrders,
+        deliveredOrders,
+        cancelledOrders,
+        totalProducts: productsRows.length,
+        outOfStockProducts,
+        lowStockProducts,
+        totalCustomers: usersRows.length,
+        adminUsersCount,
+        recentOrders: ordersRows.slice(0, 5).map((row) => ({
+          orderCode: String(row.order_code || ''),
+          customerName: String(row.customer_name || ''),
+          totalAmount: Number(row.total_amount || 0),
+          status: normalizeOrderStatus(row.status),
+          createdAt: formatPersianTimestamp(row.created_at),
+        })),
+      };
+    },
   };
 }
 
-export function createMemoryAuthStorage(): AuthStorageAdapter {
+export function createMemoryAuthStorage(options?: {
+  seedProducts?: ProductDTO[];
+}): AuthStorageAdapter {
   const users = new Map<string, StoredUserRecord>();
   const otps = new Map<string, OtpChallengeRecord>();
   const orders: Array<{ userId: string | null; order: StoredOrderRecord }> = [];
+  const products: ProductDTO[] = (options?.seedProducts ?? DEFAULT_DEV_PRODUCTS).map((p) => ({
+    ...p,
+    colors: p.colors.map((c) => ({ ...c })),
+    storageOptions: p.storageOptions.map((s) => ({ ...s })),
+    specs: { ...p.specs },
+  }));
+  const coupons: CouponRuleDTO[] = DEFAULT_DEV_COUPONS.map((c) => ({ ...c }));
+  const settings: StoreSettingsDTO = { ...DEFAULT_DEV_SETTINGS };
+  const reviewsByProduct = new Map<string, ProductReviewDTO[]>();
+  const tickets: SupportTicketDTO[] = [];
+  const newsletter = new Set<string>();
+  const auditLogs: AdminAuditLogDTO[] = [];
 
   return {
     mode: 'dev-memory',
@@ -488,6 +1235,7 @@ export function createMemoryAuthStorage(): AuthStorageAdapter {
         email: params.email,
         fullName: params.fullName.trim(),
         phone: params.phone.trim(),
+        role: params.role ? normalizeRole(params.role) : 'customer',
         newsletterOptIn: true,
         emailVerified: true,
         twoFactorEnabled: false,
@@ -540,6 +1288,8 @@ export function createMemoryAuthStorage(): AuthStorageAdapter {
     async createOrder(userId: string | null, order: StoredOrderRecord) {
       const copy: StoredOrderRecord = {
         ...order,
+        userId,
+        createdAt: formatPersianTimestamp(order.createdAt),
         items: order.items.map((item) => ({ ...item })),
       };
       orders.unshift({ userId, order: copy });
@@ -549,7 +1299,278 @@ export function createMemoryAuthStorage(): AuthStorageAdapter {
     async findOrderByCode(orderCode: string) {
       const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
       const match = orders.find((entry) => entry.order.orderCode.toUpperCase() === normalized);
-      return match ? { ...match.order } : null;
+      return match ? { ...match.order, userId: match.userId } : null;
+    },
+
+    async listAllOrders(params = {}) {
+      let list = orders.map((entry) => ({ ...entry.order, userId: entry.userId }));
+      if (params.status && params.status !== 'all') {
+        list = list.filter((o) => o.status === params.status);
+      }
+      if (params.search && params.search.trim()) {
+        const q = params.search.trim().toLowerCase();
+        list = list.filter(
+          (o) =>
+            o.orderCode.toLowerCase().includes(q) ||
+            o.customerName.toLowerCase().includes(q) ||
+            normalizePhone(o.customerPhone).includes(normalizePhone(q))
+        );
+      }
+      const total = list.length;
+      const offset = Math.max(0, Number(params.offset || 0));
+      const limit = Math.min(200, Math.max(1, Number(params.limit || 50)));
+      return { orders: list.slice(offset, offset + limit), total };
+    },
+
+    async updateOrderStatus(orderCode: string, status: OrderStatus, adminNote?: string) {
+      const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+      const match = orders.find((entry) => entry.order.orderCode.toUpperCase() === normalized);
+      if (!match) return null;
+      match.order = {
+        ...match.order,
+        status,
+        adminNote: adminNote !== undefined ? adminNote : match.order.adminNote,
+      };
+      return { ...match.order, userId: match.userId };
+    },
+
+    async listProducts(query = {}) {
+      return filterAndSortProducts(
+        products.map((p) => ({
+          ...p,
+          colors: p.colors.map((c) => ({ ...c })),
+          storageOptions: p.storageOptions.map((s) => ({ ...s })),
+          specs: { ...p.specs },
+        })),
+        query
+      );
+    },
+
+    async findProductByIdOrSlug(idOrSlug: string) {
+      const clean = idOrSlug.trim();
+      const found = products.find((p) => p.slug === clean || p.id === clean);
+      return found
+        ? {
+            ...found,
+            colors: found.colors.map((c) => ({ ...c })),
+            storageOptions: found.storageOptions.map((s) => ({ ...s })),
+            specs: { ...found.specs },
+          }
+        : null;
+    },
+
+    async createProduct(product: ProductDTO) {
+      const copy: ProductDTO = {
+        ...product,
+        colors: product.colors.map((c) => ({ ...c })),
+        storageOptions: product.storageOptions.map((s) => ({ ...s })),
+        specs: { ...product.specs },
+      };
+      products.push(copy);
+      return copy;
+    },
+
+    async updateProduct(id: string, patch: Partial<ProductDTO>) {
+      const idx = products.findIndex((p) => p.id === id || p.slug === id);
+      if (idx < 0) return null;
+      const current = products[idx];
+      const next: ProductDTO = {
+        ...current,
+        ...patch,
+        id: current.id,
+        specs: patch.specs ? { ...current.specs, ...patch.specs } : current.specs,
+        colors: patch.colors ?? current.colors,
+        storageOptions: patch.storageOptions ?? current.storageOptions,
+      };
+      if (typeof patch.stockCount === 'number' && patch.inStock === undefined) {
+        next.inStock = patch.stockCount > 0;
+      }
+      products[idx] = next;
+      return { ...next };
+    },
+
+    async updateProductInventory(id: string, stockCount: number, inStock?: boolean) {
+      const idx = products.findIndex((p) => p.id === id || p.slug === id);
+      if (idx < 0) return null;
+      const safeStock = Math.max(0, Math.floor(stockCount));
+      const nextInStock = typeof inStock === 'boolean' ? inStock : safeStock > 0;
+      products[idx] = {
+        ...products[idx],
+        stockCount: safeStock,
+        inStock: nextInStock,
+      };
+      return { ...products[idx] };
+    },
+
+    async deleteProduct(id: string) {
+      const idx = products.findIndex((p) => p.id === id || p.slug === id);
+      if (idx < 0) return false;
+      products.splice(idx, 1);
+      return true;
+    },
+
+    async decrementProductStock(productId: string, qty: number) {
+      const idx = products.findIndex((p) => p.id === productId || p.slug === productId);
+      if (idx < 0) return;
+      const nextStock = Math.max(0, products[idx].stockCount - Math.max(0, Math.floor(qty)));
+      products[idx] = {
+        ...products[idx],
+        stockCount: nextStock,
+        inStock: nextStock > 0,
+      };
+    },
+
+    async listActiveCoupons() {
+      return coupons.filter((c) => c.isActive !== false).map((c) => ({ ...c }));
+    },
+
+    async getStoreSettings() {
+      return { ...settings };
+    },
+
+    async listProductReviews(productId: string) {
+      const saved = reviewsByProduct.get(productId) || [];
+      return [
+        ...saved,
+        ...DEFAULT_DEV_REVIEWS.map((r) => ({ ...r, productId })),
+      ];
+    },
+
+    async createProductReview(review: ProductReviewDTO) {
+      const existing = reviewsByProduct.get(review.productId) || [];
+      const created = { ...review, id: review.id || crypto.randomUUID() };
+      reviewsByProduct.set(review.productId, [created, ...existing]);
+      return created;
+    },
+
+    async createSupportTicket(ticket: SupportTicketDTO) {
+      const created = { ...ticket, id: crypto.randomUUID() };
+      tickets.unshift(created);
+      return created;
+    },
+
+    async subscribeNewsletter(contact: string) {
+      const alreadySubscribed = newsletter.has(contact);
+      newsletter.add(contact);
+      return { alreadySubscribed };
+    },
+
+    async listCustomers(params = {}) {
+      const statsMap = buildCustomerStatsMap(orders.map((o) => ({ ...o.order, userId: o.userId })));
+      let list = [...users.values()].map((u) => toAdminCustomer(u, statsMap.get(u.id)));
+      if (params.search && params.search.trim()) {
+        const q = params.search.trim().toLowerCase();
+        list = list.filter(
+          (c) =>
+            c.email.toLowerCase().includes(q) ||
+            c.fullName.toLowerCase().includes(q) ||
+            normalizePhone(c.phone).includes(normalizePhone(q))
+        );
+      }
+      list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      const total = list.length;
+      const offset = Math.max(0, Number(params.offset || 0));
+      const limit = Math.min(200, Math.max(1, Number(params.limit || 50)));
+      return { customers: list.slice(offset, offset + limit), total };
+    },
+
+    async getCustomerByIdWithOrders(userId: string) {
+      const user = users.get(userId);
+      if (!user) return null;
+      const userOrders = orders
+        .filter((o) => o.userId === userId)
+        .map((o) => ({ ...o.order, userId: o.userId }));
+      const totalSpent = userOrders
+        .filter((o) => o.status !== 'cancelled')
+        .reduce((acc, o) => acc + o.totalAmount, 0);
+      return {
+        customer: toAdminCustomer(user, { count: userOrders.length, totalSpent }),
+        orders: userOrders,
+      };
+    },
+
+    async createAuditLog(entry: AuditLogInput) {
+      const log: AdminAuditLogDTO = {
+        id: crypto.randomUUID(),
+        adminUserId: entry.adminUserId,
+        adminEmail: entry.adminEmail,
+        action: entry.action,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        details: sanitizeAuditDetails(entry.details),
+        createdAt: new Date().toISOString(),
+      };
+      auditLogs.unshift(log);
+      return log;
+    },
+
+    async listAuditLogs(params = {}) {
+      let logs = [...auditLogs];
+      if (params.action && params.action.trim()) {
+        const act = params.action.trim().toLowerCase();
+        logs = logs.filter((l) => l.action.toLowerCase().includes(act));
+      }
+      if (params.entityType && params.entityType.trim()) {
+        const et = params.entityType.trim().toLowerCase();
+        logs = logs.filter((l) => l.entityType.toLowerCase() === et);
+      }
+      const total = logs.length;
+      const offset = Math.max(0, Number(params.offset || 0));
+      const limit = Math.min(200, Math.max(1, Number(params.limit || 50)));
+      return { logs: logs.slice(offset, offset + limit), total };
+    },
+
+    async getDashboardStats() {
+      let totalRevenue = 0;
+      let pendingOrders = 0;
+      let preparingOrders = 0;
+      let shippedOrders = 0;
+      let deliveredOrders = 0;
+      let cancelledOrders = 0;
+
+      for (const entry of orders) {
+        const s = entry.order.status;
+        if (s !== 'cancelled') totalRevenue += entry.order.totalAmount;
+        if (s === 'paid') pendingOrders += 1;
+        if (s === 'preparing') preparingOrders += 1;
+        if (s === 'shipped') shippedOrders += 1;
+        if (s === 'delivered') deliveredOrders += 1;
+        if (s === 'cancelled') cancelledOrders += 1;
+      }
+
+      let outOfStockProducts = 0;
+      let lowStockProducts = 0;
+      for (const p of products) {
+        if (!p.inStock || p.stockCount <= 0) outOfStockProducts += 1;
+        else if (p.stockCount <= 3) lowStockProducts += 1;
+      }
+
+      let adminUsersCount = 0;
+      for (const u of users.values()) {
+        if (normalizeRole(u.role) === 'admin') adminUsersCount += 1;
+      }
+
+      return {
+        totalRevenue,
+        totalOrders: orders.length,
+        pendingOrders,
+        preparingOrders,
+        shippedOrders,
+        deliveredOrders,
+        cancelledOrders,
+        totalProducts: products.length,
+        outOfStockProducts,
+        lowStockProducts,
+        totalCustomers: users.size,
+        adminUsersCount,
+        recentOrders: orders.slice(0, 5).map((entry) => ({
+          orderCode: entry.order.orderCode,
+          customerName: entry.order.customerName,
+          totalAmount: entry.order.totalAmount,
+          status: entry.order.status,
+          createdAt: entry.order.createdAt,
+        })),
+      };
     },
   };
 }
@@ -598,8 +1619,9 @@ export class AuthService {
     fullName: string;
     phone: string;
     passwordHash?: string;
+    role?: UserRole;
   }) {
-    return this.storage.createUser(params);
+    return this.storage.createUser({ ...params, role: 'customer' });
   }
 
   updateUserRecord(userId: string, updater: (user: StoredUserRecord) => StoredUserRecord) {

@@ -10,7 +10,7 @@ import {
   Truck,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
-import { storeRepository } from '../lib/supabase';
+import { storeApi } from '../lib/authApi';
 
 export const Footer: React.FC = () => {
   const { navigate, navigateToCatalog, showToast, storeSettings } = useStore();
@@ -24,10 +24,14 @@ export const Footer: React.FC = () => {
       showToast('لطفاً شماره موبایل یا ایمیل معتبر وارد کنید.', 'error');
       return;
     }
-    await storeRepository.subscribeNewsletter(trimmed);
-    setSubscribed(true);
-    setNewsletterInput('');
-    showToast('عضویت شما در خبرنامه تخفیف‌های امیر با موفقیت ثبت شد.', 'success');
+    try {
+      await storeApi.subscribeNewsletter(trimmed);
+      setSubscribed(true);
+      setNewsletterInput('');
+      showToast('عضویت شما در خبرنامه تخفیف‌های امیر با موفقیت ثبت شد.', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'خطا در عضویت خبرنامه.', 'error');
+    }
   };
 
   return (

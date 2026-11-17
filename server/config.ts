@@ -14,7 +14,7 @@ export function parseCorsOrigins(raw?: string): string[] {
   return raw
     .split(',')
     .map((item) => item.trim().replace(/\/+$/, ''))
-    .filter(Boolean);
+    .filter((item) => Boolean(item) && item !== '*');
 }
 
 export function isOriginAllowed(

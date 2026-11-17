@@ -6,18 +6,13 @@ import {
   Cloud,
   Database,
   Globe,
-  Play,
   RefreshCw,
   Search,
   Server,
 } from 'lucide-react';
 import { StatusDiagSkeleton } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
-import { DEMO_SAMPLE_ORDER } from '../data/catalog';
-import {
-  storeRepository,
-  type SupabaseDiagnosticResult,
-} from '../lib/supabase';
+import { storeApi, type BackendHealthResponse } from '../lib/authApi';
 import { toPersianDigits } from '../utils/storeLogic';
 
 interface NotFoundPageProps {
@@ -92,54 +87,39 @@ export const NotFoundPage: React.FC<NotFoundPageProps> = ({ missingPath }) => {
 };
 
 export const ServerStatusPage: React.FC = () => {
-  const { navigate, showToast } = useStore();
-  const [diag, setDiag] = useState<SupabaseDiagnosticResult | null>(null);
+  const { navigate } = useStore();
+  const [health, setHealth] = useState<BackendHealthResponse | null>(null);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [checkedAt, setCheckedAt] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
-  const [writeTestStatus, setWriteTestStatus] = useState<{
-    running: boolean;
-    result: string | null;
-    ok: boolean | null;
-  }>({ running: false, result: null, ok: null });
 
   const runCheck = useCallback(async () => {
     setChecking(true);
-    const res = await storeRepository.checkSupabaseConnection();
-    setDiag(res);
-    setChecking(false);
+    setErrorMessage(null);
+    const start = performance.now();
+    try {
+      const res = await storeApi.getHealth();
+      setLatencyMs(Math.round(performance.now() - start));
+      setHealth(res);
+      setCheckedAt(new Date().toLocaleTimeString('fa-IR'));
+    } catch (err) {
+      setLatencyMs(Math.round(performance.now() - start));
+      setHealth(null);
+      setErrorMessage(
+        err instanceof Error ? err.message : 'خطا در برقراری ارتباط با سرویس Backend API.'
+      );
+      setCheckedAt(new Date().toLocaleTimeString('fa-IR'));
+    } finally {
+      setChecking(false);
+    }
   }, []);
 
   useEffect(() => {
     runCheck();
   }, [runCheck]);
 
-  const runWriteTest = async () => {
-    setWriteTestStatus({ running: true, result: null, ok: null });
-    const testCode = `TEST-${Math.floor(10000 + Math.random() * 89999)}`;
-    const saved = await storeRepository.createOrder({
-      ...DEMO_SAMPLE_ORDER,
-      orderCode: testCode,
-      customerName: 'تست اتصال دیتابیس امیر',
-      createdAt: 'تست خودکار وضعیت زیرساخت',
-    });
-
-    if (saved.syncedToSupabase) {
-      setWriteTestStatus({
-        running: false,
-        ok: true,
-        result: `سفارش آزمایشی ${testCode} با موفقیت در جدول orders دیتابیس Supabase ثبت و ذخیره شد.`,
-      });
-      showToast(`ثبت آزمایشی ${testCode} در Supabase موفق بود.`, 'success');
-      runCheck();
-    } else {
-      setWriteTestStatus({
-        running: false,
-        ok: false,
-        result: saved.syncError
-          ? `خطا در ذخیره در Supabase: ${saved.syncError}`
-          : 'کلیدهای Supabase در این بیلد تزریق نشده‌اند؛ سفارش به‌صورت محلی ذخیره شد.',
-      });
-    }
-  };
+  const isHealthy = Boolean(health?.ok && health?.storage?.ok);
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-12">
@@ -151,10 +131,10 @@ export const ServerStatusPage: React.FC = () => {
             </div>
             <div>
               <h1 className="text-lg sm:text-xl font-black text-[#0b1c30]">
-                وضعیت زیرساخت، CDN ابراروان و دیتابیس Supabase
+                وضعیت زیرساخت، Backend API و دیتابیس Supabase
               </h1>
               <p className="text-xs text-[#434655] mt-0.5 tabular-nums-fa">
-                آخرین بررسی زنده: {diag ? toPersianDigits(diag.checkedAt) : 'در حال بررسی...'}
+                آخرین بررسی زنده: {checkedAt ? toPersianDigits(checkedAt) : 'در حال بررسی...'}
               </p>
             </div>
           </div>
@@ -178,18 +158,28 @@ export const ServerStatusPage: React.FC = () => {
             </div>
             <p className="text-xs font-extrabold text-[#0b1c30]">GitHub Pages Static Build</p>
             <p className="text-[11px] text-[#434655] leading-5">
-              مسیریابی Hash-Based فعال است؛ تمام مسیرها بدون خطای ۴۰۴ سمت سرور بارگذاری می‌شوند.
+              مسیریابی Hash-Based فعال است؛ ارتباط با دیتابیس به‌طور انحصاری از طریق Backend انجام می‌شود.
             </p>
           </div>
 
           <div className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-2">
             <div className="flex items-center justify-between">
               <Cloud className="w-5 h-5 text-[#004ac6]" />
-              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              {checking ? (
+                <RefreshCw className="w-4 h-4 text-[#004ac6] animate-spin" />
+              ) : health ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <AlertTriangle className="w-4 h-4 text-amber-600" />
+              )}
             </div>
-            <p className="text-xs font-extrabold text-[#0b1c30]">ArvanCloud CDN Ready</p>
+            <p className="text-xs font-extrabold text-[#0b1c30]">Backend Express API</p>
             <p className="text-[11px] text-[#434655] leading-5">
-              فایل‌های استاتیک باندل‌شده با مسیر نسبی و فونت‌های بهینه روی CDN ابراروان کش می‌شوند.
+              {checking
+                ? 'در حال بررسی پاسخ سرویس /api/health...'
+                : health
+                ? `متصل و فعال (${toPersianDigits(latencyMs ?? 0)} میلی‌ثانیه)`
+                : 'سرویس Backend در دسترس نیست.'}
             </p>
           </div>
 
@@ -198,99 +188,71 @@ export const ServerStatusPage: React.FC = () => {
               <Database className="w-5 h-5 text-[#004ac6]" />
               {checking ? (
                 <RefreshCw className="w-4 h-4 text-[#004ac6] animate-spin" />
-              ) : diag?.connected ? (
+              ) : isHealthy ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               ) : (
                 <AlertTriangle className="w-4 h-4 text-amber-600" />
               )}
             </div>
-            <p className="text-xs font-extrabold text-[#0b1c30]">Supabase Free Tier</p>
+            <p className="text-xs font-extrabold text-[#0b1c30]">Database & Auth Storage</p>
             <p className="text-[11px] text-[#434655] leading-5">
               {checking
-                ? 'در حال بررسی ارتباط زنده با سرور Supabase...'
-                : diag?.connected
-                ? `متصل و سالم (${toPersianDigits(diag.latencyMs ?? 0)} میلی‌ثانیه)`
-                : diag?.configured
-                ? 'کلیدها تنظیم شده‌اند اما کوئری با خطا مواجه شد.'
-                : 'حالت دمو محلی فعال است (متغیرهای Supabase در این پیش‌نمایش تزریق نشده‌اند).'}
+                ? 'در حال استعلام وضعیت ذخیره‌سازی...'
+                : health?.storage.mode === 'supabase'
+                ? 'متصل به Supabase PostgreSQL'
+                : health
+                ? 'حالت توسعه حافظه‌ای (آفلاین)'
+                : 'وضعیت دیتابیس در دسترس نیست.'}
             </p>
           </div>
         </div>
 
-        {/* Live Supabase Diagnostic Details */}
-        {checking && !diag ? (
+        {/* Live Backend Health Diagnostic Details */}
+        {checking && !health ? (
           <StatusDiagSkeleton />
-        ) : diag ? (
+        ) : (
           <div
             className={`p-5 rounded-2xl border space-y-3 ${
-              diag.connected
-                ? 'bg-emerald-50/70 border-emerald-200'
-                : 'bg-[#eff4ff] border-[#dce9ff]'
+              isHealthy ? 'bg-emerald-50/70 border-emerald-200' : 'bg-[#eff4ff] border-[#dce9ff]'
             }`}
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs sm:text-sm font-extrabold text-[#0b1c30]">
-                گزارش تست زنده ارتباط با پایگاه داده Supabase
+                گزارش سلامت Backend API و اتصال Supabase
               </p>
-              {diag.host && (
+              {health?.service && (
                 <code dir="ltr" className="text-[11px] px-2 py-0.5 rounded bg-white text-[#004ac6]">
-                  {diag.host}
+                  {health.service} ({health.environment})
                 </code>
               )}
             </div>
 
-            {diag.connected ? (
+            {health ? (
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-white">
-                  <span className="text-[#434655]">جدول products:</span>{' '}
-                  <strong className="text-[#0b1c30] tabular-nums-fa">
-                    {toPersianDigits(diag.productsCount ?? 0)} ردیف
+                <div className="p-3 rounded-xl bg-white flex items-center justify-between gap-2">
+                  <span className="text-[#434655]">حالت ذخیره‌سازی:</span>
+                  <strong className="text-[#0b1c30]" dir="ltr">
+                    {health.storage.mode}
                   </strong>
                 </div>
-                <div className="p-3 rounded-xl bg-white">
-                  <span className="text-[#434655]">جدول orders:</span>{' '}
-                  <strong className="text-[#0b1c30] tabular-nums-fa">
-                    {toPersianDigits(diag.ordersCount ?? 0)} ردیف
+                <div className="p-3 rounded-xl bg-white flex items-center justify-between gap-2">
+                  <span className="text-[#434655]">سرویس ایمیل Resend:</span>
+                  <strong className="text-[#0b1c30]">
+                    {health.resend.resendConfigured ? 'پیکربندی شده' : 'حالت پیش‌نمایش'}
                   </strong>
                 </div>
-                <div className="p-3 rounded-xl bg-white">
-                  <span className="text-[#434655]">زمان پاسخ:</span>{' '}
-                  <strong className="text-emerald-700 tabular-nums-fa">
-                    {toPersianDigits(diag.latencyMs ?? 0)} ms
+                <div className="p-3 rounded-xl bg-white flex items-center justify-between gap-2">
+                  <span className="text-[#434655]">زمان پاسخ سرور:</span>
+                  <strong dir="ltr" className="text-emerald-700 tabular-nums-fa">
+                    {toPersianDigits(latencyMs ?? 0)} ms
                   </strong>
                 </div>
               </div>
             ) : (
-              <p className="text-xs text-[#434655] leading-6">{diag.errorMessage}</p>
+              <p className="text-xs text-[#434655] leading-6">{errorMessage}</p>
             )}
-
-            <div className="pt-2 flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={runWriteTest}
-                disabled={writeTestStatus.running}
-                className="h-10 px-4 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
-              >
-                <Play className="w-3.5 h-3.5" />
-                <span>
-                  {writeTestStatus.running
-                    ? 'در حال ارسال سفارش آزمایشی...'
-                    : 'تست ثبت رکورد آزمایشی در جدول orders'}
-                </span>
-              </button>
-
-              {writeTestStatus.result && (
-                <span
-                  className={`text-xs font-bold ${
-                    writeTestStatus.ok ? 'text-emerald-800' : 'text-amber-800'
-                  }`}
-                >
-                  {writeTestStatus.result}
-                </span>
-              )}
-            </div>
           </div>
-        ) : null}
+        )}
 
         <div className="flex justify-end">
           <button

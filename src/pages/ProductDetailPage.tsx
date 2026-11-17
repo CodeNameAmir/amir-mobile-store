@@ -23,7 +23,7 @@ import { ReviewCardSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import { CATEGORY_ITEMS } from '../data/catalog';
-import { storeRepository } from '../lib/supabase';
+import { storeApi } from '../lib/authApi';
 import type { ProductReview } from '../types/store';
 import {
   calculateCareInsurancePrice,
@@ -79,11 +79,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     setIncludeCarePlus(false);
     setQty(1);
     markProductViewed(product.id);
-    const cached = storeRepository.loadReviews(product.id);
-    setReviews(cached);
+    setReviews([]);
     setReviewsLoading(true);
-    storeRepository
-      .fetchReviews(product.id)
+    storeApi
+      .getProductReviews(product.id)
       .then((fetched) => {
         if (!mounted) return;
         setReviews(fetched);
@@ -175,19 +174,17 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     }
     setSubmittingReview(true);
     try {
-      const nextReview: ProductReview = {
-        id: `rev-${Date.now()}`,
+      const savedReview = await storeApi.submitProductReview(product.id, {
         author: reviewAuthor.trim(),
-        dateLabel: 'هم‌اکنون',
         rating: reviewRating,
         comment: reviewText.trim(),
-        verified: true,
-      };
-      const updated = await storeRepository.addReview(product.id, nextReview);
-      setReviews(updated);
+      });
+      setReviews((prev) => [savedReview, ...prev]);
       setReviewAuthor('');
       setReviewText('');
       showToast('دیدگاه شما با موفقیت ثبت شد.', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'خطا در ثبت دیدگاه.', 'error');
     } finally {
       setSubmittingReview(false);
     }
