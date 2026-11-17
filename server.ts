@@ -216,6 +216,90 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
+  const issueAndSendOtpChallenge = async (params: {
+    email: string;
+    purpose: OtpPurpose;
+    recipientName?: string;
+    pendingUserId?: string;
+    pendingSignup?: { fullName: string; phone: string; passwordHash?: string };
+  }): Promise<
+    | {
+        ok: true;
+        provider: 'resend' | 'sandbox-preview';
+        emailId?: string;
+        previewCode?: string;
+        cooldownSeconds: number;
+        warning?: string;
+      }
+    | { ok: false; statusCode: number; error: string; retryAfterSeconds?: number }
+  > => {
+    const challengeResult = await authService.createOtpChallenge({
+      email: params.email,
+      purpose: params.purpose,
+      pendingUserId: params.pendingUserId,
+      pendingSignup: params.pendingSignup,
+    });
+
+    if (!challengeResult.ok) {
+      return {
+        ok: false,
+        statusCode: 429,
+        error: `لطفاً ${challengeResult.retryAfterSeconds} ثانیه دیگر برای ارسال مجدد کد صبر کنید.`,
+        retryAfterSeconds: challengeResult.retryAfterSeconds,
+      };
+    }
+
+    options.onOtpIssued?.({
+      email: params.email,
+      purpose: params.purpose,
+      code: challengeResult.code,
+    });
+
+    const emailContent = buildOtpEmailContent({
+      code: challengeResult.code,
+      purpose: params.purpose,
+      recipientName: params.recipientName,
+    });
+
+    const delivery = await dispatchEmail({
+      to: params.email,
+      subject: emailContent.subject,
+      html: emailContent.html,
+      idempotencyKey: `otp-${params.purpose}-${challengeResult.challengeId}`,
+      tags: [{ name: 'category', value: `auth_${params.purpose.replace('-', '_')}` }],
+    });
+
+    if (delivery.sent) {
+      return {
+        ok: true,
+        provider: 'resend',
+        emailId: delivery.emailId,
+        cooldownSeconds: challengeResult.cooldownSeconds,
+      };
+    }
+
+    if (delivery.provider === 'sandbox-preview' && !isProd) {
+      return {
+        ok: true,
+        provider: 'sandbox-preview',
+        previewCode: challengeResult.code,
+        cooldownSeconds: challengeResult.cooldownSeconds,
+        warning:
+          'کد تایید به‌صورت موقت برای تست در همین صفحه نمایش داده می‌شود.',
+      };
+    }
+
+    await authService.clearOtpChallenge(params.email, params.purpose);
+    return {
+      ok: false,
+      statusCode: delivery.statusCode && delivery.statusCode >= 400 ? delivery.statusCode : 502,
+      error:
+        delivery.provider === 'sandbox-preview'
+          ? 'سرویس ارسال ایمیل (RESEND_API_KEY) در محیط Production پیکربندی نشده است.'
+          : `خطا در ارسال ایمیل از طریق Resend: ${delivery.errorMessage || 'خطای نامشخص'}`,
+    };
+  };
+
   app.post('/api/auth/send-otp', async (req, res, next) => {
     try {
       const email = normalizeEmail(req.body?.email);
@@ -295,76 +379,48 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         pendingUserId = auth.user.id;
       } else if (purpose === 'login') {
         const existing = await authService.findUserByEmail(email);
-        recipientName = existing?.fullName;
-        pendingUserId = existing?.id;
+        if (!existing) {
+          res.status(404).json({
+            error:
+              'حساب کاربری با این ایمیل ثبت نشده است. لطفاً ابتدا از بخش «ثبت‌نام جدید» حساب کاربری خود را ایجاد کنید.',
+          });
+          return;
+        }
+        if (existing.twoFactorEnabled) {
+          res.status(403).json({
+            error:
+              'تایید دومرحله‌ای (2FA) برای این حساب فعال است. لطفاً از بخش «ورود با رمز عبور» وارد شوید.',
+          });
+          return;
+        }
+        recipientName = existing.fullName;
+        pendingUserId = existing.id;
       }
 
-      const challengeResult = await authService.createOtpChallenge({
+      const otpResult = await issueAndSendOtpChallenge({
         email,
         purpose,
+        recipientName,
         pendingUserId,
         pendingSignup,
       });
 
-      if (!challengeResult.ok) {
-        res.status(429).json({
-          error: `لطفاً ${challengeResult.retryAfterSeconds} ثانیه دیگر برای ارسال مجدد کد صبر کنید.`,
-          retryAfterSeconds: challengeResult.retryAfterSeconds,
+      if (!otpResult.ok) {
+        res.status(otpResult.statusCode).json({
+          error: otpResult.error,
+          ...(otpResult.retryAfterSeconds ? { retryAfterSeconds: otpResult.retryAfterSeconds } : {}),
         });
         return;
       }
 
-      options.onOtpIssued?.({
-        email,
-        purpose,
-        code: challengeResult.code,
+      res.json({
+        sent: true,
+        provider: otpResult.provider,
+        ...(otpResult.emailId ? { emailId: otpResult.emailId } : {}),
+        ...(otpResult.previewCode ? { previewCode: otpResult.previewCode } : {}),
+        cooldownSeconds: otpResult.cooldownSeconds,
+        ...(otpResult.warning ? { warning: otpResult.warning } : {}),
       });
-
-      const emailContent = buildOtpEmailContent({
-        code: challengeResult.code,
-        purpose,
-        recipientName,
-      });
-
-      const delivery = await dispatchEmail({
-        to: email,
-        subject: emailContent.subject,
-        html: emailContent.html,
-        idempotencyKey: `otp-${purpose}-${challengeResult.challengeId}`,
-        tags: [{ name: 'category', value: `auth_${purpose.replace('-', '_')}` }],
-      });
-
-      if (delivery.sent) {
-        res.json({
-          sent: true,
-          provider: 'resend',
-          emailId: delivery.emailId,
-          cooldownSeconds: challengeResult.cooldownSeconds,
-        });
-        return;
-      }
-
-      if (delivery.provider === 'sandbox-preview' && !isProd) {
-        res.json({
-          sent: true,
-          provider: 'sandbox-preview',
-          previewCode: challengeResult.code,
-          cooldownSeconds: challengeResult.cooldownSeconds,
-          warning:
-            'متغیر RESEND_API_KEY در سرور تنظیم نشده است؛ کد تایید به‌صورت موقت برای تست در همین صفحه نمایش داده می‌شود.',
-        });
-        return;
-      }
-
-      await authService.clearOtpChallenge(email, purpose);
-      res
-        .status(delivery.statusCode && delivery.statusCode >= 400 ? delivery.statusCode : 502)
-        .json({
-          error:
-            delivery.provider === 'sandbox-preview'
-              ? 'سرویس ارسال ایمیل (RESEND_API_KEY) در محیط Production پیکربندی نشده است.'
-              : `خطا در ارسال ایمیل از طریق Resend: ${delivery.errorMessage || 'خطای نامشخص'}`,
-        });
     } catch (err) {
       next(err);
     }
@@ -377,6 +433,11 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       const code = toEnglishDigits(String(req.body?.code || ''))
         .replace(/[\s\-_]/g, '')
         .trim();
+
+      if (!['signup', 'login', 'reset-password', 'change-email'].includes(purpose)) {
+        res.status(400).json({ error: 'نوع درخواست کد تایید معتبر نیست.' });
+        return;
+      }
 
       if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
         res.status(400).json({ error: 'ایمیل یا کد تایید ۶ رقمی معتبر نیست.' });
@@ -418,20 +479,23 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           tags: [{ name: 'category', value: 'welcome' }],
         });
       } else if (purpose === 'login') {
-        user = await authService.findUserByEmail(email);
-        if (!user) {
-          const defaultName = email.split('@')[0] || 'کاربر جدید';
-          user = await authService.createUserAccount({
-            email,
-            fullName: defaultName,
-            phone: '',
+        const existing = await authService.findUserByEmail(email);
+        if (!existing) {
+          res.status(404).json({
+            error: 'حساب کاربری با این ایمیل یافت نشد. لطفاً ابتدا ثبت‌نام کنید.',
           });
-        } else {
-          user = await authService.updateUserRecord(user.id, (prev) => ({
-            ...prev,
-            emailVerified: true,
-          }));
+          return;
         }
+        if (existing.twoFactorEnabled) {
+          res.status(403).json({
+            error: 'تایید دومرحله‌ای (2FA) برای این حساب فعال است. لطفاً با رمز عبور وارد شوید.',
+          });
+          return;
+        }
+        user = await authService.updateUserRecord(existing.id, (prev) => ({
+          ...prev,
+          emailVerified: true,
+        }));
       } else if (purpose === 'reset-password') {
         const newPassword = String(req.body?.newPassword || '');
         if (newPassword.length < 8 || !/\d/.test(toEnglishDigits(newPassword))) {
@@ -533,6 +597,40 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         return;
       }
 
+      if (user.twoFactorEnabled) {
+        const otpResult = await issueAndSendOtpChallenge({
+          email: user.email,
+          purpose: 'login-2fa',
+          recipientName: user.fullName,
+          pendingUserId: user.id,
+        });
+
+        if (!otpResult.ok) {
+          res.status(otpResult.statusCode).json({
+            error: otpResult.error,
+            ...(otpResult.retryAfterSeconds
+              ? { retryAfterSeconds: otpResult.retryAfterSeconds }
+              : {}),
+          });
+          return;
+        }
+
+        const twoFactorToken = authService.issueTwoFactorToken(user.id, user.email);
+        res.json({
+          authenticated: false,
+          requires2FA: true,
+          twoFactorToken,
+          email: user.email,
+          provider: otpResult.provider,
+          ...(otpResult.emailId ? { emailId: otpResult.emailId } : {}),
+          ...(otpResult.previewCode ? { previewCode: otpResult.previewCode } : {}),
+          cooldownSeconds: otpResult.cooldownSeconds,
+          ...(otpResult.warning ? { warning: otpResult.warning } : {}),
+          user: null,
+        });
+        return;
+      }
+
       const session = await authService.issueSessionToken(user.id);
       if (!session) {
         res.status(500).json({ error: 'خطا در صدور نشست ورود.' });
@@ -543,7 +641,104 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       const freshUser = (await authService.findUserByEmail(user.email)) || user;
       res.json({
         authenticated: true,
+        requires2FA: false,
         user: toPublicUser(freshUser),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/auth/verify-2fa', async (req, res, next) => {
+    try {
+      const twoFactorToken = String(req.body?.twoFactorToken || '');
+      const code = toEnglishDigits(String(req.body?.code || ''))
+        .replace(/[\s\-_]/g, '')
+        .trim();
+
+      const pending2fa = authService.verifyTwoFactorToken(twoFactorToken);
+      if (!pending2fa) {
+        res.status(401).json({
+          error: 'زمان تایید دومرحله‌ای به پایان رسیده است. لطفاً دوباره با رمز عبور وارد شوید.',
+        });
+        return;
+      }
+
+      if (!/^\d{6}$/.test(code)) {
+        res.status(400).json({ error: 'کد تایید باید دقیقاً ۶ رقم باشد.' });
+        return;
+      }
+
+      const verification = await authService.verifyOtpChallenge(pending2fa.email, 'login-2fa', code);
+      if (!verification.ok) {
+        res.status(400).json({ error: verification.messageFa });
+        return;
+      }
+
+      const user = await authService.findUserById(pending2fa.userId);
+      if (!user) {
+        res.status(404).json({ error: 'حساب کاربری یافت نشد.' });
+        return;
+      }
+
+      const session = await authService.issueSessionToken(user.id);
+      if (!session) {
+        res.status(500).json({ error: 'خطا در ایجاد نشست کاربری.' });
+        return;
+      }
+
+      setSessionCookie(req, res, session.token);
+      const freshUser = (await authService.findUserById(user.id)) || user;
+      res.json({
+        authenticated: true,
+        user: toPublicUser(freshUser),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/auth/resend-2fa', async (req, res, next) => {
+    try {
+      const twoFactorToken = String(req.body?.twoFactorToken || '');
+      const pending2fa = authService.verifyTwoFactorToken(twoFactorToken);
+      if (!pending2fa) {
+        res.status(401).json({
+          error: 'زمان تایید دومرحله‌ای به پایان رسیده است. لطفاً دوباره با رمز عبور وارد شوید.',
+        });
+        return;
+      }
+
+      const user = await authService.findUserById(pending2fa.userId);
+      if (!user || !user.twoFactorEnabled) {
+        res.status(400).json({ error: 'تایید دومرحله‌ای برای این حساب فعال نیست.' });
+        return;
+      }
+
+      const otpResult = await issueAndSendOtpChallenge({
+        email: user.email,
+        purpose: 'login-2fa',
+        recipientName: user.fullName,
+        pendingUserId: user.id,
+      });
+
+      if (!otpResult.ok) {
+        res.status(otpResult.statusCode).json({
+          error: otpResult.error,
+          ...(otpResult.retryAfterSeconds
+            ? { retryAfterSeconds: otpResult.retryAfterSeconds }
+            : {}),
+        });
+        return;
+      }
+
+      res.json({
+        sent: true,
+        provider: otpResult.provider,
+        ...(otpResult.emailId ? { emailId: otpResult.emailId } : {}),
+        ...(otpResult.previewCode ? { previewCode: otpResult.previewCode } : {}),
+        cooldownSeconds: otpResult.cooldownSeconds,
+        ...(otpResult.warning ? { warning: otpResult.warning } : {}),
       });
     } catch (err) {
       next(err);
@@ -648,6 +843,59 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           subject: alert.subject,
           html: alert.html,
           idempotencyKey: `pw-change-${updated.id}-${Date.now()}`,
+          tags: [{ name: 'category', value: 'security_alert' }],
+        });
+
+        res.json({ user: toPublicUser(updated) });
+      } catch (err) {
+        next(err);
+      }
+    }
+  );
+
+  app.post(
+    '/api/auth/two-factor',
+    requireAuth,
+    async (req: AuthenticatedRequest, res, next) => {
+      try {
+        const currentUser = req.authUser!;
+        const enabled = Boolean(req.body?.enabled);
+        const currentPassword = String(req.body?.currentPassword || '');
+
+        if (enabled && !currentUser.passwordHash) {
+          res.status(400).json({
+            error:
+              'برای فعال‌سازی تایید دومرحله‌ای (2FA)، ابتدا باید از بخش بالا یک رمز عبور برای حساب خود تنظیم کنید.',
+          });
+          return;
+        }
+
+        if (currentUser.passwordHash && !verifyPassword(currentPassword, currentUser.passwordHash)) {
+          res.status(400).json({ error: 'رمز عبور فعلی نادرست است.' });
+          return;
+        }
+
+        const updated = await authService.updateUserRecord(currentUser.id, (prev) => ({
+          ...prev,
+          twoFactorEnabled: enabled,
+        }));
+
+        if (!updated) {
+          res.status(404).json({ error: 'حساب کاربری یافت نشد.' });
+          return;
+        }
+
+        const alert = buildSecurityAlertEmailContent({
+          fullName: updated.fullName,
+          actionLabel: enabled
+            ? 'فعال‌سازی تایید دومرحله‌ای (2FA)'
+            : 'غیرفعال‌سازی تایید دومرحله‌ای (2FA)',
+        });
+        void dispatchEmail({
+          to: updated.email,
+          subject: alert.subject,
+          html: alert.html,
+          idempotencyKey: `2fa-toggle-${updated.id}-${Date.now()}`,
           tags: [{ name: 'category', value: 'security_alert' }],
         });
 

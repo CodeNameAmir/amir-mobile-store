@@ -1,4 +1,4 @@
-export type OtpEmailPurpose = 'signup' | 'login' | 'reset-password' | 'change-email';
+export type OtpEmailPurpose = 'signup' | 'login' | 'login-2fa' | 'reset-password' | 'change-email';
 
 function escapeHtml(str: string): string {
   return str
@@ -62,6 +62,12 @@ export function buildOtpEmailContent(params: {
       subject: `کد ورود یک‌بارمصرف فروشگاه موبایل امیر: ${params.code}`,
       heading: 'ورود ایمن با کد یک‌بارمصرف',
       description: 'کد زیر برای ورود به حساب کاربری شما در فروشگاه موبایل امیر صادر شده است:',
+    },
+    'login-2fa': {
+      subject: `کد تایید دومرحله‌ای (2FA) فروشگاه موبایل امیر: ${params.code}`,
+      heading: 'تایید ورود دومرحله‌ای',
+      description:
+        'رمز عبور شما تایید شد. برای تکمیل ورود به حساب کاربری خود، کد ۶ رقمی زیر را وارد کنید:',
     },
     'reset-password': {
       subject: `کد بازیابی رمز عبور فروشگاه موبایل امیر: ${params.code}`,

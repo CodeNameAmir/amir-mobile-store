@@ -99,12 +99,16 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   // Orders filter
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | OrderRecord['status']>('all');
 
-  // Security / Password change
+  // Security / Password change & 2FA
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [savingPassword, setSavingPassword] = useState(false);
+
+  const [twoFactorPw, setTwoFactorPw] = useState('');
+  const [twoFactorBusy, setTwoFactorBusy] = useState(false);
+  const [twoFactorErr, setTwoFactorErr] = useState<string | null>(null);
 
   useEffect(() => {
     setFullName(user.fullName);
@@ -283,6 +287,41 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
       setPasswordError(err instanceof Error ? err.message : 'خطا در تغییر رمز عبور.');
     } finally {
       setSavingPassword(false);
+    }
+  };
+
+  const handleToggleTwoFactor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTwoFactorErr(null);
+    const nextEnabled = !user.twoFactorEnabled;
+
+    if (nextEnabled && !user.hasPassword) {
+      setTwoFactorErr('ابتدا از بخش تغییر رمز عبور، یک رمز عبور برای حساب خود تنظیم کنید.');
+      return;
+    }
+    if (user.hasPassword && !twoFactorPw) {
+      setTwoFactorErr('برای تایید تغییر وضعیت تایید دومرحله‌ای، رمز عبور فعلی خود را وارد کنید.');
+      return;
+    }
+
+    setTwoFactorBusy(true);
+    try {
+      const res = await authApi.toggleTwoFactor({
+        enabled: nextEnabled,
+        currentPassword: twoFactorPw,
+      });
+      setAuthenticatedUser(res.user);
+      setTwoFactorPw('');
+      showToast(
+        nextEnabled
+          ? 'تایید دومرحله‌ای (2FA) با موفقیت فعال شد.'
+          : 'تایید دومرحله‌ای (2FA) غیرفعال شد.',
+        'success'
+      );
+    } catch (err) {
+      setTwoFactorErr(err instanceof Error ? err.message : 'خطا در تغییر تنظیمات تایید دومرحله‌ای.');
+    } finally {
+      setTwoFactorBusy(false);
     }
   };
 
@@ -1144,6 +1183,80 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   {savingPassword ? 'در حال ثبت...' : 'ذخیره رمز عبور'}
                 </button>
               </div>
+            </form>
+
+            {/* Two-Factor Authentication (2FA) */}
+            <form
+              onSubmit={handleToggleTwoFactor}
+              noValidate
+              className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base sm:text-lg font-black text-[#0b1c30] flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-[#004ac6]" />
+                    <span>تایید دومرحله‌ای (2FA) با ایمیل</span>
+                  </h2>
+                  <p className="text-xs text-[#434655] mt-1 leading-6">
+                    با فعال‌سازی این گزینه، هنگام ورود به حساب ابتدا رمز عبور شما بررسی می‌شود و سپس کد تایید ۶ رقمی به ایمیلتان ارسال خواهد شد.
+                  </p>
+                </div>
+                <span
+                  data-testid="two-factor-status-badge"
+                  className={`px-3 py-1 rounded-xl text-xs font-extrabold whitespace-nowrap ${
+                    user.twoFactorEnabled
+                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                      : 'bg-[#f8f9ff] text-[#434655] border border-[#dce9ff]'
+                  }`}
+                >
+                  {user.twoFactorEnabled ? 'فعال' : 'غیرفعال'}
+                </span>
+              </div>
+
+              {twoFactorErr && (
+                <p className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold">
+                  {twoFactorErr}
+                </p>
+              )}
+
+              {!user.hasPassword ? (
+                <p className="p-3.5 rounded-xl bg-[#eff4ff] border border-[#dce9ff] text-xs text-[#0b1c30] leading-6">
+                  برای فعال‌سازی تایید دومرحله‌ای، ابتدا باید از فرم «تنظیم رمز عبور برای حساب» در بالا یک رمز عبور ثبت کنید.
+                </p>
+              ) : (
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+                  <div className="flex-1 space-y-1.5">
+                    <label htmlFor="two-factor-pw" className="text-xs font-bold text-[#0b1c30] block">
+                      رمز عبور فعلی برای تایید
+                    </label>
+                    <input
+                      id="two-factor-pw"
+                      type="password"
+                      dir="ltr"
+                      value={twoFactorPw}
+                      onChange={(e) => setTwoFactorPw(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs text-left text-[#0b1c30]"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={twoFactorBusy}
+                    data-testid="toggle-two-factor-btn"
+                    className={`h-11 px-5 rounded-xl text-xs sm:text-sm font-extrabold whitespace-nowrap transition-colors ${
+                      user.twoFactorEnabled
+                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-700'
+                        : 'bg-[#004ac6] hover:bg-[#2563eb] text-white'
+                    }`}
+                  >
+                    {twoFactorBusy
+                      ? 'در حال اعمال...'
+                      : user.twoFactorEnabled
+                      ? 'غیرفعال‌سازی تایید دومرحله‌ای'
+                      : 'فعال‌سازی تایید دومرحله‌ای'}
+                  </button>
+                </div>
+              )}
             </form>
 
             <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

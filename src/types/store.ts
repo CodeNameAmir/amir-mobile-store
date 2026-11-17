@@ -169,6 +169,7 @@ export interface DemoUser {
   phone: string;
   email: string;
   emailVerified?: boolean;
+  twoFactorEnabled?: boolean;
   hasPassword?: boolean;
   nationalId?: string;
   birthDate?: string;
@@ -178,7 +179,7 @@ export interface DemoUser {
   lastLoginAt?: string;
 }
 
-export type OtpPurpose = 'signup' | 'login' | 'reset-password' | 'change-email';
+export type OtpPurpose = 'signup' | 'login' | 'login-2fa' | 'reset-password' | 'change-email';
 
 export interface ResendServiceStatus {
   resendConfigured: boolean;

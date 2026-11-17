@@ -22,6 +22,17 @@ export interface AuthResponse {
   user: DemoUser | null;
 }
 
+export interface PasswordLoginResponse extends AuthResponse {
+  requires2FA?: boolean;
+  twoFactorToken?: string;
+  email?: string;
+  provider?: 'resend' | 'sandbox-preview';
+  emailId?: string;
+  previewCode?: string;
+  cooldownSeconds?: number;
+  warning?: string;
+}
+
 export interface AuthStatusResponse extends ResendServiceStatus {
   authenticated: boolean;
   user: DemoUser | null;
@@ -96,8 +107,35 @@ export const authApi = {
     });
   },
 
-  async loginWithPassword(payload: { email: string; password: string }): Promise<AuthResponse> {
-    return requestJson<AuthResponse>('/api/auth/login-password', {
+  async loginWithPassword(payload: {
+    email: string;
+    password: string;
+  }): Promise<PasswordLoginResponse> {
+    return requestJson<PasswordLoginResponse>('/api/auth/login-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async verifyTwoFactor(payload: { twoFactorToken: string; code: string }): Promise<AuthResponse> {
+    return requestJson<AuthResponse>('/api/auth/verify-2fa', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async resendTwoFactor(payload: { twoFactorToken: string }): Promise<SendOtpResponse> {
+    return requestJson<SendOtpResponse>('/api/auth/resend-2fa', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async toggleTwoFactor(payload: {
+    enabled: boolean;
+    currentPassword?: string;
+  }): Promise<{ user: DemoUser }> {
+    return requestJson<{ user: DemoUser }>('/api/auth/two-factor', {
       method: 'POST',
       body: JSON.stringify(payload),
     });

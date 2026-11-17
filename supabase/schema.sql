@@ -256,6 +256,7 @@ create table if not exists public.app_users (
   birth_date text,
   newsletter_opt_in boolean default true,
   email_verified boolean default true,
+  two_factor_enabled boolean default false,
   password_hash text,
   addresses jsonb default '[]'::jsonb,
   active_session_ids jsonb default '[]'::jsonb,
@@ -263,13 +264,16 @@ create table if not exists public.app_users (
   last_login_at timestamptz default now()
 );
 
+alter table public.app_users
+  add column if not exists two_factor_enabled boolean default false;
+
 create index if not exists idx_app_users_email on public.app_users (email);
 
 create table if not exists public.auth_otp_challenges (
   challenge_key text primary key,
   id uuid not null,
   email text not null,
-  purpose text not null check (purpose in ('signup', 'login', 'reset-password', 'change-email')),
+  purpose text not null check (purpose in ('signup', 'login', 'login-2fa', 'reset-password', 'change-email')),
   code_hash text not null,
   expires_at timestamptz not null,
   resend_available_at timestamptz not null,
@@ -278,6 +282,12 @@ create table if not exists public.auth_otp_challenges (
   pending_signup jsonb,
   created_at timestamptz default now()
 );
+
+alter table public.auth_otp_challenges
+  drop constraint if exists auth_otp_challenges_purpose_check;
+alter table public.auth_otp_challenges
+  add constraint auth_otp_challenges_purpose_check
+  check (purpose in ('signup', 'login', 'login-2fa', 'reset-password', 'change-email'));
 
 create index if not exists idx_auth_otp_expires_at on public.auth_otp_challenges (expires_at);
 

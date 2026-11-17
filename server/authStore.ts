@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { resolveSessionSecret, resolveSupabaseAdminConfig } from './config.ts';
 
-export type OtpPurpose = 'signup' | 'login' | 'reset-password' | 'change-email';
+export type OtpPurpose = 'signup' | 'login' | 'login-2fa' | 'reset-password' | 'change-email';
 
 export interface StoredAddress {
   id: string;
@@ -24,6 +24,7 @@ export interface StoredUserRecord {
   birthDate?: string;
   newsletterOptIn: boolean;
   emailVerified: boolean;
+  twoFactorEnabled: boolean;
   passwordHash?: string;
   addresses: StoredAddress[];
   activeSessionIds: string[];
@@ -40,6 +41,7 @@ export interface PublicUserDTO {
   birthDate?: string;
   newsletterOptIn: boolean;
   emailVerified: boolean;
+  twoFactorEnabled: boolean;
   hasPassword: boolean;
   addresses: StoredAddress[];
   createdAt: string;
@@ -113,6 +115,7 @@ export function toPublicUser(user: StoredUserRecord): PublicUserDTO {
     birthDate: user.birthDate,
     newsletterOptIn: user.newsletterOptIn,
     emailVerified: user.emailVerified,
+    twoFactorEnabled: user.twoFactorEnabled,
     hasPassword: Boolean(user.passwordHash),
     addresses: user.addresses,
     createdAt: user.createdAt,
@@ -134,6 +137,7 @@ function mapSupabaseUserRow(row: Record<string, unknown>): StoredUserRecord {
     birthDate: row.birth_date ? String(row.birth_date) : undefined,
     newsletterOptIn: row.newsletter_opt_in !== false,
     emailVerified: row.email_verified !== false,
+    twoFactorEnabled: row.two_factor_enabled === true,
     passwordHash: row.password_hash ? String(row.password_hash) : undefined,
     addresses: Array.isArray(row.addresses) ? (row.addresses as StoredAddress[]) : [],
     activeSessionIds: Array.isArray(row.active_session_ids)
@@ -205,6 +209,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         phone: params.phone.trim(),
         newsletter_opt_in: true,
         email_verified: true,
+        two_factor_enabled: false,
         password_hash: params.passwordHash ?? null,
         addresses: [],
         active_session_ids: [],
@@ -233,6 +238,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
           birth_date: next.birthDate ?? null,
           newsletter_opt_in: next.newsletterOptIn,
           email_verified: next.emailVerified,
+          two_factor_enabled: next.twoFactorEnabled,
           password_hash: next.passwordHash ?? null,
           addresses: next.addresses,
           active_session_ids: next.activeSessionIds,
@@ -320,6 +326,7 @@ export function createMemoryAuthStorage(): AuthStorageAdapter {
         phone: params.phone.trim(),
         newsletterOptIn: true,
         emailVerified: true,
+        twoFactorEnabled: false,
         passwordHash: params.passwordHash,
         addresses: [],
         activeSessionIds: [],
@@ -574,5 +581,59 @@ export class AuthService {
         ? []
         : user.activeSessionIds.filter((id) => id !== sessionId),
     }));
+  }
+
+  issueTwoFactorToken(userId: string, email: string): string {
+    const payloadObj = {
+      nonce: crypto.randomUUID(),
+      userId,
+      email,
+      issuedAt: Date.now(),
+    };
+    const encoded = Buffer.from(JSON.stringify(payloadObj), 'utf8').toString('base64url');
+    const signature = crypto
+      .createHmac('sha256', this.sessionSecret)
+      .update(`2fa.${encoded}`)
+      .digest('hex');
+    return `${encoded}.${signature}`;
+  }
+
+  verifyTwoFactorToken(
+    token: string | undefined
+  ): { userId: string; email: string } | null {
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length !== 2) return null;
+    const [encoded, signature] = parts;
+    if (!encoded || !signature) return null;
+
+    const expectedSig = crypto
+      .createHmac('sha256', this.sessionSecret)
+      .update(`2fa.${encoded}`)
+      .digest('hex');
+
+    const sigBuf = Buffer.from(signature, 'hex');
+    const expBuf = Buffer.from(expectedSig, 'hex');
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
+      return null;
+    }
+
+    try {
+      const parsed = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as {
+        userId?: string;
+        email?: string;
+        issuedAt?: number;
+      };
+      if (!parsed.userId || !parsed.email || typeof parsed.issuedAt !== 'number') {
+        return null;
+      }
+      const maxAgeMs = 10 * 60 * 1000;
+      if (Date.now() - parsed.issuedAt > maxAgeMs) {
+        return null;
+      }
+      return { userId: parsed.userId, email: parsed.email };
+    } catch {
+      return null;
+    }
   }
 }

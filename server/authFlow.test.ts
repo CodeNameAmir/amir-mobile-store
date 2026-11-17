@@ -320,15 +320,12 @@ test('Full HTTP production auth flow: CORS, signup, OTP login, password login, r
 
     // Same-origin POST (e.g. Render service serving its own preview URL with Origin matching Host)
     const renderHostStatus = await new Promise<number>((resolve, reject) => {
-      const payload = JSON.stringify({
-        email: 'same-origin@codenameamir.ir',
-        purpose: 'login',
-      });
+      const payload = JSON.stringify({ allDevices: false });
       const req = http.request(
         {
           hostname: '127.0.0.1',
           port: address.port,
-          path: '/api/auth/send-otp',
+          path: '/api/auth/logout',
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -420,7 +417,14 @@ test('Full HTTP production auth flow: CORS, signup, OTP login, password login, r
     assert.equal(pwLogin.res.status, 200);
     assert.equal(pwLogin.body.authenticated, true);
 
-    // 7. Logout then Login with Email OTP
+    // 7. Reject OTP login for unregistered email (must not auto-create account)
+    const unknownOtpLogin = await apiFetch('/api/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'nobody@codenameamir.ir', purpose: 'login' }),
+    });
+    assert.equal(unknownOtpLogin.res.status, 404);
+
+    // 8. Logout then Login with Email OTP for existing account (when 2FA is off)
     await apiFetch('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
 
     const loginOtpReq = await apiFetch('/api/auth/send-otp', {
@@ -442,7 +446,65 @@ test('Full HTTP production auth flow: CORS, signup, OTP login, password login, r
     assert.equal(loginOtpVerify.res.status, 200);
     assert.equal(loginOtpVerify.body.authenticated, true);
 
-    // 8. Email change (authenticated)
+    // 9. Enable 2FA -> password login requires step-2 email OTP -> passwordless OTP login blocked
+    const badToggle2fa = await apiFetch('/api/auth/two-factor', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: true, currentPassword: 'WrongPassword!' }),
+    });
+    assert.equal(badToggle2fa.res.status, 400);
+
+    const enable2fa = await apiFetch('/api/auth/two-factor', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: true, currentPassword: initialPw }),
+    });
+    assert.equal(enable2fa.res.status, 200);
+    assert.equal(enable2fa.body.user.twoFactorEnabled, true);
+
+    await apiFetch('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
+
+    // Passwordless OTP login must be rejected while 2FA is enabled
+    const blockedOtpLogin = await apiFetch('/api/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email: email1, purpose: 'login' }),
+    });
+    assert.equal(blockedOtpLogin.res.status, 403);
+
+    // Step 1: password login returns requires2FA: true without setting session cookie yet
+    const pw2faStep1 = await apiFetch('/api/auth/login-password', {
+      method: 'POST',
+      body: JSON.stringify({ email: email1, password: initialPw }),
+    });
+    assert.equal(pw2faStep1.res.status, 200);
+    assert.equal(pw2faStep1.body.authenticated, false);
+    assert.equal(pw2faStep1.body.requires2FA, true);
+    assert.ok(pw2faStep1.body.twoFactorToken);
+    assert.equal(jar.get('amir_session'), undefined);
+
+    const twoFaCode = issuedOtps.get(`login-2fa::${email1}`);
+    assert.ok(twoFaCode && /^\d{6}$/.test(twoFaCode));
+
+    // Step 2: verify 2FA OTP completes sign-in and sets HttpOnly cookie
+    const pw2faStep2 = await apiFetch('/api/auth/verify-2fa', {
+      method: 'POST',
+      body: JSON.stringify({
+        twoFactorToken: pw2faStep1.body.twoFactorToken,
+        code: twoFaCode,
+      }),
+    });
+    assert.equal(pw2faStep2.res.status, 200);
+    assert.equal(pw2faStep2.body.authenticated, true);
+    assert.equal(pw2faStep2.body.user.twoFactorEnabled, true);
+    assert.ok(jar.get('amir_session'));
+
+    // Disable 2FA cleanly
+    const disable2fa = await apiFetch('/api/auth/two-factor', {
+      method: 'POST',
+      body: JSON.stringify({ enabled: false, currentPassword: initialPw }),
+    });
+    assert.equal(disable2fa.res.status, 200);
+    assert.equal(disable2fa.body.user.twoFactorEnabled, false);
+
+    // 10. Email change (authenticated)
     const email2 = 'updated@codenameamir.ir';
     const changeEmailReq = await apiFetch('/api/auth/send-otp', {
       method: 'POST',
@@ -466,7 +528,7 @@ test('Full HTTP production auth flow: CORS, signup, OTP login, password login, r
     const meAfterEmailChange = await apiFetch('/api/auth/me', { method: 'GET' });
     assert.equal(meAfterEmailChange.body.user.email, email2);
 
-    // 9. Password reset on updated email
+    // 11. Password reset on updated email
     await apiFetch('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
 
     const resetReq = await apiFetch('/api/auth/send-otp', {
