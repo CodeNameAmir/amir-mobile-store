@@ -11,6 +11,7 @@ import {
   Search,
   Server,
 } from 'lucide-react';
+import { StatusDiagSkeleton } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
 import { DEMO_SAMPLE_ORDER } from '../data/catalog';
 import {
@@ -195,7 +196,9 @@ export const ServerStatusPage: React.FC = () => {
           <div className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-2">
             <div className="flex items-center justify-between">
               <Database className="w-5 h-5 text-[#004ac6]" />
-              {diag?.connected ? (
+              {checking ? (
+                <RefreshCw className="w-4 h-4 text-[#004ac6] animate-spin" />
+              ) : diag?.connected ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               ) : (
                 <AlertTriangle className="w-4 h-4 text-amber-600" />
@@ -215,7 +218,9 @@ export const ServerStatusPage: React.FC = () => {
         </div>
 
         {/* Live Supabase Diagnostic Details */}
-        {diag && (
+        {checking && !diag ? (
+          <StatusDiagSkeleton />
+        ) : diag ? (
           <div
             className={`p-5 rounded-2xl border space-y-3 ${
               diag.connected
@@ -285,7 +290,7 @@ export const ServerStatusPage: React.FC = () => {
               )}
             </div>
           </div>
-        )}
+        ) : null}
 
         <div className="flex justify-end">
           <button

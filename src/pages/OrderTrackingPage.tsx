@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Truck,
 } from 'lucide-react';
+import { TrackingPageSkeleton } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
 import { DEMO_SAMPLE_ORDER } from '../data/catalog';
 import type { OrderRecord } from '../types/store';
@@ -32,21 +33,31 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
   const [searchCode, setSearchCode] = useState(defaultCode);
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [notFoundCode, setNotFoundCode] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     const target = initialCode || orders[0]?.orderCode || DEMO_SAMPLE_ORDER.orderCode;
     setSearchCode(target);
-    findOrder(target).then((res) => {
-      if (!active) return;
-      if (res) {
-        setOrder(res);
-        setNotFoundCode(null);
-      } else {
+    setLoading(true);
+    findOrder(target)
+      .then((res) => {
+        if (!active) return;
+        if (res) {
+          setOrder(res);
+          setNotFoundCode(null);
+        } else {
+          setOrder(null);
+          setNotFoundCode(target);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!active) return;
         setOrder(null);
         setNotFoundCode(target);
-      }
-    });
+        setLoading(false);
+      });
     return () => {
       active = false;
     };
@@ -56,13 +67,18 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
     e.preventDefault();
     const cleaned = searchCode.trim().toUpperCase();
     if (!cleaned) return;
-    const res = await findOrder(cleaned);
-    if (res) {
-      setOrder(res);
-      setNotFoundCode(null);
-    } else {
-      setOrder(null);
-      setNotFoundCode(cleaned);
+    setLoading(true);
+    try {
+      const res = await findOrder(cleaned);
+      if (res) {
+        setOrder(res);
+        setNotFoundCode(null);
+      } else {
+        setOrder(null);
+        setNotFoundCode(cleaned);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -106,15 +122,18 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
             </div>
             <button
               type="submit"
-              className="h-11 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-bold shrink-0 transition-colors"
+              disabled={loading}
+              className="h-11 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-xs sm:text-sm font-bold shrink-0 transition-colors"
             >
-              جستجو
+              {loading ? 'در حال جستجو...' : 'جستجو'}
             </button>
           </form>
         </div>
       </section>
 
-      {notFoundCode ? (
+      {loading ? (
+        <TrackingPageSkeleton />
+      ) : notFoundCode ? (
         <div className="bg-white rounded-3xl border border-[#e5eeff] p-10 text-center space-y-3">
           <p className="text-base font-extrabold text-[#0b1c30]">
             سفارشی با شماره <span dir="ltr">{notFoundCode}</span> پیدا نشد

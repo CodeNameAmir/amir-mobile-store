@@ -12,6 +12,7 @@ import {
   Truck,
   User,
 } from 'lucide-react';
+import { OrderConfirmationSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import { DEMO_SAMPLE_ORDER } from '../data/catalog';
@@ -48,11 +49,7 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
   };
 
   if (loading || !order) {
-    return (
-      <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-16 text-center text-sm font-bold text-[#434655]">
-        در حال بارگذاری فاکتور سفارش...
-      </div>
-    );
+    return <OrderConfirmationSkeleton />;
   }
 
   return (

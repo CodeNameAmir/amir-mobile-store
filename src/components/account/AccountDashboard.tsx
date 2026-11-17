@@ -29,6 +29,7 @@ import {
 } from '../../utils/authLogic';
 import { formatToman, toPersianDigits } from '../../utils/storeLogic';
 import { ProductCard } from '../ProductCard';
+import { OrderRowSkeleton, SkeletonBox } from '../Skeleton';
 
 type DashboardTab = 'overview' | 'profile' | 'addresses' | 'orders' | 'wishlist' | 'security';
 
@@ -52,6 +53,7 @@ const EMPTY_ADDRESS_FORM = {
 export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   const {
     orders,
+    ordersLoading,
     wishlist,
     stockAlerts,
     toggleStockAlert,
@@ -68,6 +70,14 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   } = useStore();
 
   const [activeTab, setActiveTab] = useState<DashboardTab>('overview');
+  const workspaceRef = React.useRef<HTMLDivElement | null>(null);
+
+  const handleTabChange = (tab: DashboardTab) => {
+    setActiveTab(tab);
+    if (typeof window !== 'undefined' && window.innerWidth < 1024 && workspaceRef.current) {
+      workspaceRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   // Profile form state
   const [fullName, setFullName] = useState(user.fullName);
@@ -362,7 +372,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setActiveTab(item.id)}
+                onClick={() => handleTabChange(item.id)}
                 className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap text-right ${
                   active
                     ? 'bg-[#004ac6] text-white'
@@ -390,7 +400,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
       </aside>
 
       {/* Main Content Workspace */}
-      <div className="lg:col-span-9 space-y-6">
+      <div ref={workspaceRef} className="lg:col-span-9 space-y-6 scroll-mt-24">
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-6">
@@ -407,7 +417,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setActiveTab('profile')}
+                    onClick={() => handleTabChange('profile')}
                     className="h-10 px-4 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold whitespace-nowrap"
                   >
                     ویرایش اطلاعات
@@ -425,17 +435,21 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 border-t border-[#eff4ff]">
                 <button
                   type="button"
-                  onClick={() => setActiveTab('orders')}
+                  onClick={() => handleTabChange('orders')}
                   className="p-4 rounded-2xl bg-[#f8f9ff] hover:bg-[#eff4ff] text-right transition-colors"
                 >
                   <p className="text-xs text-[#434655]">سفارش‌های ثبت‌شده</p>
-                  <p className="text-2xl font-black text-[#0b1c30] mt-1 tabular-nums-fa">
-                    {toPersianDigits(orders.length)}
-                  </p>
+                  {ordersLoading ? (
+                    <SkeletonBox className="h-8 w-12 mt-1.5 rounded-lg" />
+                  ) : (
+                    <p className="text-2xl font-black text-[#0b1c30] mt-1 tabular-nums-fa">
+                      {toPersianDigits(orders.length)}
+                    </p>
+                  )}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('addresses')}
+                  onClick={() => handleTabChange('addresses')}
                   className="p-4 rounded-2xl bg-[#f8f9ff] hover:bg-[#eff4ff] text-right transition-colors"
                 >
                   <p className="text-xs text-[#434655]">آدرس‌های ذخیره‌شده</p>
@@ -445,7 +459,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('wishlist')}
+                  onClick={() => handleTabChange('wishlist')}
                   className="p-4 rounded-2xl bg-[#f8f9ff] hover:bg-[#eff4ff] text-right transition-colors"
                 >
                   <p className="text-xs text-[#434655]">علاقه‌مندی‌ها</p>
@@ -455,7 +469,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setActiveTab('wishlist')}
+                  onClick={() => handleTabChange('wishlist')}
                   className="p-4 rounded-2xl bg-[#f8f9ff] hover:bg-[#eff4ff] text-right transition-colors"
                 >
                   <p className="text-xs text-[#434655]">اعلان موجودی</p>
@@ -470,17 +484,28 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-base font-black text-[#0b1c30]">آخرین سفارش‌ها</h2>
-                {orders.length > 0 && (
+                {!ordersLoading && orders.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setActiveTab('orders')}
+                    onClick={() => handleTabChange('orders')}
                     className="text-xs font-bold text-[#004ac6] hover:underline"
                   >
                     مشاهده همه
                   </button>
                 )}
               </div>
-              {orders.length === 0 ? (
+              {ordersLoading ? (
+                <div
+                  role="status"
+                  aria-busy="true"
+                  aria-label="در حال دریافت سفارش‌های شما"
+                  data-testid="overview-orders-skeleton"
+                  className="space-y-3"
+                >
+                  <OrderRowSkeleton />
+                  <OrderRowSkeleton />
+                </div>
+              ) : orders.length === 0 ? (
                 <div className="p-6 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
                   <p className="text-xs sm:text-sm text-[#434655]">
                     هنوز سفارشی در حساب کاربری شما ثبت نشده است.
@@ -971,9 +996,11 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
           <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h1 className="text-lg sm:text-xl font-black text-[#0b1c30]">
-                سفارش‌های ثبت‌شده ({toPersianDigits(filteredOrders.length)})
+                {ordersLoading
+                  ? 'سفارش‌های ثبت‌شده'
+                  : `سفارش‌های ثبت‌شده (${toPersianDigits(filteredOrders.length)})`}
               </h1>
-              <div className="flex items-center gap-1 p-1 bg-[#eff4ff] rounded-xl overflow-x-auto">
+              <div className="flex items-center gap-1 p-1 bg-[#eff4ff] rounded-xl overflow-x-auto no-scrollbar">
                 {(
                   [
                     { id: 'all', label: 'همه' },
@@ -998,7 +1025,19 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               </div>
             </div>
 
-            {orders.length === 0 ? (
+            {ordersLoading ? (
+              <div
+                role="status"
+                aria-busy="true"
+                aria-label="در حال دریافت سفارش‌های شما"
+                data-testid="orders-skeleton"
+                className="space-y-3"
+              >
+                <OrderRowSkeleton />
+                <OrderRowSkeleton />
+                <OrderRowSkeleton />
+              </div>
+            ) : orders.length === 0 ? (
               <div className="p-8 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
                 <p className="text-xs sm:text-sm text-[#434655]">
                   هنوز سفارشی در حساب کاربری شما ثبت نشده است.

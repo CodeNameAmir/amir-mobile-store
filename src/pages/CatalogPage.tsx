@@ -383,6 +383,113 @@ export const CatalogPage: React.FC = () => {
             )}
           </div>
 
+          {hasActiveFilters && (
+            <div
+              data-testid="catalog-active-filters"
+              className="flex flex-wrap items-center gap-2 px-1"
+            >
+              <span className="text-[11px] font-bold text-[#434655]">فیلترهای فعال:</span>
+              {filters.category !== 'all' && (
+                <button
+                  type="button"
+                  onClick={() => setFilters((p) => ({ ...p, category: 'all' }))}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                >
+                  <span>{categoryTitle}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {filters.brands.map((brand) => (
+                <button
+                  key={brand}
+                  type="button"
+                  onClick={() => toggleBrand(brand)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                >
+                  <span>برند: {brand}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              ))}
+              {filters.inStockOnly && (
+                <button
+                  type="button"
+                  onClick={() => setFilters((p) => ({ ...p, inStockOnly: false }))}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                >
+                  <span>فقط موجود</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {filters.discountedOnly && (
+                <button
+                  type="button"
+                  onClick={() => setFilters((p) => ({ ...p, discountedOnly: false }))}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#ffdbca]/60 hover:bg-[#ffdbca] text-[#8e3c00] text-xs font-bold transition-colors"
+                >
+                  <span>دارای تخفیف</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {filters.expressOnly && (
+                <button
+                  type="button"
+                  onClick={() => setFilters((p) => ({ ...p, expressOnly: false }))}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                >
+                  <span>ارسال اکسپرس</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {filters.maxPrice < 150_000_000 && (
+                <button
+                  type="button"
+                  onClick={() => setFilters((p) => ({ ...p, maxPrice: 150_000_000 }))}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold tabular-nums-fa transition-colors"
+                >
+                  <span>تا {formatToman(filters.maxPrice)} تومان</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {filters.storage && (
+                <button
+                  type="button"
+                  onClick={() => setFilters((p) => ({ ...p, storage: null }))}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                >
+                  <span>حافظه: {filters.storage}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {filters.ram && (
+                <button
+                  type="button"
+                  onClick={() => setFilters((p) => ({ ...p, ram: null }))}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                >
+                  <span>رم: {filters.ram}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {filters.colorId && (
+                <button
+                  type="button"
+                  onClick={() => setFilters((p) => ({ ...p, colorId: null }))}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                >
+                  <span>رنگ: {COLOR_OPTIONS.find((c) => c.id === filters.colorId)?.label ?? filters.colorId}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="text-[11px] font-bold text-[#b54e00] hover:underline mr-1"
+              >
+                حذف همه
+              </button>
+            </div>
+          )}
+
           {/* Product Grid or Empty State */}
           {filteredProducts.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5">

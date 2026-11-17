@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Calculator,
   Menu,
@@ -51,6 +51,10 @@ export const Navbar: React.FC = () => {
   const [searchFocused, setSearchFocused] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const blurTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setSearchValue(filters.searchQuery || '');
+  }, [filters.searchQuery]);
 
   const liveSuggestions = useMemo(() => {
     const q = toEnglishDigits(searchValue.trim().toLowerCase());
@@ -169,6 +173,11 @@ export const Navbar: React.FC = () => {
                 onChange={(e) => {
                   setSearchValue(e.target.value);
                   setSearchFocused(true);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setSearchFocused(false);
+                  }
                 }}
                 placeholder="جستجوی گوشی، ساعت هوشمند، شارژر، ایرپاد..."
                 aria-label="جستجوی محصولات"

@@ -2,6 +2,7 @@ import React from 'react';
 import { Heart, Package } from 'lucide-react';
 import { AccountDashboard } from '../components/account/AccountDashboard';
 import { AuthPanel } from '../components/account/AuthPanel';
+import { AccountPageSkeleton } from '../components/Skeleton';
 import { ProductCard } from '../components/ProductCard';
 import { useStore } from '../context/StoreContext';
 import { formatToman, toPersianDigits } from '../utils/storeLogic';
@@ -11,15 +12,7 @@ export const AccountPage: React.FC = () => {
   const wishlistProducts = products.filter((p) => wishlist.includes(p.id));
 
   if (authLoading && !user) {
-    return (
-      <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-12">
-        <div className="bg-white rounded-3xl border border-[#e5eeff] p-8 space-y-4 animate-pulse">
-          <div className="h-6 w-48 bg-[#eff4ff] rounded-lg" />
-          <div className="h-4 w-72 bg-[#f8f9ff] rounded-lg" />
-          <div className="h-32 w-full bg-[#f8f9ff] rounded-2xl" />
-        </div>
-      </div>
-    );
+    return <AccountPageSkeleton />;
   }
 
   return (

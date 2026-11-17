@@ -136,6 +136,8 @@ interface StoreContextValue {
   stockAlerts: string[];
   toggleStockAlert: (productId: string) => void;
   orders: OrderRecord[];
+  ordersLoading: boolean;
+  productsLoading: boolean;
   createDemoOrder: (form: CheckoutFormData) => Promise<OrderRecord>;
   findOrder: (code: string) => Promise<OrderRecord | null>;
   user: DemoUser | null;
@@ -184,9 +186,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>(() => storeRepository.loadRecent());
   const [stockAlerts, setStockAlerts] = useState<string[]>(() => storeRepository.loadStockAlerts());
   const [guestOrders, setGuestOrders] = useState<OrderRecord[]>(() => storeRepository.loadOrders());
-  const [userOrders, setUserOrders] = useState<OrderRecord[]>([]);
+  const [ordersState, setOrdersState] = useState<{
+    userId: string | null;
+    list: OrderRecord[];
+    loading: boolean;
+  }>({ userId: null, list: [], loading: false });
   const [user, setUser] = useState<DemoUser | null>(() => storeRepository.loadUser());
   const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [productsLoading, setProductsLoading] = useState<boolean>(true);
   const [resendStatus, setResendStatus] = useState<ResendServiceStatus | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -215,6 +222,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     ]).then(([fetchedProducts, fetchedCoupons, fetchedSettings, authStatus]) => {
       if (!active) return;
       setProducts(fetchedProducts);
+      setProductsLoading(false);
       setCouponRules(fetchedCoupons);
       setStoreSettings(fetchedSettings);
       if (authStatus) {
@@ -228,7 +236,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           storeRepository.saveUser(authStatus.user);
         } else {
           setUser(null);
-          setUserOrders([]);
+          setOrdersState({ userId: null, list: [], loading: false });
           storeRepository.saveUser(null);
         }
       }
@@ -240,20 +248,30 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   useEffect(() => {
-    if (!user?.id) {
-      setUserOrders([]);
+    const uid = user?.id ?? null;
+    if (!uid) {
+      setOrdersState({ userId: null, list: [], loading: false });
       return;
     }
     let active = true;
+    setOrdersState((prev) => ({
+      userId: uid,
+      list: prev.userId === uid ? prev.list : [],
+      loading: true,
+    }));
     authApi
       .getMyOrders()
       .then((res) => {
         if (!active) return;
-        setUserOrders(Array.isArray(res.orders) ? res.orders : []);
+        setOrdersState({
+          userId: uid,
+          list: Array.isArray(res.orders) ? res.orders : [],
+          loading: false,
+        });
       })
       .catch(() => {
         if (!active) return;
-        setUserOrders([]);
+        setOrdersState({ userId: uid, list: [], loading: false });
       });
     return () => {
       active = false;
@@ -265,9 +283,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [user, guestWishlist]
   );
 
+  const ordersLoading = useMemo(() => {
+    if (!user?.id) return false;
+    return ordersState.loading || ordersState.userId !== user.id;
+  }, [ordersState.loading, ordersState.userId, user?.id]);
+
   const orders = useMemo(
-    () => (user ? userOrders : guestOrders),
-    [user, userOrders, guestOrders]
+    () => (user ? (ordersState.userId === user.id ? ordersState.list : []) : guestOrders),
+    [user, ordersState.userId, ordersState.list, guestOrders]
   );
 
   useEffect(() => {
@@ -586,19 +609,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       };
       let saved: OrderRecord;
       if (user) {
+        const uid = user.id ?? null;
         try {
           const res = await authApi.createOrder(newOrder);
           saved = res.order;
-          setUserOrders((prev) => [
-            saved,
-            ...prev.filter((o) => o.orderCode !== saved.orderCode),
-          ]);
+          setOrdersState((prev) => ({
+            userId: uid,
+            list: [saved, ...prev.list.filter((o) => o.orderCode !== saved.orderCode)],
+            loading: false,
+          }));
         } catch {
           saved = await storeRepository.createOrder(newOrder, { skipLocalCache: true });
-          setUserOrders((prev) => [
-            saved,
-            ...prev.filter((o) => o.orderCode !== saved.orderCode),
-          ]);
+          setOrdersState((prev) => ({
+            userId: uid,
+            list: [saved, ...prev.list.filter((o) => o.orderCode !== saved.orderCode)],
+            loading: false,
+          }));
           void authApi.notifyOrderPlaced({
             orderCode: saved.orderCode,
             totalFormatted: formatToman(saved.totalAmount),
@@ -650,7 +676,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         // Ignore offline fallback
       }
       storeRepository.saveUser(null);
-      setUserOrders([]);
+      setOrdersState({ userId: null, list: [], loading: false });
       setUser(null);
       showToast(
         allDevices ? 'از همه نشست‌ها و دستگاه‌ها خارج شدید.' : 'از حساب کاربری خارج شدید.',
@@ -747,6 +773,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         stockAlerts,
         toggleStockAlert,
         orders,
+        ordersLoading,
+        productsLoading,
         createDemoOrder,
         findOrder,
         user,

@@ -19,6 +19,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
+import { ReviewCardSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import { CATEGORY_ITEMS } from '../data/catalog';
@@ -64,6 +65,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const [qty, setQty] = useState(1);
   const [activeTab, setActiveTab] = useState<'specs' | 'review' | 'comments'>('specs');
   const [reviews, setReviews] = useState<ProductReview[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(true);
+  const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewAuthor, setReviewAuthor] = useState('');
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState('');
@@ -76,10 +79,20 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     setIncludeCarePlus(false);
     setQty(1);
     markProductViewed(product.id);
-    setReviews(storeRepository.loadReviews(product.id));
-    storeRepository.fetchReviews(product.id).then((fetched) => {
-      if (mounted) setReviews(fetched);
-    });
+    const cached = storeRepository.loadReviews(product.id);
+    setReviews(cached);
+    setReviewsLoading(true);
+    storeRepository
+      .fetchReviews(product.id)
+      .then((fetched) => {
+        if (!mounted) return;
+        setReviews(fetched);
+        setReviewsLoading(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setReviewsLoading(false);
+      });
     return () => {
       mounted = false;
     };
@@ -160,19 +173,24 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       showToast('لطفاً نام و متن دیدگاه (حداقل ۸ کاراکتر) را وارد کنید.', 'error');
       return;
     }
-    const nextReview: ProductReview = {
-      id: `rev-${Date.now()}`,
-      author: reviewAuthor.trim(),
-      dateLabel: 'هم‌اکنون',
-      rating: reviewRating,
-      comment: reviewText.trim(),
-      verified: true,
-    };
-    const updated = await storeRepository.addReview(product.id, nextReview);
-    setReviews(updated);
-    setReviewAuthor('');
-    setReviewText('');
-    showToast('دیدگاه شما با موفقیت ثبت شد.', 'success');
+    setSubmittingReview(true);
+    try {
+      const nextReview: ProductReview = {
+        id: `rev-${Date.now()}`,
+        author: reviewAuthor.trim(),
+        dateLabel: 'هم‌اکنون',
+        rating: reviewRating,
+        comment: reviewText.trim(),
+        verified: true,
+      };
+      const updated = await storeRepository.addReview(product.id, nextReview);
+      setReviews(updated);
+      setReviewAuthor('');
+      setReviewText('');
+      showToast('دیدگاه شما با موفقیت ثبت شد.', 'success');
+    } finally {
+      setSubmittingReview(false);
+    }
   };
 
   return (
@@ -636,31 +654,38 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
           {activeTab === 'comments' && (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-7 space-y-4">
-                {reviews.map((rev) => (
-                  <div
-                    key={rev.id}
-                    className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-2"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-extrabold text-[#0b1c30]">{rev.author}</span>
-                        {rev.verified && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                            <CheckCircle2 className="w-3 h-3" />
-                            خریدار تاییدشده
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-[11px] text-[#434655]">{rev.dateLabel}</span>
-                    </div>
-                    <div className="flex items-center gap-0.5">
-                      {Array.from({ length: rev.rating }).map((_, idx) => (
-                        <Star key={idx} className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                      ))}
-                    </div>
-                    <p className="text-xs text-[#0b1c30] leading-6">{rev.comment}</p>
+                {reviewsLoading && reviews.length === 0 ? (
+                  <div className="space-y-4" aria-busy="true" aria-label="در حال بارگذاری دیدگاه‌ها">
+                    <ReviewCardSkeleton />
+                    <ReviewCardSkeleton />
                   </div>
-                ))}
+                ) : (
+                  reviews.map((rev) => (
+                    <div
+                      key={rev.id}
+                      className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-extrabold text-[#0b1c30]">{rev.author}</span>
+                          {rev.verified && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                              <CheckCircle2 className="w-3 h-3" />
+                              خریدار تاییدشده
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-[#434655]">{rev.dateLabel}</span>
+                      </div>
+                      <div className="flex items-center gap-0.5">
+                        {Array.from({ length: rev.rating }).map((_, idx) => (
+                          <Star key={idx} className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                        ))}
+                      </div>
+                      <p className="text-xs text-[#0b1c30] leading-6">{rev.comment}</p>
+                    </div>
+                  ))
+                )}
               </div>
 
               <form
@@ -702,9 +727,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 </div>
                 <button
                   type="submit"
-                  className="w-full h-10 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold transition-colors"
+                  disabled={submittingReview}
+                  className="w-full h-10 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-xs font-bold transition-colors"
                 >
-                  ارسال دیدگاه
+                  {submittingReview ? 'در حال ثبت دیدگاه...' : 'ارسال دیدگاه'}
                 </button>
               </form>
             </div>
