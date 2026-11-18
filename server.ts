@@ -1181,6 +1181,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.get('/api/store/config', async (_req, res, next) => {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       const [coupons, settings] = await Promise.all([
         storage.listActiveCoupons(),
         storage.getStoreSettings(),
@@ -1193,6 +1194,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.get('/api/products', async (req, res, next) => {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       const minPrice = req.query.minPrice !== undefined ? Number(req.query.minPrice) : undefined;
       const maxPrice = req.query.maxPrice !== undefined ? Number(req.query.maxPrice) : undefined;
       const products = await storage.listProducts({
@@ -1214,6 +1216,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.get('/api/products/:slug', async (req, res, next) => {
     try {
+      res.setHeader('Cache-Control', 'no-store');
       const slug = String(req.params.slug || '').trim();
       const product = await storage.findProductByIdOrSlug(slug);
       if (!product) {

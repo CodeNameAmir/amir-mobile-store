@@ -4,6 +4,7 @@ import {
   calculateCareInsurancePrice,
   calculateCartSummary,
   calculateInstallmentPlan,
+  computeCatalogMaxPrice,
   evaluateCoupon,
   filterAndSortProducts,
   formatToman,
@@ -312,3 +313,32 @@ test('validateCheckoutForm and validateContactForm catch invalid inputs', () => 
   assert.ok(contactErrors.phone);
   assert.ok(contactErrors.message);
 });
+
+test('high-priced newly added DB products (>150M) are not hidden and sort first in newest', () => {
+  const iphone17: Product = {
+    ...sampleProducts[0],
+    id: 'apple-iphone-17-pro-max',
+    slug: 'apple-iphone-17-pro-max',
+    nameFa: 'گوشی موبایل ایفون 17 پرومکس',
+    nameEn: 'Apple Iphone 17 PRO MAX',
+    price: 300_000_000,
+    originalPrice: 325_500_000,
+    discountPercent: 8,
+    releaseOrder: 100,
+    createdAt: '2026-11-18 19:40:56.264447+00',
+  };
+
+  assert.equal(computeCatalogMaxPrice(sampleProducts), 150_000_000);
+  assert.equal(computeCatalogMaxPrice([...sampleProducts, iphone17]), 300_000_000);
+
+  const results = filterAndSortProducts([...sampleProducts, iphone17], {
+    ...defaultFilters,
+    maxPrice: Infinity,
+    sortBy: 'newest',
+  });
+  assert.equal(results[0]?.id, 'apple-iphone-17-pro-max');
+
+  assert.equal(matchesProductSearch(iphone17, 'ایفون 17 پرومکس'), true);
+  assert.equal(matchesProductSearch(iphone17, 'آیفون ۱۷ پرومکس'), true);
+});
+

@@ -809,6 +809,62 @@ test('Supabase adapter handles app_users.role, products CRUD, orders status upda
   assert.equal(listedLogs.total, 1);
   assert.equal(listedLogs.logs[0]?.adminEmail, 'owner@codenameamir.ir');
 
+  // Regression: direct Supabase row with stringified JSON fields, string rating, 300M price, and release_order 100
+  productRows.set('old-seed-phone', {
+    id: 'old-seed-phone',
+    slug: 'old-seed-phone',
+    name_fa: 'گوشی قدیمی',
+    name_en: 'Old Phone',
+    brand: 'Apple',
+    category: 'phones',
+    price: 90_000_000,
+    in_stock: true,
+    stock_count: 3,
+    release_order: 1,
+    created_at: '2026-11-01 10:00:00+00',
+  });
+  productRows.set('apple-iphone-17-pro-max', {
+    id: 'apple-iphone-17-pro-max',
+    slug: 'apple-iphone-17-pro-max',
+    name_fa: 'گوشی موبایل ایفون 17 پرومکس',
+    name_en: 'Apple Iphone 17 PRO MAX',
+    brand: 'Apple',
+    category: 'phones',
+    price: 300000000,
+    original_price: 325500000,
+    discount_percent: 8,
+    in_stock: true,
+    stock_count: 10,
+    express_delivery: true,
+    warranty: '۱۸ ماهه امیر سرویس + کد رجیستری همتا',
+    rating: '4.8',
+    review_count: 0,
+    specs:
+      '{"os": "نسخه رسمی گلوبال", "ram": "۸ گیگ", "camera": "دوربین حرفهای", "battery": "۵۰۰۰ میلیآمپر", "chipset": "پردازنده پرچمدار", "display": "OLED 120Hz", "cameraDetails": "لرزشگیر اپتیکال", "batteryDetails": "فست شارژ", "chipsetDetails": "نسل جدید", "displayDetails": "کیفیت پرچمدار", "storageDefault": "۲۵۶ گیگابایت"}',
+    storage_options: '[{"label": "۲۵۶ گیگابایت", "subtitle": "نسخه استاندارد", "priceDelta": 0}]',
+    colors: '[{"id": "midnight", "hex": "#1e293b", "name": "مشکی"}]',
+    created_at: '2026-11-18 19:40:56.264447+00',
+    image_url:
+      'https://dkstatics-public.digikala.com/digikala-products/ec57ce03f2a92834058f502174b1a2aeffc9a580_1759666637.jpg',
+    color_label: 'مشکی',
+    badge_text: '۸٪ تخفیف . پرفروش',
+    recommend_percent: 95,
+    is_featured_deal: false,
+    is_popular: false,
+    sales_rank: 100,
+    release_order: 100,
+  });
+
+  const listed = await adapter.listProducts({ sort: 'newest' });
+  assert.equal(listed[0]?.id, 'apple-iphone-17-pro-max');
+  assert.equal(listed[0]?.price, 300_000_000);
+  assert.equal(listed[0]?.rating, 4.8);
+  assert.equal(listed[0]?.specs.os, 'نسخه رسمی گلوبال');
+  assert.equal(listed[0]?.specs.ram, '۸ گیگ');
+  assert.equal(listed[0]?.colors[0]?.name, 'مشکی');
+  assert.equal(listed[0]?.storageOptions[0]?.label, '۲۵۶ گیگابایت');
+
   const deleted = await adapter.deleteProduct('supa-test-phone');
   assert.equal(deleted, true);
 });
+

@@ -9,7 +9,7 @@ export type CategoryId =
   | 'gaming'
   | 'offers';
 
-export type BrandId = 'Apple' | 'Samsung' | 'Xiaomi' | 'Honor' | 'Anker' | 'Motorola';
+export type BrandId = 'Apple' | 'Samsung' | 'Xiaomi' | 'Honor' | 'Anker' | 'Motorola' | (string & {});
 
 export type SortOption = 'newest' | 'bestselling' | 'cheapest' | 'expensive' | 'popular';
 
@@ -66,6 +66,8 @@ export interface Product {
   isPopular?: boolean;
   salesRank: number;
   releaseOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface CartItem {

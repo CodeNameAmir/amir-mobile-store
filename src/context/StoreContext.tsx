@@ -58,7 +58,7 @@ export const DEFAULT_FILTERS: FilterState = {
   discountedOnly: false,
   expressOnly: false,
   minPrice: 0,
-  maxPrice: 150_000_000,
+  maxPrice: Infinity,
   storage: null,
   ram: null,
   colorId: null,
@@ -226,6 +226,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   useEffect(() => {
     let active = true;
+    let lastRefreshAt = Date.now();
     Promise.all([
       storeApi.getProducts().catch(() => null),
       storeApi.getStoreConfig().catch(() => null),
@@ -261,10 +262,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       setAuthLoading(false);
     });
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastRefreshAt > 30_000) {
+        lastRefreshAt = Date.now();
+        void refreshProducts();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       active = false;
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, []);
+  }, [refreshProducts]);
 
   useEffect(() => {
     const uid = user?.id ?? null;

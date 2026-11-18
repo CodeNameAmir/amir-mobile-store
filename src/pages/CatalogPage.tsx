@@ -11,13 +11,20 @@ import { ProductCard } from '../components/ProductCard';
 import { useStore } from '../context/StoreContext';
 import { CATEGORY_ITEMS } from '../data/catalog';
 import type { BrandId, CategoryId, SortOption } from '../types/store';
-import { filterAndSortProducts, formatToman, toPersianDigits } from '../utils/storeLogic';
+import {
+  computeCatalogMaxPrice,
+  filterAndSortProducts,
+  formatToman,
+  toPersianDigits,
+} from '../utils/storeLogic';
 
-const ALL_BRANDS: { id: BrandId; label: string }[] = [
+const BASE_BRANDS: { id: BrandId; label: string }[] = [
   { id: 'Apple', label: 'اپل (Apple)' },
   { id: 'Samsung', label: 'سامسونگ (Samsung)' },
   { id: 'Xiaomi', label: 'شیائومی (Xiaomi)' },
   { id: 'Anker', label: 'انکر (Anker)' },
+  { id: 'Honor', label: 'آنر (Honor)' },
+  { id: 'Motorola', label: 'موتورولا (Motorola)' },
 ];
 
 const STORAGE_CHIPS = ['۱۲۸ گیگابایت', '۲۵۶ گیگابایت', '۵۱۲ گیگابایت'];
@@ -54,13 +61,33 @@ export const CatalogPage: React.FC = () => {
     return CATEGORY_ITEMS.find((c) => c.id === filters.category)?.label ?? 'فهرست محصولات';
   }, [filters.category]);
 
+  const catalogMaxPrice = useMemo(() => computeCatalogMaxPrice(products), [products]);
+  const sliderMaxPrice = Number.isFinite(filters.maxPrice)
+    ? Math.min(filters.maxPrice, catalogMaxPrice)
+    : catalogMaxPrice;
+  const isPriceFiltered = Number.isFinite(filters.maxPrice) && filters.maxPrice < catalogMaxPrice;
+
+  const allBrands = useMemo(() => {
+    const map = new Map<string, { id: BrandId; label: string }>();
+    for (const b of BASE_BRANDS) {
+      map.set(b.id.toLowerCase(), b);
+    }
+    for (const p of products) {
+      const bName = String(p.brand || '').trim();
+      if (bName && !map.has(bName.toLowerCase())) {
+        map.set(bName.toLowerCase(), { id: bName, label: bName });
+      }
+    }
+    return [...map.values()];
+  }, [products]);
+
   const visibleBrands = useMemo(() => {
     const q = brandSearch.trim().toLowerCase();
-    if (!q) return ALL_BRANDS;
-    return ALL_BRANDS.filter(
+    if (!q) return allBrands;
+    return allBrands.filter(
       (b) => b.label.toLowerCase().includes(q) || b.id.toLowerCase().includes(q)
     );
-  }, [brandSearch]);
+  }, [allBrands, brandSearch]);
 
   const toggleBrand = (brand: BrandId) => {
     setFilters((prev) => ({
@@ -77,7 +104,7 @@ export const CatalogPage: React.FC = () => {
     filters.inStockOnly ||
     filters.discountedOnly ||
     filters.expressOnly ||
-    filters.maxPrice < 150_000_000 ||
+    isPriceFiltered ||
     Boolean(filters.storage) ||
     Boolean(filters.ram) ||
     Boolean(filters.colorId) ||
@@ -203,22 +230,28 @@ export const CatalogPage: React.FC = () => {
         <div className="flex items-center justify-between">
           <p className="text-xs font-bold text-[#0b1c30]">سقف قیمت</p>
           <span className="text-xs font-extrabold text-[#004ac6] tabular-nums-fa">
-            تا {formatToman(filters.maxPrice)} تومان
+            تا {formatToman(sliderMaxPrice)} تومان
           </span>
         </div>
         <input
           type="range"
           min={3_000_000}
-          max={150_000_000}
+          max={catalogMaxPrice}
           step={1_000_000}
-          value={filters.maxPrice}
-          onChange={(e) => setFilters((p) => ({ ...p, maxPrice: Number(e.target.value) }))}
+          value={sliderMaxPrice}
+          onChange={(e) => {
+            const val = Number(e.target.value);
+            setFilters((p) => ({
+              ...p,
+              maxPrice: val >= catalogMaxPrice ? Infinity : val,
+            }));
+          }}
           aria-label="حداکثر قیمت به تومان"
           className="w-full accent-[#004ac6] cursor-pointer"
         />
         <div className="flex justify-between text-[11px] text-[#434655] tabular-nums-fa">
           <span>۳ میلیون</span>
-          <span>۱۵۰ میلیون</span>
+          <span>{toPersianDigits(Math.round(catalogMaxPrice / 1_000_000))} میلیون</span>
         </div>
       </div>
 
@@ -440,13 +473,13 @@ export const CatalogPage: React.FC = () => {
                   <X className="w-3 h-3" />
                 </button>
               )}
-              {filters.maxPrice < 150_000_000 && (
+              {isPriceFiltered && (
                 <button
                   type="button"
-                  onClick={() => setFilters((p) => ({ ...p, maxPrice: 150_000_000 }))}
+                  onClick={() => setFilters((p) => ({ ...p, maxPrice: Infinity }))}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold tabular-nums-fa transition-colors"
                 >
-                  <span>تا {formatToman(filters.maxPrice)} تومان</span>
+                  <span>تا {formatToman(sliderMaxPrice)} تومان</span>
                   <X className="w-3 h-3" />
                 </button>
               )}

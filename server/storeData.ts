@@ -862,7 +862,32 @@ const PERSIAN_SEARCH_ALIASES: Record<string, string> = {
   اولترا: 'ultra',
   پرو: 'pro',
   مکس: 'max',
+  پرومکس: 'pro max',
 };
+
+function parseTimestampMsServer(raw?: string): number {
+  if (!raw) return NaN;
+  const normalized = raw
+    .trim()
+    .replace(/^(\d{4}-\d{2}-\d{2})\s+/, '$1T')
+    .replace(/(\.\d{3})\d+/, '$1')
+    .replace(/([+-]\d{2})$/, '$1:00');
+  const ms = Date.parse(normalized);
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+function compareNewestProductsServer(a: ProductDTO, b: ProductDTO): number {
+  const timeA = parseTimestampMsServer(a.createdAt);
+  const timeB = parseTimestampMsServer(b.createdAt);
+  const hasA = Number.isFinite(timeA);
+  const hasB = Number.isFinite(timeB);
+  if (hasA && !hasB) return -1;
+  if (!hasA && hasB) return 1;
+  if (hasA && hasB && Math.abs(timeB - timeA) > 60_000) {
+    return timeB - timeA;
+  }
+  return a.releaseOrder - b.releaseOrder;
+}
 
 export interface ProductQueryParams {
   category?: string;
@@ -880,7 +905,7 @@ export function filterAndSortProducts(
   products: ProductDTO[],
   query: ProductQueryParams = {}
 ): ProductDTO[] {
-  const category = (query.category || 'all').trim();
+  const category = (query.category || 'all').trim().toLowerCase();
   const searchRaw = toEnglishDigitsServer(query.q || '').trim().toLowerCase();
   const brandFilter = (query.brand || '')
     .split(',')
@@ -888,13 +913,14 @@ export function filterAndSortProducts(
     .filter(Boolean);
 
   const filtered = products.filter((p) => {
+    const prodCategory = String(p.category || '').trim().toLowerCase();
     if (category === 'offers') {
       if (!p.discountPercent || p.discountPercent <= 0) return false;
-    } else if (category && category !== 'all' && p.category !== category) {
+    } else if (category && category !== 'all' && prodCategory !== category) {
       return false;
     }
 
-    if (brandFilter.length > 0 && !brandFilter.includes(p.brand.toLowerCase())) {
+    if (brandFilter.length > 0 && !brandFilter.includes(String(p.brand || '').trim().toLowerCase())) {
       return false;
     }
 
@@ -920,7 +946,7 @@ export function filterAndSortProducts(
 
     if (searchRaw) {
       const haystack = toEnglishDigitsServer(
-        `${p.nameFa} ${p.nameEn} ${p.brand} ${p.category} ${p.specs.chipset} ${p.specs.storageDefault}`
+        `${p.nameFa} ${p.nameEn} ${p.slug} ${p.brand} ${p.category} ${p.specs.chipset} ${p.specs.storageDefault}`
       ).toLowerCase();
       if (!haystack.includes(searchRaw)) {
         const tokens = searchRaw.split(/\s+/).filter(Boolean);
@@ -951,7 +977,7 @@ export function filterAndSortProducts(
       break;
     case 'newest':
     default:
-      sorted.sort((a, b) => a.releaseOrder - b.releaseOrder);
+      sorted.sort(compareNewestProductsServer);
       break;
   }
 

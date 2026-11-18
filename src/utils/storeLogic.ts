@@ -114,14 +114,50 @@ const PERSIAN_SEARCH_ALIASES: Record<string, string> = {
   اولترا: 'ultra',
   پرو: 'pro',
   مکس: 'max',
+  پرومکس: 'pro max',
 };
+
+export const BASE_CATALOG_MAX_PRICE = 150_000_000;
+
+export function computeCatalogMaxPrice(products: Array<Pick<Product, 'price'>>): number {
+  const highest = products.reduce(
+    (max, p) => (Number.isFinite(p.price) && p.price > max ? p.price : max),
+    0
+  );
+  if (highest <= BASE_CATALOG_MAX_PRICE) return BASE_CATALOG_MAX_PRICE;
+  return Math.ceil(highest / 50_000_000) * 50_000_000;
+}
+
+function parseTimestampMs(raw?: string): number {
+  if (!raw) return NaN;
+  const normalized = raw
+    .trim()
+    .replace(/^(\d{4}-\d{2}-\d{2})\s+/, '$1T')
+    .replace(/(\.\d{3})\d+/, '$1')
+    .replace(/([+-]\d{2})$/, '$1:00');
+  const ms = Date.parse(normalized);
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+function compareNewestProducts(a: Product, b: Product): number {
+  const timeA = parseTimestampMs(a.createdAt);
+  const timeB = parseTimestampMs(b.createdAt);
+  const hasA = Number.isFinite(timeA);
+  const hasB = Number.isFinite(timeB);
+  if (hasA && !hasB) return -1;
+  if (!hasA && hasB) return 1;
+  if (hasA && hasB && Math.abs(timeB - timeA) > 60_000) {
+    return timeB - timeA;
+  }
+  return a.releaseOrder - b.releaseOrder;
+}
 
 export function matchesProductSearch(product: Product, queryRaw: string): boolean {
   const normalizedQuery = toEnglishDigits(queryRaw.trim().toLowerCase());
   if (!normalizedQuery) return true;
 
   const haystack = toEnglishDigits(
-    `${product.nameFa} ${product.nameEn} ${product.brand} ${product.specs.chipset} ${product.specs.storageDefault}`
+    `${product.nameFa} ${product.nameEn} ${product.slug} ${product.brand} ${product.specs.chipset} ${product.specs.storageDefault}`
   ).toLowerCase();
 
   if (haystack.includes(normalizedQuery)) return true;
@@ -143,7 +179,10 @@ export function filterAndSortProducts(products: Product[], filters: FilterState)
       return false;
     }
 
-    if (filters.brands.length > 0 && !filters.brands.includes(p.brand)) {
+    if (
+      filters.brands.length > 0 &&
+      !filters.brands.some((b) => b.toLowerCase() === String(p.brand).toLowerCase())
+    ) {
       return false;
     }
 
@@ -159,7 +198,10 @@ export function filterAndSortProducts(products: Product[], filters: FilterState)
       return false;
     }
 
-    if (p.price < filters.minPrice || p.price > filters.maxPrice) {
+    if (
+      p.price < filters.minPrice ||
+      (Number.isFinite(filters.maxPrice) && p.price > filters.maxPrice)
+    ) {
       return false;
     }
 
@@ -202,7 +244,7 @@ export function filterAndSortProducts(products: Product[], filters: FilterState)
       break;
     case 'newest':
     default:
-      sorted.sort((a, b) => a.releaseOrder - b.releaseOrder);
+      sorted.sort(compareNewestProducts);
       break;
   }
 

@@ -76,20 +76,43 @@ function resolveFallbackImage(brand: string, category: string): string {
   return STORE_ASSETS.heroIphone;
 }
 
+function parseJsonClient<T>(raw: unknown, fallback: T): T {
+  let current: unknown = raw;
+  for (let i = 0; i < 2; i += 1) {
+    if (typeof current === 'string') {
+      const trimmed = current.trim();
+      if (!trimmed) return fallback;
+      try {
+        current = JSON.parse(trimmed);
+        continue;
+      } catch {
+        return fallback;
+      }
+    }
+    break;
+  }
+  return current !== null && current !== undefined ? (current as T) : fallback;
+}
+
 function mapSupabaseProduct(row: Record<string, unknown>, seed?: Product): Product {
-  const brand = (String(row.brand || seed?.brand || 'Apple') as BrandId);
-  const category = (String(row.category || seed?.category || 'phones') as Exclude<
+  const brand = (String(row.brand || seed?.brand || 'Apple').trim() as BrandId);
+  const category = (String(row.category || seed?.category || 'phones').trim().toLowerCase() as Exclude<
     CategoryId,
     'all' | 'offers'
   >);
   const price = Number(row.price) || seed?.price || 0;
   const originalPrice = row.original_price ? Number(row.original_price) : seed?.originalPrice;
-  const rawSpecs = (row.specs && typeof row.specs === 'object' ? row.specs : {}) as Partial<ProductSpecs>;
-  const rawColors = Array.isArray(row.colors) && row.colors.length > 0
-    ? (row.colors as ProductColor[])
+  const parsedSpecs = parseJsonClient<unknown>(row.specs, {});
+  const rawSpecs = (
+    parsedSpecs && typeof parsedSpecs === 'object' && !Array.isArray(parsedSpecs) ? parsedSpecs : {}
+  ) as Partial<ProductSpecs>;
+  const parsedColors = parseJsonClient<unknown>(row.colors, []);
+  const rawColors = Array.isArray(parsedColors) && parsedColors.length > 0
+    ? (parsedColors as ProductColor[])
     : seed?.colors || [{ id: 'midnight', name: 'مشکی', hex: '#1e293b' }];
-  const rawStorage = Array.isArray(row.storage_options) && row.storage_options.length > 0
-    ? (row.storage_options as StorageVariant[])
+  const parsedStorage = parseJsonClient<unknown>(row.storage_options, []);
+  const rawStorage = Array.isArray(parsedStorage) && parsedStorage.length > 0
+    ? (parsedStorage as StorageVariant[])
     : seed?.storageOptions || [{ label: '۲۵۶ گیگابایت', subtitle: 'استاندارد', priceDelta: 0 }];
 
   return {

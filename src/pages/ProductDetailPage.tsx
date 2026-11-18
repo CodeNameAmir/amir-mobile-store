@@ -22,9 +22,9 @@ import { ProductCard } from '../components/ProductCard';
 import { ReviewCardSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
-import { CATEGORY_ITEMS } from '../data/catalog';
+import { CATEGORY_ITEMS, hydrateProduct } from '../data/catalog';
 import { storeApi } from '../lib/authApi';
-import type { ProductReview } from '../types/store';
+import type { Product, ProductReview } from '../types/store';
 import {
   calculateCareInsurancePrice,
   calculateInstallmentPlan,
@@ -40,6 +40,7 @@ interface ProductDetailPageProps {
 export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) => {
   const {
     products,
+    productsLoading,
     navigate,
     navigateToCatalog,
     addToCart,
@@ -54,10 +55,39 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     showToast,
   } = useStore();
 
-  const product = useMemo(
-    () => products.find((p) => p.slug === slug) || null,
+  const [fetchedProduct, setFetchedProduct] = useState<Product | null>(null);
+  const [slugLookupLoading, setSlugLookupLoading] = useState(false);
+
+  const productFromList = useMemo(
+    () => products.find((p) => p.slug === slug || p.id === slug) || null,
     [products, slug]
   );
+
+  useEffect(() => {
+    setFetchedProduct(null);
+    if (productFromList || productsLoading) return;
+    let active = true;
+    setSlugLookupLoading(true);
+    storeApi
+      .getProductBySlug(slug)
+      .then((res) => {
+        if (!active) return;
+        setFetchedProduct(hydrateProduct(res.product));
+      })
+      .catch(() => {
+        if (!active) return;
+        setFetchedProduct(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setSlugLookupLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [slug, productFromList, productsLoading]);
+
+  const product = productFromList || fetchedProduct;
 
   const [selectedColorId, setSelectedColorId] = useState('');
   const [selectedStorage, setSelectedStorage] = useState('');
@@ -112,6 +142,22 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       .filter((p): p is NonNullable<typeof p> => Boolean(p))
       .slice(0, 4);
   }, [recentlyViewedIds, products, product]);
+
+  if (!product && (productsLoading || slugLookupLoading)) {
+    return (
+      <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-6">
+        <div className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+          <div className="lg:col-span-4 aspect-square rounded-2xl skeleton-shimmer" />
+          <div className="lg:col-span-5 space-y-4">
+            <div className="h-6 w-2/3 rounded-xl skeleton-shimmer" />
+            <div className="h-4 w-1/2 rounded-xl skeleton-shimmer" />
+            <div className="h-32 w-full rounded-2xl skeleton-shimmer" />
+          </div>
+          <div className="lg:col-span-3 h-72 rounded-2xl skeleton-shimmer" />
+        </div>
+      </div>
+    );
+  }
 
   if (!product) {
     return (

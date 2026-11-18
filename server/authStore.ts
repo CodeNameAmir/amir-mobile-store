@@ -271,8 +271,38 @@ function formatPersianTimestamp(raw: unknown): string {
   }
 }
 
+function parseJsonValue<T>(raw: unknown, fallback: T): T {
+  let current: unknown = raw;
+  for (let i = 0; i < 2; i += 1) {
+    if (typeof current === 'string') {
+      const trimmed = current.trim();
+      if (!trimmed) return fallback;
+      try {
+        current = JSON.parse(trimmed);
+        continue;
+      } catch {
+        return fallback;
+      }
+    }
+    break;
+  }
+  return current !== null && current !== undefined ? (current as T) : fallback;
+}
+
+function parseBooleanFlag(raw: unknown, fallback = false): boolean {
+  if (typeof raw === 'boolean') return raw;
+  if (typeof raw === 'string') {
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'true' || normalized === '1' || normalized === 't') return true;
+    if (normalized === 'false' || normalized === '0' || normalized === 'f') return false;
+  }
+  if (typeof raw === 'number') return raw !== 0;
+  return fallback;
+}
+
 function mapSupabaseOrderRow(row: Record<string, unknown>): StoredOrderRecord {
   const status = normalizeOrderStatus(row.status);
+  const parsedItems = parseJsonValue<unknown>(row.items, []);
   return {
     orderCode: String(row.order_code || ''),
     userId: row.user_id ? String(row.user_id) : null,
@@ -293,12 +323,16 @@ function mapSupabaseOrderRow(row: Record<string, unknown>): StoredOrderRecord {
     deliveryPin: String(row.delivery_pin || ''),
     imeiSample: String(row.imei_sample || ''),
     adminNote: row.admin_note ? String(row.admin_note) : undefined,
-    items: Array.isArray(row.items) ? (row.items as StoredOrderItem[]) : [],
+    items: Array.isArray(parsedItems) ? (parsedItems as StoredOrderItem[]) : [],
     createdAt: formatPersianTimestamp(row.created_at),
   };
 }
 
 function mapSupabaseUserRow(row: Record<string, unknown>): StoredUserRecord {
+  const parsedAddresses = parseJsonValue<unknown>(row.addresses, []);
+  const parsedWishlist = parseJsonValue<unknown>(row.wishlist, []);
+  const parsedSessions = parseJsonValue<unknown>(row.active_session_ids, []);
+
   return {
     id: String(row.id),
     email: String(row.email),
@@ -311,19 +345,18 @@ function mapSupabaseUserRow(row: Record<string, unknown>): StoredUserRecord {
     emailVerified: row.email_verified !== false,
     twoFactorEnabled: row.two_factor_enabled === true,
     passwordHash: row.password_hash ? String(row.password_hash) : undefined,
-    addresses: Array.isArray(row.addresses) ? (row.addresses as StoredAddress[]) : [],
-    wishlist: Array.isArray(row.wishlist)
-      ? Array.from(new Set(row.wishlist.map((item) => String(item).trim()).filter(Boolean)))
+    addresses: Array.isArray(parsedAddresses) ? (parsedAddresses as StoredAddress[]) : [],
+    wishlist: Array.isArray(parsedWishlist)
+      ? Array.from(new Set(parsedWishlist.map((item) => String(item).trim()).filter(Boolean)))
       : [],
-    activeSessionIds: Array.isArray(row.active_session_ids)
-      ? (row.active_session_ids as string[])
-      : [],
+    activeSessionIds: Array.isArray(parsedSessions) ? (parsedSessions as string[]) : [],
     createdAt: String(row.created_at || new Date().toISOString()),
     lastLoginAt: String(row.last_login_at || new Date().toISOString()),
   };
 }
 
 function mapSupabaseOtpRow(row: Record<string, unknown>): OtpChallengeRecord {
+  const parsedPending = parseJsonValue<unknown>(row.pending_signup, undefined);
   return {
     challengeKey: String(row.challenge_key),
     id: String(row.id),
@@ -335,26 +368,33 @@ function mapSupabaseOtpRow(row: Record<string, unknown>): OtpChallengeRecord {
     attempts: Number(row.attempts || 0),
     pendingUserId: row.pending_user_id ? String(row.pending_user_id) : undefined,
     pendingSignup:
-      row.pending_signup && typeof row.pending_signup === 'object'
-        ? (row.pending_signup as OtpChallengeRecord['pendingSignup'])
+      parsedPending && typeof parsedPending === 'object'
+        ? (parsedPending as OtpChallengeRecord['pendingSignup'])
         : undefined,
   };
 }
 
 function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
-  const rawSpecs = (row.specs && typeof row.specs === 'object' ? row.specs : {}) as Partial<ProductSpecsDTO>;
-  const rawColors = Array.isArray(row.colors) ? (row.colors as ProductColorDTO[]) : [];
-  const rawStorage = Array.isArray(row.storage_options)
-    ? (row.storage_options as StorageVariantDTO[])
-    : [];
+  const parsedSpecs = parseJsonValue<unknown>(row.specs, {});
+  const rawSpecs = (
+    parsedSpecs && typeof parsedSpecs === 'object' && !Array.isArray(parsedSpecs) ? parsedSpecs : {}
+  ) as Partial<ProductSpecsDTO>;
+  const parsedColors = parseJsonValue<unknown>(row.colors, []);
+  const rawColors = Array.isArray(parsedColors) ? (parsedColors as ProductColorDTO[]) : [];
+  const parsedStorage = parseJsonValue<unknown>(row.storage_options, []);
+  const rawStorage = Array.isArray(parsedStorage) ? (parsedStorage as StorageVariantDTO[]) : [];
+
+  const stockCount = Math.max(0, Number(row.stock_count ?? 0) || 0);
+  const inStock = parseBooleanFlag(row.in_stock, stockCount > 0);
+  const ratingNum = Number(row.rating);
 
   return {
     id: String(row.id || row.slug),
     slug: String(row.slug || row.id),
     nameFa: String(row.name_fa || ''),
     nameEn: String(row.name_en || ''),
-    brand: String(row.brand || 'Apple'),
-    category: (String(row.category || 'phones') as ProductCategory),
+    brand: String(row.brand || 'Apple').trim(),
+    category: (String(row.category || 'phones').trim().toLowerCase() as ProductCategory),
     price: Number(row.price || 0),
     originalPrice:
       row.original_price !== null && row.original_price !== undefined
@@ -364,13 +404,13 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
       row.discount_percent !== null && row.discount_percent !== undefined
         ? Number(row.discount_percent)
         : undefined,
-    inStock: typeof row.in_stock === 'boolean' ? row.in_stock : Number(row.stock_count ?? 0) > 0,
-    stockCount: Number(row.stock_count ?? 0),
-    expressDelivery: row.express_delivery !== false,
+    inStock,
+    stockCount,
+    expressDelivery: row.express_delivery !== false && String(row.express_delivery) !== 'false',
     warranty: String(row.warranty || '۱۸ ماهه امیر سرویس + کد رجیستری همتا'),
     badgeText:
       typeof row.badge_text === 'string' && row.badge_text.trim() ? row.badge_text : undefined,
-    rating: Number(row.rating ?? 4.8),
+    rating: Number.isFinite(ratingNum) ? ratingNum : 4.8,
     reviewCount: Number(row.review_count ?? 0),
     recommendPercent: Number(row.recommend_percent ?? 95),
     image: typeof row.image_url === 'string' && row.image_url.trim() ? row.image_url.trim() : '',
@@ -394,8 +434,8 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
       ram: rawSpecs.ram || '۸ گیگ',
       os: rawSpecs.os || 'نسخه رسمی گلوبال',
     },
-    isFeaturedDeal: row.is_featured_deal === true,
-    isPopular: row.is_popular === true,
+    isFeaturedDeal: parseBooleanFlag(row.is_featured_deal, false),
+    isPopular: parseBooleanFlag(row.is_popular, false),
     salesRank: Number(row.sales_rank ?? 100),
     releaseOrder: Number(row.release_order ?? 100),
     createdAt: row.created_at ? String(row.created_at) : undefined,
@@ -1360,8 +1400,11 @@ export function createMemoryAuthStorage(options?: {
     },
 
     async createProduct(product: ProductDTO) {
+      const nowIso = new Date().toISOString();
       const copy: ProductDTO = {
         ...product,
+        createdAt: product.createdAt || nowIso,
+        updatedAt: product.updatedAt || nowIso,
         colors: product.colors.map((c) => ({ ...c })),
         storageOptions: product.storageOptions.map((s) => ({ ...s })),
         specs: { ...product.specs },

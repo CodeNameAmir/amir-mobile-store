@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
 import { SmartImage } from '../components/SmartImage';
-import { useStore } from '../context/StoreContext';
+import { DEFAULT_FILTERS, useStore } from '../context/StoreContext';
 import { STORE_ASSETS } from '../data/assets';
 import {
   CATEGORY_ITEMS,
@@ -26,7 +26,7 @@ import {
   TECH_ARTICLES,
 } from '../data/catalog';
 import type { BrandId, CategoryId } from '../types/store';
-import { formatToman, toPersianDigits } from '../utils/storeLogic';
+import { filterAndSortProducts, formatToman, toPersianDigits } from '../utils/storeLogic';
 
 const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   phones: <Smartphone className="w-6 h-6" />,
@@ -47,8 +47,20 @@ export const HomePage: React.FC = () => {
     [products]
   );
 
+  const newestProducts = useMemo(
+    () =>
+      filterAndSortProducts(products, {
+        ...DEFAULT_FILTERS,
+        inStockOnly: true,
+        sortBy: 'newest',
+      }).slice(0, 4),
+    [products]
+  );
+
   const popularPhones = useMemo(() => {
-    const phones = products.filter((p) => p.category === 'phones' && p.inStock);
+    const phones = [...products.filter((p) => p.category === 'phones' && p.inStock)].sort(
+      (a, b) => (b.isPopular ? 1 : 0) - (a.isPopular ? 1 : 0) || a.salesRank - b.salesRank
+    );
     if (popularBrand === 'ALL') return phones.slice(0, 4);
     return phones.filter((p) => p.brand === popularBrand).slice(0, 4);
   }, [products, popularBrand]);
@@ -215,6 +227,36 @@ export const HomePage: React.FC = () => {
           ))}
         </div>
       </section>
+
+      {/* Newest Arrivals Shelf */}
+      {newestProducts.length > 0 && (
+        <section className="max-w-[1440px] mx-auto px-4 lg:px-8 space-y-6">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-xl sm:text-2xl font-black text-[#0b1c30]">
+                جدیدترین محصولات فروشگاه امیر
+              </h2>
+              <p className="text-xs sm:text-sm text-[#434655] mt-1">
+                تازه‌ترین کالاهای اضافه‌شده و موجود در انبار با گارانتی رسمی
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigateToCatalog({ category: 'all' })}
+              className="text-xs sm:text-sm font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1 shrink-0"
+            >
+              <span>مشاهده همه کالاها</span>
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+            {newestProducts.map((product) => (
+              <ProductCard key={product.id} product={product} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Popular Smartphones with interactive Brand Filter */}
       <section className="max-w-[1440px] mx-auto px-4 lg:px-8 space-y-6">
