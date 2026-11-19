@@ -2,7 +2,7 @@
 -- Amir Mobile Store (فروشگاه موبایل امیر) — Supabase PostgreSQL Schema Migration (V3)
 -- Enterprise Mobile Store Architecture:
 --   • RBAC Roles (auth_roles, auth_user_roles) + Admin Audit Logs
---   • Extended Categories & Brands metadata
+--   • Extended Categories & Brands metadata (self-contained even if V2 was skipped)
 --   • Normalized Warranties (warranties)
 --   • Dynamic Filterable Attributes (attribute_definitions, category_attributes, product_attribute_values)
 --   • Normalized Product Images (product_images) & Product Variants (product_variants with SKU/PartNumber/SIM/Cost)
@@ -29,6 +29,12 @@ CREATE TABLE IF NOT EXISTS public.auth_roles (
   is_system BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.auth_roles
+  ADD COLUMN IF NOT EXISTS title_fa VARCHAR(120) NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS description TEXT,
+  ADD COLUMN IF NOT EXISTS is_system BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 INSERT INTO public.auth_roles (name, title_fa, description, is_system)
 VALUES
@@ -60,17 +66,43 @@ CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Ensure columns exist if public.admin_audit_logs was created by an earlier schema version
+ALTER TABLE public.admin_audit_logs
+  ADD COLUMN IF NOT EXISTS admin_user_id UUID REFERENCES public.app_users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS admin_email TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS entity_type TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS entity_id TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created_at ON public.admin_audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_entity ON public.admin_audit_logs(entity_type, entity_id);
 
 -- =============================================================================
 -- 2. Extended Categories & Brands Metadata
 -- =============================================================================
+CREATE TABLE IF NOT EXISTS public.categories (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  subtitle TEXT NOT NULL DEFAULT '',
+  parent_id TEXT REFERENCES public.categories(id) ON DELETE SET NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  image_url TEXT NOT NULL DEFAULT '',
+  seo_title TEXT NOT NULL DEFAULT '',
+  seo_description TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 100,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 ALTER TABLE public.categories
+  ADD COLUMN IF NOT EXISTS slug TEXT,
   ADD COLUMN IF NOT EXISTS title_en VARCHAR(160) NOT NULL DEFAULT '',
   ADD COLUMN IF NOT EXISTS description_fa TEXT,
   ADD COLUMN IF NOT EXISTS icon_name VARCHAR(64) NOT NULL DEFAULT 'Folder',
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+UPDATE public.categories SET slug = id WHERE slug IS NULL OR slug = '';
 
 UPDATE public.categories SET title_en = 'Mobile Phones', icon_name = 'Smartphone' WHERE id = 'phones' AND title_en = '';
 UPDATE public.categories SET title_en = 'Flagship & Pro Phones', icon_name = 'Camera' WHERE id = 'flagship-phones' AND title_en = '';
@@ -81,19 +113,30 @@ UPDATE public.categories SET title_en = 'Chargers & Power Banks', icon_name = 'Z
 UPDATE public.categories SET title_en = 'Cases & Protectors', icon_name = 'Shield' WHERE id = 'cases' AND title_en = '';
 UPDATE public.categories SET title_en = 'Mobile Gaming', icon_name = 'Gamepad2' WHERE id = 'gaming' AND title_en = '';
 
+CREATE TABLE IF NOT EXISTS public.brands (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  label_fa TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 ALTER TABLE public.brands
+  ADD COLUMN IF NOT EXISTS name TEXT,
+  ADD COLUMN IF NOT EXISTS label_fa TEXT,
   ADD COLUMN IF NOT EXISTS slug VARCHAR(120),
   ADD COLUMN IF NOT EXISTS logo_url TEXT,
   ADD COLUMN IF NOT EXISTS website_url TEXT,
   ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT false,
   ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 100,
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 UPDATE public.brands
-SET slug = lower(regexp_replace(COALESCE(NULLIF(id, ''), name), '[^a-zA-Z0-9]+', '-', 'g'))
+SET slug = lower(regexp_replace(COALESCE(NULLIF(id, ''), NULLIF(name, ''), 'brand'), '[^a-zA-Z0-9]+', '-', 'g'))
 WHERE slug IS NULL OR slug = '';
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_brands_slug_unique ON public.brands(slug);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_brands_slug_unique ON public.brands(slug) WHERE slug IS NOT NULL;
 
 UPDATE public.brands SET is_featured = true WHERE id IN ('apple', 'samsung', 'xiaomi', 'huawei');
 
@@ -111,6 +154,18 @@ CREATE TABLE IF NOT EXISTS public.warranties (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.warranties
+  ADD COLUMN IF NOT EXISTS code VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS provider_name VARCHAR(160),
+  ADD COLUMN IF NOT EXISTS duration_months INTEGER NOT NULL DEFAULT 18,
+  ADD COLUMN IF NOT EXISTS coverage_fa TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS terms_url TEXT,
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_warranties_code_unique ON public.warranties(code) WHERE code IS NOT NULL;
 
 INSERT INTO public.warranties (code, provider_name, duration_months, coverage_fa, is_active)
 VALUES
@@ -130,12 +185,22 @@ CREATE TABLE IF NOT EXISTS public.attribute_definitions (
   code VARCHAR(80) NOT NULL UNIQUE,
   name_fa VARCHAR(120) NOT NULL,
   name_en VARCHAR(120) NOT NULL,
-  data_type VARCHAR(24) NOT NULL DEFAULT 'text' CHECK (data_type IN ('text', 'number', 'boolean')),
+  data_type VARCHAR(24) NOT NULL DEFAULT 'text' CHECK (data_type IN ('text', 'number', 'boolean', 'select')),
   unit VARCHAR(40),
   is_filterable BOOLEAN NOT NULL DEFAULT true,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.attribute_definitions
+  ADD COLUMN IF NOT EXISTS code VARCHAR(80),
+  ADD COLUMN IF NOT EXISTS name_fa VARCHAR(120) NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS name_en VARCHAR(120) NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS data_type VARCHAR(24) NOT NULL DEFAULT 'text',
+  ADD COLUMN IF NOT EXISTS unit VARCHAR(40),
+  ADD COLUMN IF NOT EXISTS is_filterable BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 CREATE TABLE IF NOT EXISTS public.category_attributes (
   category_id TEXT NOT NULL REFERENCES public.categories(id) ON DELETE CASCADE,
@@ -218,6 +283,12 @@ CREATE TABLE IF NOT EXISTS public.product_images (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE public.product_images
+  ADD COLUMN IF NOT EXISTS alt_text_fa VARCHAR(240),
+  ADD COLUMN IF NOT EXISTS is_cover BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
 CREATE INDEX IF NOT EXISTS idx_product_images_product ON public.product_images(product_id, sort_order);
 
 CREATE TABLE IF NOT EXISTS public.product_variants (
@@ -228,18 +299,33 @@ CREATE TABLE IF NOT EXISTS public.product_variants (
   barcode VARCHAR(96),
   part_number VARCHAR(64) DEFAULT NULL,
   color_name_fa VARCHAR(100) NOT NULL,
-  color_name_en VARCHAR(100) NOT NULL DEFAULT '',
+  color_name_en VARCHAR(100) DEFAULT '',
   color_hex VARCHAR(24) NOT NULL DEFAULT '#1e293b',
-  storage VARCHAR(64) NOT NULL,
+  storage VARCHAR(64),
   ram VARCHAR(48),
-  sim_type VARCHAR(80) NOT NULL DEFAULT 'Dual SIM (Physical)',
+  sim_type VARCHAR(80) DEFAULT 'Dual SIM (Physical)',
   price_toman BIGINT NOT NULL CHECK (price_toman > 0),
   original_price_toman BIGINT,
-  cost_price_toman BIGINT NOT NULL DEFAULT 0 CHECK (cost_price_toman >= 0),
+  cost_price_toman BIGINT DEFAULT 0 CHECK (cost_price_toman IS NULL OR cost_price_toman >= 0),
   is_published BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.product_variants
+  ADD COLUMN IF NOT EXISTS warranty_id UUID REFERENCES public.warranties(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS barcode VARCHAR(96),
+  ADD COLUMN IF NOT EXISTS part_number VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS color_name_en VARCHAR(100) DEFAULT '',
+  ADD COLUMN IF NOT EXISTS color_hex VARCHAR(24) NOT NULL DEFAULT '#1e293b',
+  ADD COLUMN IF NOT EXISTS storage VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS ram VARCHAR(48),
+  ADD COLUMN IF NOT EXISTS sim_type VARCHAR(80) DEFAULT 'Dual SIM (Physical)',
+  ADD COLUMN IF NOT EXISTS original_price_toman BIGINT,
+  ADD COLUMN IF NOT EXISTS cost_price_toman BIGINT DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS is_published BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 CREATE INDEX IF NOT EXISTS idx_product_variants_product ON public.product_variants(product_id);
 CREATE INDEX IF NOT EXISTS idx_product_variants_sku ON public.product_variants(sku);
@@ -251,7 +337,9 @@ CREATE TABLE IF NOT EXISTS public.warehouses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   code VARCHAR(48) NOT NULL UNIQUE,
   name_fa VARCHAR(140) NOT NULL,
-  address TEXT NOT NULL,
+  city VARCHAR(80) NOT NULL DEFAULT 'تهران',
+  address_fa TEXT,
+  address TEXT NOT NULL DEFAULT '',
   postal_code VARCHAR(20),
   phone VARCHAR(32),
   manager_name VARCHAR(120),
@@ -260,10 +348,21 @@ CREATE TABLE IF NOT EXISTS public.warehouses (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-INSERT INTO public.warehouses (code, name_fa, address, postal_code, phone, manager_name, is_central, is_active)
+ALTER TABLE public.warehouses
+  ADD COLUMN IF NOT EXISTS city VARCHAR(80) NOT NULL DEFAULT 'تهران',
+  ADD COLUMN IF NOT EXISTS address_fa TEXT,
+  ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS phone VARCHAR(32),
+  ADD COLUMN IF NOT EXISTS manager_name VARCHAR(120),
+  ADD COLUMN IF NOT EXISTS is_central BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+INSERT INTO public.warehouses (code, name_fa, city, address_fa, address, postal_code, phone, manager_name, is_central, is_active)
 VALUES
-  ('WH-THR-CENTRAL', 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', 'تهران، تقاطع خیابان جمهوری و حافظ، مرکز پردازش و انبار مرکزی امیر موبایل', '1135714111', '021-88889999', 'مهندس امیرحسین کریمی', true, true),
-  ('WH-ISF-HUB', 'هاب توزیع و انبار اصفهان', 'اصفهان، خیابان چهارباغ بالا، مجتمع تجاری پارسیان، انبار منطقه‌ای ۲', '8163614521', '031-36661122', 'سعید مرادی', false, true)
+  ('WH-THR-CENTRAL', 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', 'تهران', 'تهران، تقاطع خیابان جمهوری و حافظ، مرکز پردازش و انبار مرکزی امیر موبایل', 'تهران، تقاطع خیابان جمهوری و حافظ، مرکز پردازش و انبار مرکزی امیر موبایل', '1135714111', '021-88889999', 'مهندس امیرحسین کریمی', true, true),
+  ('WH-ISF-HUB', 'هاب توزیع و انبار اصفهان', 'اصفهان', 'اصفهان، خیابان چهارباغ بالا، مجتمع تجاری پارسیان، انبار منطقه‌ای ۲', 'اصفهان، خیابان چهارباغ بالا، مجتمع تجاری پارسیان، انبار منطقه‌ای ۲', '8163614521', '031-36661122', 'سعید مرادی', false, true)
 ON CONFLICT (code) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS public.warehouse_stock (
@@ -277,6 +376,13 @@ CREATE TABLE IF NOT EXISTS public.warehouse_stock (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (warehouse_id, variant_id)
 );
+
+ALTER TABLE public.warehouse_stock
+  ADD COLUMN IF NOT EXISTS shelf_location VARCHAR(64) NOT NULL DEFAULT 'UNASSIGNED',
+  ADD COLUMN IF NOT EXISTS quantity_on_hand INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS reserved_qty INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS min_stock_alert INTEGER NOT NULL DEFAULT 5,
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 CREATE INDEX IF NOT EXISTS idx_warehouse_stock_variant ON public.warehouse_stock(variant_id);
 CREATE INDEX IF NOT EXISTS idx_warehouse_stock_warehouse ON public.warehouse_stock(warehouse_id);
@@ -300,13 +406,30 @@ CREATE TABLE IF NOT EXISTS public.stock_movements (
   ),
   shelf_location VARCHAR(64) DEFAULT NULL,
   reference_type VARCHAR(48) DEFAULT NULL,
-  reference_id UUID,
+  reference_id TEXT DEFAULT NULL,
+  created_by UUID REFERENCES public.app_users(id) ON DELETE SET NULL,
   operator_id UUID REFERENCES public.app_users(id) ON DELETE SET NULL,
-  notes TEXT,
+  note_fa TEXT DEFAULT NULL,
+  notes TEXT DEFAULT NULL,
   idempotency_key VARCHAR(160) UNIQUE DEFAULT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+ALTER TABLE public.stock_movements
+  ADD COLUMN IF NOT EXISTS balance_after INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS shelf_location VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS reference_type VARCHAR(48),
+  ADD COLUMN IF NOT EXISTS reference_id TEXT,
+  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES public.app_users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS operator_id UUID REFERENCES public.app_users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS note_fa TEXT,
+  ADD COLUMN IF NOT EXISTS notes TEXT,
+  ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(160),
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_movements_idempotency_key
+  ON public.stock_movements(idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_stock_movements_variant_created ON public.stock_movements(variant_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_stock_movements_warehouse_created ON public.stock_movements(warehouse_id, created_at DESC);
 
@@ -323,14 +446,32 @@ CREATE TABLE IF NOT EXISTS public.order_items (
   product_title_fa TEXT NOT NULL,
   color_name_fa VARCHAR(100),
   storage VARCHAR(64),
+  warranty_title TEXT,
   warranty_name TEXT,
   unit_price_toman BIGINT NOT NULL CHECK (unit_price_toman >= 0),
+  original_unit_price_toman BIGINT,
   original_price_toman BIGINT,
+  line_total_toman BIGINT NOT NULL DEFAULT 0,
   cost_price_toman BIGINT NOT NULL DEFAULT 0,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   assigned_imei VARCHAR(32),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE public.order_items
+  ADD COLUMN IF NOT EXISTS variant_id UUID REFERENCES public.product_variants(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS sku VARCHAR(96),
+  ADD COLUMN IF NOT EXISTS part_number VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS color_name_fa VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS storage VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS warranty_title TEXT,
+  ADD COLUMN IF NOT EXISTS warranty_name TEXT,
+  ADD COLUMN IF NOT EXISTS original_unit_price_toman BIGINT,
+  ADD COLUMN IF NOT EXISTS original_price_toman BIGINT,
+  ADD COLUMN IF NOT EXISTS line_total_toman BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS cost_price_toman BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS assigned_imei VARCHAR(32),
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON public.order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_variant_id ON public.order_items(variant_id);
@@ -397,7 +538,7 @@ CREATE POLICY "Public can view product images"
 -- Note: product_variants, warehouses, warehouse_stock, stock_movements, auth_roles,
 -- auth_user_roles, admin_audit_logs, and order_items are intentionally locked down
 -- from anonymous client queries (accessed through Backend Express API with service role
--- so cost_price_toman, shelf_location, operator_id, and audit logs never leak to anon clients).
+-- so cost_price_toman, shelf_location, created_by, and audit logs never leak to anon clients).
 
 -- Reload PostgREST schema cache so Supabase API immediately sees all V3 tables/columns
 NOTIFY pgrst, 'reload schema';

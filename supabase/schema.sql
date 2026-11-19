@@ -361,6 +361,7 @@ create policy "Authenticated admin full access brands"
 -- ============================================================================
 alter table public.app_users
   add column if not exists role text not null default 'customer',
+  add column if not exists avatar_url text,
   add column if not exists updated_at timestamptz not null default now();
 
 create table if not exists public.auth_roles (
@@ -371,6 +372,12 @@ create table if not exists public.auth_roles (
   is_system boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+alter table public.auth_roles
+  add column if not exists title_fa varchar(120) not null default '',
+  add column if not exists description text,
+  add column if not exists is_system boolean not null default true,
+  add column if not exists created_at timestamptz not null default now();
 
 insert into public.auth_roles (name, title_fa, description, is_system)
 values
@@ -400,6 +407,17 @@ create table if not exists public.admin_audit_logs (
   created_at timestamptz not null default now()
 );
 
+alter table public.admin_audit_logs
+  add column if not exists admin_user_id uuid references public.app_users(id) on delete set null,
+  add column if not exists admin_email text not null default '',
+  add column if not exists entity_type text not null default '',
+  add column if not exists entity_id text not null default '',
+  add column if not exists details jsonb not null default '{}'::jsonb,
+  add column if not exists created_at timestamptz not null default now();
+
+create index if not exists idx_admin_audit_logs_created_at on public.admin_audit_logs(created_at desc);
+create index if not exists idx_admin_audit_logs_entity on public.admin_audit_logs(entity_type, entity_id);
+
 alter table public.categories
   add column if not exists title_en varchar(160) not null default '',
   add column if not exists description_fa text,
@@ -426,6 +444,16 @@ create table if not exists public.warranties (
   updated_at timestamptz not null default now()
 );
 
+alter table public.warranties
+  add column if not exists code varchar(64),
+  add column if not exists provider_name varchar(160),
+  add column if not exists duration_months integer not null default 18,
+  add column if not exists coverage_fa text not null default '',
+  add column if not exists terms_url text,
+  add column if not exists is_active boolean not null default true,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
 insert into public.warranties (code, provider_name, duration_months, coverage_fa, is_active)
 values
   ('amir-18m', '۱۸ ماهه جامع امیر سرویس + کد رجیستری همتا', 18, 'گارانتی رسمی تعمیرات و تعویض سخت‌افزار به همراه انتقال مالکیت قطعی در سامانه همتا', true),
@@ -441,7 +469,7 @@ create table if not exists public.attribute_definitions (
   code varchar(80) not null unique,
   name_fa varchar(120) not null,
   name_en varchar(120) not null,
-  data_type varchar(24) not null default 'text' check (data_type in ('text', 'number', 'boolean')),
+  data_type varchar(24) not null default 'text' check (data_type in ('text', 'number', 'boolean', 'select')),
   unit varchar(40),
   is_filterable boolean not null default true,
   sort_order integer not null default 0,
@@ -495,14 +523,14 @@ create table if not exists public.product_variants (
   barcode varchar(96),
   part_number varchar(64) default null,
   color_name_fa varchar(100) not null,
-  color_name_en varchar(100) not null default '',
+  color_name_en varchar(100) default '',
   color_hex varchar(24) not null default '#1e293b',
-  storage varchar(64) not null,
+  storage varchar(64),
   ram varchar(48),
-  sim_type varchar(80) not null default 'Dual SIM (Physical)',
+  sim_type varchar(80) default 'Dual SIM (Physical)',
   price_toman bigint not null check (price_toman > 0),
   original_price_toman bigint,
-  cost_price_toman bigint not null default 0 check (cost_price_toman >= 0),
+  cost_price_toman bigint default 0 check (cost_price_toman is null or cost_price_toman >= 0),
   is_published boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -512,7 +540,9 @@ create table if not exists public.warehouses (
   id uuid primary key default gen_random_uuid(),
   code varchar(48) not null unique,
   name_fa varchar(140) not null,
-  address text not null,
+  city varchar(80) not null default 'تهران',
+  address_fa text,
+  address text not null default '',
   postal_code varchar(20),
   phone varchar(32),
   manager_name varchar(120),
@@ -520,6 +550,17 @@ create table if not exists public.warehouses (
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+alter table public.warehouses
+  add column if not exists city varchar(80) not null default 'تهران',
+  add column if not exists address_fa text,
+  add column if not exists address text not null default '',
+  add column if not exists postal_code varchar(20),
+  add column if not exists phone varchar(32),
+  add column if not exists manager_name varchar(120),
+  add column if not exists is_central boolean not null default false,
+  add column if not exists is_active boolean not null default true,
+  add column if not exists created_at timestamptz not null default now();
 
 create table if not exists public.warehouse_stock (
   id uuid primary key default gen_random_uuid(),
@@ -552,12 +593,26 @@ create table if not exists public.stock_movements (
   ),
   shelf_location varchar(64) default null,
   reference_type varchar(48) default null,
-  reference_id uuid,
+  reference_id text default null,
+  created_by uuid references public.app_users(id) on delete set null,
   operator_id uuid references public.app_users(id) on delete set null,
-  notes text,
+  note_fa text default null,
+  notes text default null,
   idempotency_key varchar(160) unique default null,
   created_at timestamptz not null default now()
 );
+
+alter table public.stock_movements
+  add column if not exists balance_after integer not null default 0,
+  add column if not exists shelf_location varchar(64),
+  add column if not exists reference_type varchar(48),
+  add column if not exists reference_id text,
+  add column if not exists created_by uuid references public.app_users(id) on delete set null,
+  add column if not exists operator_id uuid references public.app_users(id) on delete set null,
+  add column if not exists note_fa text,
+  add column if not exists notes text,
+  add column if not exists idempotency_key varchar(160),
+  add column if not exists created_at timestamptz not null default now();
 
 create table if not exists public.order_items (
   id uuid primary key default gen_random_uuid(),
@@ -569,14 +624,32 @@ create table if not exists public.order_items (
   product_title_fa text not null,
   color_name_fa varchar(100),
   storage varchar(64),
+  warranty_title text,
   warranty_name text,
   unit_price_toman bigint not null check (unit_price_toman >= 0),
+  original_unit_price_toman bigint,
   original_price_toman bigint,
+  line_total_toman bigint not null default 0,
   cost_price_toman bigint not null default 0,
   quantity integer not null check (quantity > 0),
   assigned_imei varchar(32),
   created_at timestamptz not null default now()
 );
+
+alter table public.order_items
+  add column if not exists variant_id uuid references public.product_variants(id) on delete set null,
+  add column if not exists sku varchar(96),
+  add column if not exists part_number varchar(64),
+  add column if not exists color_name_fa varchar(100),
+  add column if not exists storage varchar(64),
+  add column if not exists warranty_title text,
+  add column if not exists warranty_name text,
+  add column if not exists original_unit_price_toman bigint,
+  add column if not exists original_price_toman bigint,
+  add column if not exists line_total_toman bigint not null default 0,
+  add column if not exists cost_price_toman bigint not null default 0,
+  add column if not exists assigned_imei varchar(32),
+  add column if not exists created_at timestamptz not null default now();
 
 create or replace view public.v_variant_available_stock as
 select
@@ -619,6 +692,7 @@ create policy "Public can view product attribute values" on public.product_attri
 
 drop policy if exists "Public can view product images" on public.product_images;
 create policy "Public can view product images" on public.product_images for select using (true);
+
 
 
 
