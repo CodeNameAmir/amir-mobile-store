@@ -8,7 +8,7 @@ import { useStore } from '../context/StoreContext';
 import { formatToman, toPersianDigits } from '../utils/storeLogic';
 
 export const AccountPage: React.FC = () => {
-  const { user, authLoading, orders, wishlist, products, navigate } = useStore();
+  const { user, authLoading, orders, wishlist, products, buildHref, handleLinkClick } = useStore();
   const wishlistProducts = products.filter((p) => wishlist.includes(p.id));
 
   if (authLoading && !user) {
@@ -35,13 +35,13 @@ export const AccountPage: React.FC = () => {
                   <p className="text-xs text-[#434655] leading-6">
                     در این مرورگر هنوز سفارشی ثبت نشده است. پس از ورود به حساب کاربری، سفارش‌های ثبت‌شده در حساب شما نمایش داده می‌شوند.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/tracking')}
-                    className="h-9 px-4 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+                  <a
+                    href={buildHref('/tracking')}
+                    onClick={(e) => handleLinkClick(e, '/tracking')}
+                    className="h-9 px-4 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
                   >
                     پیگیری با کد سفارش
-                  </button>
+                  </a>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -64,13 +64,13 @@ export const AccountPage: React.FC = () => {
                           </strong>
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/tracking/${ord.orderCode}`)}
-                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold self-start sm:self-auto"
+                      <a
+                        href={buildHref(`/tracking/${ord.orderCode}`)}
+                        onClick={(e) => handleLinkClick(e, `/tracking/${ord.orderCode}`)}
+                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold self-start sm:self-auto inline-flex items-center"
                       >
                         رهگیری مرسوله
-                      </button>
+                      </a>
                     </div>
                   ))}
                 </div>
@@ -93,13 +93,13 @@ export const AccountPage: React.FC = () => {
                   <p className="text-xs text-[#434655]">
                     هنوز محصولی به علاقه‌مندی‌ها اضافه نکرده‌اید.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/catalog')}
-                    className="h-9 px-4 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+                  <a
+                    href={buildHref('/catalog')}
+                    onClick={(e) => handleLinkClick(e, '/catalog')}
+                    className="h-9 px-4 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
                   >
                     مشاهده فروشگاه
-                  </button>
+                  </a>
                 </div>
               )}
             </section>

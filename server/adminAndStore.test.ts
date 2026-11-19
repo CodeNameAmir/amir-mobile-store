@@ -589,6 +589,114 @@ test('Full HTTP RBAC, Admin Panel APIs, Storefront APIs, and Order Security', as
     assert.equal(deleteProd.res.status, 200);
     assert.equal(deleteProd.body.ok, true);
 
+    // 11. Unlimited Nested Categories, Custom Brands (Huawei), Product Multi-Image & Custom Specs, Avatar & Account Deletion
+    const createCat = await adminFetch(
+      '/api/admin/categories',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          label: 'گوشی‌های تاشو',
+          slug: 'foldables',
+          subtitle: 'پرچمداران تاشو',
+          parentId: 'phones',
+          isActive: true,
+          image: '/assets/fold.jpg',
+          seoTitle: 'خرید گوشی تاشو | موبایل امیر',
+          seoDescription: 'جدیدترین گوشی‌های تاشو',
+          sortOrder: 4,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(createCat.res.status, 201);
+    assert.equal(createCat.body.category.parentId, 'phones');
+    assert.equal(createCat.body.category.seoTitle, 'خرید گوشی تاشو | موبایل امیر');
+
+    const disableCat = await adminFetch(
+      '/api/admin/categories/foldables',
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          label: 'گوشی‌های تاشو',
+          slug: 'foldables',
+          isActive: false,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(disableCat.res.status, 200);
+    assert.equal(disableCat.body.category.isActive, false);
+
+    const publicCats = await guestFetch('/api/categories', { method: 'GET' });
+    assert.equal(
+      publicCats.body.categories.some((c: { slug: string }) => c.slug === 'foldables'),
+      false
+    );
+
+    const createBrand = await adminFetch(
+      '/api/admin/brands',
+      {
+        method: 'POST',
+        body: JSON.stringify({ name: 'Honor', labelFa: 'آنر', isActive: true }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(createBrand.res.status, 201);
+    assert.equal(createBrand.body.brand.name, 'Honor');
+
+    const customSpecProd = await adminFetch(
+      '/api/admin/products',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 'honor-magic6-pro',
+          slug: 'honor-magic6-pro',
+          nameFa: 'گوشی آنر Magic 6 Pro',
+          nameEn: 'Honor Magic 6 Pro',
+          brand: 'Honor',
+          category: 'phones',
+          price: 58_000_000,
+          stockCount: 3,
+          image: '/img1.jpg',
+          images: ['/img1.jpg', '/img2.jpg'],
+          customSpecs: [{ label: 'باتری سیلیکون کربن', value: '۵۶۰۰ میلی‌آمپر' }],
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(customSpecProd.res.status, 201);
+    assert.equal(customSpecProd.body.product.images.length, 2);
+    assert.equal(customSpecProd.body.product.customSpecs[0].label, 'باتری سیلیکون کربن');
+    assert.ok(customSpecProd.body.product.priceUpdatedAt);
+
+    // Profile avatar update & customer account deletion
+    const avatarRes = await secondCustomerFetch('/api/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        fullName: 'مشتری دیگر',
+        phone: '09129998877',
+        avatarUrl: 'data:image/jpeg;base64,abc123',
+      }),
+    });
+    assert.equal(avatarRes.res.status, 200);
+    assert.equal(avatarRes.body.user.avatarUrl, 'data:image/jpeg;base64,abc123');
+
+    const badDelete = await secondCustomerFetch('/api/auth/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ currentPassword: 'WrongPassword1' }),
+    });
+    assert.equal(badDelete.res.status, 400);
+
+    const goodDelete = await secondCustomerFetch('/api/auth/account', {
+      method: 'DELETE',
+      body: JSON.stringify({ currentPassword: 'OtherUser2026!' }),
+    });
+    assert.equal(goodDelete.res.status, 200);
+    assert.equal(goodDelete.body.ok, true);
+
+    const afterDeleteMe = await secondCustomerFetch('/api/auth/me', { method: 'GET' });
+    assert.equal(afterDeleteMe.body.authenticated, false);
+
     const auditLogsRes = await adminFetch('/api/admin/audit-logs', { method: 'GET' }, ADMIN_ORIGIN);
     assert.equal(auditLogsRes.res.status, 200);
     const actions = auditLogsRes.body.logs.map((l: { action: string }) => l.action);
@@ -597,6 +705,8 @@ test('Full HTTP RBAC, Admin Panel APIs, Storefront APIs, and Order Security', as
     assert.ok(actions.includes('product.inventory_update'));
     assert.ok(actions.includes('order.status_update'));
     assert.ok(actions.includes('product.delete'));
+    assert.ok(actions.includes('category.create'));
+    assert.ok(actions.includes('brand.upsert'));
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve()))

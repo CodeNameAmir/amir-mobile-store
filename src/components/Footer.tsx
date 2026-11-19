@@ -13,7 +13,7 @@ import { useStore } from '../context/StoreContext';
 import { storeApi } from '../lib/authApi';
 
 export const Footer: React.FC = () => {
-  const { navigate, navigateToCatalog, showToast, storeSettings } = useStore();
+  const { buildHref, handleLinkClick, showToast, storeSettings } = useStore();
   const [newsletterInput, setNewsletterInput] = useState('');
   const [subscribed, setSubscribed] = useState(false);
 
@@ -95,7 +95,7 @@ export const Footer: React.FC = () => {
             </div>
           </div>
           <p className="text-xs leading-6 text-[#434655]">
-            مرجع تخصصی فروش گوشی‌های هوشمند پرچمدار، تبلت‌ها، ساعت‌های هوشمند و لوازم جانبی اورجینال برندهای اپل، سامسونگ، شیائومی و انکر با گارانتی ۱۸ ماهه امیر سرویس و شفافیت کامل رجیستری.
+            مرجع تخصصی فروش گوشی‌های هوشمند پرچمدار، تبلت‌ها، ساعت‌های هوشمند و لوازم جانبی اورجینال برندهای اپل، سامسونگ، شیائومی، هواوی و انکر با گارانتی ۱۸ ماهه امیر سرویس و شفافیت کامل رجیستری.
           </p>
           <div className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-[#f8f9ff] text-xs font-semibold text-[#0b1c30] tabular-nums-fa">
             <PhoneCall className="w-4 h-4 text-[#004ac6]" />
@@ -108,67 +108,67 @@ export const Footer: React.FC = () => {
           <h3 className="text-sm font-bold text-[#0b1c30]">دسترسی سریع</h3>
           <ul className="space-y-2 text-xs text-[#434655]">
             <li>
-              <button
-                type="button"
-                onClick={() => navigateToCatalog({ category: 'phones' })}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/catalog?cat=phones')}
+                onClick={(e) => handleLinkClick(e, '/catalog?cat=phones')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 گوشی‌های پرچمدار
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigateToCatalog({ category: 'chargers' })}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/catalog?cat=chargers')}
+                onClick={(e) => handleLinkClick(e, '/catalog?cat=chargers')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 شارژر و پاوربانک GaN
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigateToCatalog({ category: 'audio' })}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/catalog?cat=audio')}
+                onClick={(e) => handleLinkClick(e, '/catalog?cat=audio')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 هدفون و ایرپاد
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigateToCatalog({ category: 'offers', discountedOnly: true })}
-                className="hover:text-[#b54e00] transition-colors"
+              <a
+                href={buildHref('/catalog?cat=offers')}
+                onClick={(e) => handleLinkClick(e, '/catalog?cat=offers')}
+                className="hover:text-[#b54e00] transition-colors inline-block"
               >
                 تخفیف‌های شگفت‌انگیز
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigate('/compare')}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/compare')}
+                onClick={(e) => handleLinkClick(e, '/compare')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 مقایسه تخصصی موبایل‌ها
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigate('/installments')}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/installments')}
+                onClick={(e) => handleLinkClick(e, '/installments')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 محاسبه‌گر خرید اقساطی و تعویض
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigate('/tracking')}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/tracking')}
+                onClick={(e) => handleLinkClick(e, '/tracking')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 پیگیری سفارش‌ها
-              </button>
+              </a>
             </li>
           </ul>
         </div>
@@ -178,49 +178,49 @@ export const Footer: React.FC = () => {
           <h3 className="text-sm font-bold text-[#0b1c30]">خدمات مشتریان</h3>
           <ul className="space-y-2 text-xs text-[#434655]">
             <li>
-              <button
-                type="button"
-                onClick={() => navigate('/about')}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/about')}
+                onClick={(e) => handleLinkClick(e, '/about')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 درباره فروشگاه امیر
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigate('/terms')}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/terms')}
+                onClick={(e) => handleLinkClick(e, '/terms')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 شرایط گارانتی و حریم خصوصی
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigate('/contact')}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/contact')}
+                onClick={(e) => handleLinkClick(e, '/contact')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 تماس و ثبت تیکت پشتیبانی
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigate('/account')}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/account')}
+                onClick={(e) => handleLinkClick(e, '/account')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 حساب کاربری و سفارش‌ها
-              </button>
+              </a>
             </li>
             <li>
-              <button
-                type="button"
-                onClick={() => navigate('/status')}
-                className="hover:text-[#004ac6] transition-colors"
+              <a
+                href={buildHref('/status')}
+                onClick={(e) => handleLinkClick(e, '/status')}
+                className="hover:text-[#004ac6] transition-colors inline-block"
               >
                 وضعیت زیرساخت و شبکه
-              </button>
+              </a>
             </li>
           </ul>
         </div>
@@ -279,7 +279,7 @@ export const Footer: React.FC = () => {
             © ۱۴۰۴ فروشگاه موبایل امیر (Amir Mobile) — تمامی حقوق محفوظ است. پرداخت در حالت دمو و نمونه‌کار است.
           </p>
           <p className="font-medium">
-            طراحی مدرن راست‌چین · آماده میزبانی استاتیک روی GitHub Pages و CDN ابراروان + Supabase
+            طراحی مدرن راست‌چین · تضمین اصالت کالا و شفافیت قیمت‌گذاری
           </p>
         </div>
       </div>

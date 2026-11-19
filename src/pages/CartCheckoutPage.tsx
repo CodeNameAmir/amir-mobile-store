@@ -39,6 +39,8 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
     removeCoupon,
     createDemoOrder,
     navigate,
+    buildHref,
+    handleLinkClick,
     user,
     showToast,
   } = useStore();
@@ -132,20 +134,20 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
             می‌توانید جدیدترین گوشی‌های پرچمدار و لوازم جانبی اورجینال را در فروشگاه مشاهده کنید و به سبد خرید خود بیفزایید.
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => navigate('/catalog')}
-              className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-bold transition-colors"
+            <a
+              href={buildHref('/catalog')}
+              onClick={(e) => handleLinkClick(e, '/catalog')}
+              className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-bold transition-colors inline-flex items-center"
             >
               مشاهده فروشگاه و محصولات
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="h-11 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs sm:text-sm font-bold"
+            </a>
+            <a
+              href={buildHref('/')}
+              onClick={(e) => handleLinkClick(e, '/')}
+              className="h-11 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs sm:text-sm font-bold inline-flex items-center"
             >
               صفحه اصلی
-            </button>
+            </a>
           </div>
         </div>
       </div>
@@ -158,9 +160,9 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
       <div className="bg-white rounded-2xl border border-[#e5eeff] p-4 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate('/cart')}
+            <a
+              href={buildHref('/cart')}
+              onClick={(e) => handleLinkClick(e, '/cart')}
               className={`px-3.5 py-2 rounded-xl text-xs font-extrabold inline-flex items-center gap-2 ${
                 mode === 'cart'
                   ? 'bg-[#004ac6] text-white'
@@ -168,11 +170,11 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
               }`}
             >
               <span>۱. سبد خرید ({toPersianDigits(cartSummary.itemCount)})</span>
-            </button>
+            </a>
             <span className="text-[#dce9ff]">—</span>
-            <button
-              type="button"
-              onClick={() => navigate('/checkout')}
+            <a
+              href={buildHref('/checkout')}
+              onClick={(e) => handleLinkClick(e, '/checkout')}
               className={`px-3.5 py-2 rounded-xl text-xs font-extrabold inline-flex items-center gap-2 ${
                 mode === 'checkout'
                   ? 'bg-[#004ac6] text-white'
@@ -180,21 +182,21 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
               }`}
             >
               <span>۲. مشخصات ارسال و تایید آزمایشی</span>
-            </button>
+            </a>
             <span className="text-[#dce9ff] hidden sm:inline">—</span>
             <span className="hidden sm:inline-flex px-3.5 py-2 rounded-xl bg-[#f8f9ff] text-[#434655] text-xs font-bold">
               ۳. صدور کد رهگیری
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={() => navigate('/catalog')}
+          <a
+            href={buildHref('/catalog')}
+            onClick={(e) => handleLinkClick(e, '/catalog')}
             className="text-xs font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1"
           >
             <ArrowRight className="w-3.5 h-3.5" />
             <span>ادامه خرید از فروشگاه</span>
-          </button>
+          </a>
         </div>
       </div>
 
@@ -226,13 +228,13 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
                     </div>
 
                     <div className="flex-1 min-w-0 space-y-1.5">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/product/${item.slug}`)}
-                        className="text-sm font-extrabold text-[#0b1c30] hover:text-[#004ac6] text-right line-clamp-2"
+                      <a
+                        href={buildHref(`/product/${item.slug}`)}
+                        onClick={(e) => handleLinkClick(e, `/product/${item.slug}`)}
+                        className="text-sm font-extrabold text-[#0b1c30] hover:text-[#004ac6] text-right line-clamp-2 block"
                       >
                         {item.nameFa}
-                      </button>
+                      </a>
 
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#434655]">
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#f8f9ff] font-semibold">
@@ -359,13 +361,13 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
                       <MapPin className="w-3.5 h-3.5 text-[#004ac6]" />
                       <span>انتخاب از آدرس‌های ذخیره‌شده حساب شما</span>
                     </p>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/account')}
+                    <a
+                      href={buildHref('/account')}
+                      onClick={(e) => handleLinkClick(e, '/account')}
                       className="text-[11px] font-bold text-[#004ac6] hover:underline"
                     >
                       مدیریت آدرس‌ها
-                    </button>
+                    </a>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     {savedAddresses.map((addr) => {
@@ -678,15 +680,15 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
               )}
 
               {mode === 'cart' ? (
-                <button
-                  type="button"
+                <a
+                  href={buildHref('/checkout')}
+                  onClick={(e) => handleLinkClick(e, '/checkout')}
                   data-testid="proceed-to-checkout-btn"
-                  onClick={() => navigate('/checkout')}
                   className="w-full h-12 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 shadow-md transition-colors"
                 >
                   <span>ادامه و ثبت مشخصات ارسال</span>
                   <ArrowLeft className="w-4 h-4" />
-                </button>
+                </a>
               ) : (
                 <button
                   type="submit"

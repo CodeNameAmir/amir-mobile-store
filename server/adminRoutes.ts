@@ -4,6 +4,9 @@ import { toPublicUser } from './authStore.ts';
 import {
   normalizeOrderStatus,
   sanitizeAuditDetails,
+  type BrandDTO,
+  type CategoryDTO,
+  type CustomSpecItemDTO,
   type ProductCategory,
   type ProductDTO,
 } from './storeData.ts';
@@ -12,16 +15,6 @@ export interface AdminAuthenticatedRequest extends Request {
   authUser?: StoredUserRecord;
   authSessionId?: string;
 }
-
-const VALID_CATEGORIES = new Set<ProductCategory>([
-  'phones',
-  'tablets',
-  'smartwatches',
-  'audio',
-  'chargers',
-  'cases',
-  'gaming',
-]);
 
 function slugifyProductInput(raw: string): string {
   return raw
@@ -83,11 +76,11 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
       const nameFa = String(body.nameFa || body.name_fa || '').trim();
       const nameEn = String(body.nameEn || body.name_en || nameFa).trim();
       const brand = String(body.brand || '').trim();
-      const categoryRaw = String(body.category || '').trim() as ProductCategory;
+      const categoryRaw = String(body.category || '').trim().toLowerCase() as ProductCategory;
       const price = Number(body.price);
       const stockCount = Math.floor(Number(body.stockCount ?? body.stock_count ?? 0));
 
-      if (nameFa.length < 2 || !brand || !VALID_CATEGORIES.has(categoryRaw)) {
+      if (nameFa.length < 2 || !brand || categoryRaw.length < 2) {
         res.status(400).json({ error: 'نام محصول، برند و دسته‌بندی معتبر الزامی است.' });
         return;
       }
@@ -128,6 +121,21 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
           ? body.inStock && stockCount > 0
           : stockCount > 0;
 
+      const primaryImage = String(body.image || body.imageUrl || body.image_url || '').trim();
+      const rawImages = Array.isArray(body.images)
+        ? body.images.map((u: unknown) => String(u || '').trim()).filter(Boolean)
+        : [];
+      const imagesList = Array.from(new Set([primaryImage, ...rawImages].filter(Boolean)));
+      const customSpecs: CustomSpecItemDTO[] = Array.isArray(body.customSpecs)
+        ? body.customSpecs
+            .map((item: { label?: unknown; value?: unknown }) => ({
+              label: String(item?.label || '').trim(),
+              value: String(item?.value || '').trim(),
+            }))
+            .filter((item: CustomSpecItemDTO) => item.label && item.value)
+        : [];
+      const nowIso = new Date().toISOString();
+
       const productPayload: ProductDTO = {
         id,
         slug,
@@ -148,7 +156,8 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
         recommendPercent: Number.isFinite(Number(body.recommendPercent))
           ? Number(body.recommendPercent)
           : 95,
-        image: String(body.image || body.imageUrl || body.image_url || '').trim(),
+        image: primaryImage || imagesList[0] || '',
+        images: imagesList.length > 0 ? imagesList : undefined,
         colorLabel: String(body.colorLabel || 'مشکی').trim(),
         colors: Array.isArray(body.colors) && body.colors.length > 0
           ? body.colors
@@ -170,6 +179,8 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
           ram: String(body.specs?.ram || '۸ گیگ'),
           os: String(body.specs?.os || 'نسخه رسمی گلوبال'),
         },
+        customSpecs: customSpecs.length > 0 ? customSpecs : undefined,
+        priceUpdatedAt: String(body.priceUpdatedAt || nowIso),
         isFeaturedDeal: Boolean(body.isFeaturedDeal),
         isPopular: Boolean(body.isPopular),
         salesRank: Math.max(1, Math.floor(Number(body.salesRank ?? 100))),
@@ -218,8 +229,8 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
       }
       if (body.brand !== undefined) patch.brand = String(body.brand).trim();
       if (body.category !== undefined) {
-        const cat = String(body.category).trim() as ProductCategory;
-        if (!VALID_CATEGORIES.has(cat)) {
+        const cat = String(body.category).trim().toLowerCase() as ProductCategory;
+        if (cat.length < 2) {
           res.status(400).json({ error: 'دسته‌بندی محصول نامعتبر است.' });
           return;
         }
@@ -257,10 +268,21 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
       if (body.image !== undefined || body.imageUrl !== undefined || body.image_url !== undefined) {
         patch.image = String(body.image ?? body.imageUrl ?? body.image_url ?? '').trim();
       }
+      if (Array.isArray(body.images)) {
+        patch.images = body.images.map((u: unknown) => String(u || '').trim()).filter(Boolean);
+      }
       if (body.colorLabel !== undefined) patch.colorLabel = String(body.colorLabel).trim();
       if (Array.isArray(body.colors)) patch.colors = body.colors;
       if (Array.isArray(body.storageOptions)) patch.storageOptions = body.storageOptions;
       if (body.specs && typeof body.specs === 'object') patch.specs = body.specs;
+      if (Array.isArray(body.customSpecs)) {
+        patch.customSpecs = body.customSpecs
+          .map((item: { label?: unknown; value?: unknown }) => ({
+            label: String(item?.label || '').trim(),
+            value: String(item?.value || '').trim(),
+          }))
+          .filter((item: CustomSpecItemDTO) => item.label && item.value);
+      }
       if (typeof body.isFeaturedDeal === 'boolean') patch.isFeaturedDeal = body.isFeaturedDeal;
       if (typeof body.isPopular === 'boolean') patch.isPopular = body.isPopular;
       if (body.salesRank !== undefined) patch.salesRank = Number(body.salesRank);
@@ -504,6 +526,147 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
         limit,
         offset,
       });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Unlimited Nested Category Management
+  router.get('/categories', async (_req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const categories = await storage.listCategories(true);
+      res.json({ categories });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  const handleSaveCategory = async (
+    req: AdminAuthenticatedRequest,
+    res: Response,
+    next: express.NextFunction
+  ) => {
+    try {
+      const body = req.body || {};
+      const label = String(body.label || '').trim();
+      if (label.length < 2) {
+        res.status(400).json({ error: 'عنوان دسته‌بندی باید حداقل ۲ کاراکتر باشد.' });
+        return;
+      }
+      const paramId = req.params.id ? String(req.params.id).trim() : '';
+      const rawSlug = String(body.slug || paramId || slugifyProductInput(label) || `cat-${Date.now()}`).trim();
+      const slug = slugifyProductInput(rawSlug) || `cat-${Date.now()}`;
+      const id = paramId || String(body.id || slug).trim();
+      const parentIdRaw = body.parentId !== undefined && body.parentId !== null ? String(body.parentId).trim() : '';
+      const parentId = parentIdRaw && parentIdRaw !== id ? parentIdRaw : null;
+
+      const categoryPayload: CategoryDTO = {
+        id,
+        slug,
+        label,
+        subtitle: String(body.subtitle || '').trim(),
+        parentId,
+        isActive: body.isActive !== false,
+        image: String(body.image || '').trim(),
+        seoTitle: String(body.seoTitle || '').trim(),
+        seoDescription: String(body.seoDescription || '').trim(),
+        sortOrder: Number.isFinite(Number(body.sortOrder)) ? Math.floor(Number(body.sortOrder)) : 100,
+      };
+
+      const saved = await storage.upsertCategory(categoryPayload);
+      const admin = req.authUser!;
+      await storage.createAuditLog({
+        adminUserId: admin.id,
+        adminEmail: admin.email,
+        action: paramId ? 'category.update' : 'category.create',
+        entityType: 'category',
+        entityId: saved.id,
+        details: sanitizeAuditDetails({ label: saved.label, slug: saved.slug, isActive: saved.isActive }),
+      });
+
+      res.status(paramId ? 200 : 201).json({ category: saved });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  router.post('/categories', handleSaveCategory);
+  router.put('/categories/:id', handleSaveCategory);
+  router.patch('/categories/:id', handleSaveCategory);
+
+  router.delete('/categories/:id', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const targetId = String(req.params.id || '').trim();
+      const deleted = await storage.deleteCategory(targetId);
+      if (!deleted) {
+        res.status(404).json({ error: 'دسته‌بندی یافت نشد.' });
+        return;
+      }
+      const admin = req.authUser!;
+      await storage.createAuditLog({
+        adminUserId: admin.id,
+        adminEmail: admin.email,
+        action: 'category.delete',
+        entityType: 'category',
+        entityId: targetId,
+        details: sanitizeAuditDetails({ targetId }),
+      });
+      res.json({ ok: true, id: targetId });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Brand Management (custom brands like Huawei, Nothing, etc.)
+  router.get('/brands', async (_req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const brands = await storage.listBrands();
+      res.json({ brands });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/brands', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const name = String(req.body?.name || '').trim();
+      const labelFa = String(req.body?.labelFa || '').trim();
+      if (name.length < 2) {
+        res.status(400).json({ error: 'نام برند باید حداقل ۲ کاراکتر باشد.' });
+        return;
+      }
+      const id = String(req.body?.id || slugifyProductInput(name) || `brand-${Date.now()}`).trim();
+      const brand: BrandDTO = {
+        id,
+        name,
+        labelFa: labelFa || undefined,
+        isActive: req.body?.isActive !== false,
+      };
+      const saved = await storage.upsertBrand(brand);
+      const admin = req.authUser!;
+      await storage.createAuditLog({
+        adminUserId: admin.id,
+        adminEmail: admin.email,
+        action: 'brand.upsert',
+        entityType: 'brand',
+        entityId: saved.id,
+        details: sanitizeAuditDetails({ name: saved.name, labelFa: saved.labelFa }),
+      });
+      res.status(201).json({ brand: saved });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/brands/:id', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const targetId = String(req.params.id || '').trim();
+      const deleted = await storage.deleteBrand(targetId);
+      if (!deleted) {
+        res.status(404).json({ error: 'برند یافت نشد.' });
+        return;
+      }
+      res.json({ ok: true, id: targetId });
     } catch (err) {
       next(err);
     }

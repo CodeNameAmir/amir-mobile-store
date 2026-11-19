@@ -23,7 +23,7 @@ const TRADE_IN_BASE_VALUES: Record<string, number> = {
 };
 
 export const InstallmentsPage: React.FC = () => {
-  const { products, navigate } = useStore();
+  const { products, buildHref, handleLinkClick } = useStore();
   const eligibleProducts = useMemo(
     () => products.filter((p) => p.inStock && p.price >= 10_000_000),
     [products]
@@ -252,23 +252,23 @@ export const InstallmentsPage: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-2.5">
             {selectedProduct && (
-              <button
-                type="button"
-                onClick={() => navigate(`/product/${selectedProduct.slug}`)}
+              <a
+                href={buildHref(`/product/${selectedProduct.slug}`)}
+                onClick={(e) => handleLinkClick(e, `/product/${selectedProduct.slug}`)}
                 className="h-11 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold inline-flex items-center justify-center gap-1.5"
               >
                 <Smartphone className="w-4 h-4" />
                 <span>مشاهده محصول</span>
-              </button>
+              </a>
             )}
-            <button
-              type="button"
-              onClick={() => navigate('/contact')}
+            <a
+              href={buildHref('/contact')}
+              onClick={(e) => handleLinkClick(e, '/contact')}
               className="h-11 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold inline-flex items-center justify-center gap-1.5"
             >
               <span>درخواست مشاوره</span>
               <ArrowLeft className="w-4 h-4" />
-            </button>
+            </a>
           </div>
         </aside>
       </div>

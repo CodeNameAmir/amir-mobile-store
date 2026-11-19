@@ -15,7 +15,7 @@ import type { ContactFormData, SupportTicket } from '../types/store';
 import { validateContactForm } from '../utils/storeLogic';
 
 export const ContactPage: React.FC = () => {
-  const { navigate, showToast } = useStore();
+  const { buildHref, handleLinkClick, showToast } = useStore();
   const [form, setForm] = useState<ContactFormData>({
     fullName: '',
     phone: '',
@@ -235,20 +235,20 @@ export const ContactPage: React.FC = () => {
               <span>دسترسی سریع خدمات</span>
             </div>
             <div className="grid grid-cols-2 gap-2.5">
-              <button
-                type="button"
-                onClick={() => navigate('/tracking')}
-                className="p-3 rounded-xl bg-white hover:bg-[#004ac6] text-[#0b1c30] hover:text-white text-xs font-bold transition-colors"
+              <a
+                href={buildHref('/tracking')}
+                onClick={(e) => handleLinkClick(e, '/tracking')}
+                className="p-3 rounded-xl bg-white hover:bg-[#004ac6] text-[#0b1c30] hover:text-white text-xs font-bold transition-colors text-center"
               >
                 رهگیری مرسوله
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate('/terms')}
-                className="p-3 rounded-xl bg-white hover:bg-[#004ac6] text-[#0b1c30] hover:text-white text-xs font-bold transition-colors"
+              </a>
+              <a
+                href={buildHref('/terms')}
+                onClick={(e) => handleLinkClick(e, '/terms')}
+                className="p-3 rounded-xl bg-white hover:bg-[#004ac6] text-[#0b1c30] hover:text-white text-xs font-bold transition-colors text-center"
               >
                 شرایط گارانتی و مرجوعی
-              </button>
+              </a>
             </div>
           </div>
         </div>

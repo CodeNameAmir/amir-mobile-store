@@ -20,7 +20,7 @@ interface NotFoundPageProps {
 }
 
 export const NotFoundPage: React.FC<NotFoundPageProps> = ({ missingPath }) => {
-  const { navigate, navigateToCatalog } = useStore();
+  const { buildHref, handleLinkClick, navigateToCatalog } = useStore();
   const [query, setQuery] = useState('');
 
   const handleSearch = (e: React.FormEvent) => {
@@ -59,27 +59,31 @@ export const NotFoundPage: React.FC<NotFoundPageProps> = ({ missingPath }) => {
         </form>
 
         <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="px-4 py-2 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+          <a
+            href={buildHref('/')}
+            onClick={(e) => handleLinkClick(e, '/')}
+            className="px-4 py-2 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
           >
             بازگشت به صفحه اصلی
-          </button>
-          <button
-            type="button"
-            onClick={() => navigateToCatalog({ category: 'phones' })}
-            className="px-4 py-2 rounded-xl bg-[#f8f9ff] text-[#0b1c30] text-xs font-bold"
+          </a>
+          <a
+            href={buildHref('/catalog?cat=phones')}
+            onClick={(e) => handleLinkClick(e, '/catalog?cat=phones', () => navigateToCatalog({ category: 'phones' }))}
+            className="px-4 py-2 rounded-xl bg-[#f8f9ff] text-[#0b1c30] text-xs font-bold inline-flex items-center"
           >
             گوشی‌های موبایل
-          </button>
-          <button
-            type="button"
-            onClick={() => navigateToCatalog({ category: 'offers', discountedOnly: true })}
-            className="px-4 py-2 rounded-xl bg-[#ffdbca]/50 text-[#8e3c00] text-xs font-bold"
+          </a>
+          <a
+            href={buildHref('/catalog?cat=offers')}
+            onClick={(e) =>
+              handleLinkClick(e, '/catalog?cat=offers', () =>
+                navigateToCatalog({ category: 'offers', discountedOnly: true })
+              )
+            }
+            className="px-4 py-2 rounded-xl bg-[#ffdbca]/50 text-[#8e3c00] text-xs font-bold inline-flex items-center"
           >
             پیشنهادات طلایی
-          </button>
+          </a>
         </div>
       </div>
     </div>
@@ -87,7 +91,7 @@ export const NotFoundPage: React.FC<NotFoundPageProps> = ({ missingPath }) => {
 };
 
 export const ServerStatusPage: React.FC = () => {
-  const { navigate } = useStore();
+  const { buildHref, handleLinkClick } = useStore();
   const [health, setHealth] = useState<BackendHealthResponse | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [checkedAt, setCheckedAt] = useState<string>('');
@@ -156,9 +160,9 @@ export const ServerStatusPage: React.FC = () => {
               <Globe className="w-5 h-5 text-[#004ac6]" />
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             </div>
-            <p className="text-xs font-extrabold text-[#0b1c30]">GitHub Pages Static Build</p>
+            <p className="text-xs font-extrabold text-[#0b1c30]">History API Clean Routing</p>
             <p className="text-[11px] text-[#434655] leading-5">
-              مسیریابی Hash-Based فعال است؛ ارتباط با دیتابیس به‌طور انحصاری از طریق Backend انجام می‌شود.
+              مسیریابی History API فعال است؛ ارتباط با دیتابیس به‌طور انحصاری از طریق Backend انجام می‌شود.
             </p>
           </div>
 
@@ -255,14 +259,14 @@ export const ServerStatusPage: React.FC = () => {
         )}
 
         <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
+          <a
+            href={buildHref('/')}
+            onClick={(e) => handleLinkClick(e, '/')}
             className="h-11 px-5 rounded-xl bg-[#004ac6] text-white text-xs font-bold inline-flex items-center gap-2"
           >
             <span>بازگشت به صفحه اصلی</span>
             <ArrowLeft className="w-4 h-4" />
-          </button>
+          </a>
         </div>
       </div>
     </div>

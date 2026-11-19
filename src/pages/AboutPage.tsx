@@ -13,7 +13,7 @@ import { useStore } from '../context/StoreContext';
 import { STORE_ASSETS } from '../data/assets';
 
 export const AboutPage: React.FC = () => {
-  const { navigate } = useStore();
+  const { buildHref, handleLinkClick } = useStore();
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-12">
@@ -30,21 +30,21 @@ export const AboutPage: React.FC = () => {
             فروشگاه موبایل امیر با تمرکز بر اصالت صددرصدی، شفافیت کامل رجیستری همتا، تست فنی ۱۸ مرحله‌ای و خدمات پس از فروش واقعی شکل گرفته تا تجربه خرید آنلاین پرچمداران اپل، سامسونگ و شیائومی بدون هیچ نگرانی باشد.
           </p>
           <div className="flex flex-wrap gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => navigate('/catalog')}
+            <a
+              href={buildHref('/catalog')}
+              onClick={(e) => handleLinkClick(e, '/catalog')}
               className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors"
             >
               <span>مشاهده محصولات</span>
               <ArrowLeft className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/contact')}
-              className="h-11 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs sm:text-sm font-bold"
+            </a>
+            <a
+              href={buildHref('/contact')}
+              onClick={(e) => handleLinkClick(e, '/contact')}
+              className="h-11 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs sm:text-sm font-bold inline-flex items-center"
             >
               ارتباط با کارشناسان
-            </button>
+            </a>
           </div>
         </div>
 
@@ -149,13 +149,13 @@ export const AboutPage: React.FC = () => {
           <p className="text-xs text-[#434655] leading-6">
             طراحی این پلتفرم به‌صورت استاتیک، سبک و سریع انجام شده تا ضمن میزبانی در GitHub Pages و توزیع از طریق شبکه CDN ابراروان، داده‌های محصولات و سفارش‌ها را از طریق PostgreSQL/Supabase مدیریت کند.
           </p>
-          <button
-            type="button"
-            onClick={() => navigate('/status')}
-            className="w-full h-10 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-extrabold transition-colors"
+          <a
+            href={buildHref('/status')}
+            onClick={(e) => handleLinkClick(e, '/status')}
+            className="w-full h-10 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-extrabold transition-colors inline-flex items-center justify-center"
           >
             مشاهده وضعیت زیرساخت فنی
-          </button>
+          </a>
         </div>
       </section>
     </div>

@@ -1,8 +1,11 @@
 import type {
+  BrandItem,
+  CategoryItem,
   CouponRule,
   DemoUser,
   OrderLookupResult,
   OrderRecord,
+  OrderStatus,
   OrderSummary,
   OtpPurpose,
   Product,
@@ -225,9 +228,17 @@ export const authApi = {
     nationalId?: string;
     birthDate?: string;
     newsletterOptIn?: boolean;
+    avatarUrl?: string;
   }): Promise<{ user: DemoUser }> {
     return requestJson<{ user: DemoUser }>('/api/auth/profile', {
       method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteAccount(payload: { currentPassword?: string } = {}): Promise<{ ok: boolean }> {
+    return requestJson<{ ok: boolean }>('/api/auth/account', {
+      method: 'DELETE',
       body: JSON.stringify(payload),
     });
   },
@@ -525,5 +536,114 @@ export const storeApi = {
       method: 'POST',
       body: JSON.stringify({ contact }),
     });
+  },
+
+  async getCategories(includeInactive = false): Promise<CategoryItem[]> {
+    const res = await requestJson<{ categories: CategoryItem[] }>(
+      includeInactive ? '/api/categories?includeInactive=true' : '/api/categories'
+    );
+    return Array.isArray(res.categories) ? res.categories : [];
+  },
+
+  async getBrands(): Promise<BrandItem[]> {
+    const res = await requestJson<{ brands: BrandItem[] }>('/api/brands');
+    return Array.isArray(res.brands) ? res.brands : [];
+  },
+};
+
+export interface AdminStatsResponse {
+  totalRevenue: number;
+  totalOrders: number;
+  pendingOrders: number;
+  totalProducts: number;
+  lowStockProducts: number;
+  totalUsers: number;
+  openTickets: number;
+  revenueByDay?: Array<{ date: string; amount: number; count: number }>;
+  topProducts?: Array<{ productId: string; nameFa: string; qty: number; revenue: number }>;
+}
+
+export const adminApi = {
+  async getStats(): Promise<AdminStatsResponse> {
+    return requestJson<AdminStatsResponse>('/api/admin/stats');
+  },
+
+  async listProducts(): Promise<Product[]> {
+    const res = await requestJson<{ products: Product[] }>('/api/admin/products');
+    return Array.isArray(res.products) ? res.products : [];
+  },
+
+  async createProduct(payload: Partial<Product>): Promise<{ product: Product }> {
+    return requestJson<{ product: Product }>('/api/admin/products', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async updateProduct(id: string, payload: Partial<Product>): Promise<{ product: Product }> {
+    return requestJson<{ product: Product }>(`/api/admin/products/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteProduct(id: string): Promise<{ ok: boolean }> {
+    return requestJson<{ ok: boolean }>(`/api/admin/products/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async listCategories(): Promise<CategoryItem[]> {
+    const res = await requestJson<{ categories: CategoryItem[] }>('/api/admin/categories');
+    return Array.isArray(res.categories) ? res.categories : [];
+  },
+
+  async saveCategory(payload: Partial<CategoryItem> & { label: string }): Promise<{ category: CategoryItem }> {
+    return requestJson<{ category: CategoryItem }>('/api/admin/categories', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteCategory(id: string): Promise<{ ok: boolean }> {
+    return requestJson<{ ok: boolean }>(`/api/admin/categories/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async listBrands(): Promise<BrandItem[]> {
+    const res = await requestJson<{ brands: BrandItem[] }>('/api/admin/brands');
+    return Array.isArray(res.brands) ? res.brands : [];
+  },
+
+  async saveBrand(payload: Partial<BrandItem> & { name: string }): Promise<{ brand: BrandItem }> {
+    return requestJson<{ brand: BrandItem }>('/api/admin/brands', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async deleteBrand(id: string): Promise<{ ok: boolean }> {
+    return requestJson<{ ok: boolean }>(`/api/admin/brands/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async listOrders(): Promise<OrderRecord[]> {
+    const res = await requestJson<{ orders: OrderRecord[] }>('/api/admin/orders');
+    return Array.isArray(res.orders) ? res.orders : [];
+  },
+
+  async updateOrderStatus(
+    orderCode: string,
+    payload: { status: OrderStatus; adminNote?: string }
+  ): Promise<{ order: OrderRecord }> {
+    return requestJson<{ order: OrderRecord }>(
+      `/api/admin/orders/${encodeURIComponent(orderCode)}/status`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }
+    );
   },
 };

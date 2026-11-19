@@ -19,7 +19,7 @@ interface CompareRow {
   render: (p: Product) => string;
 }
 
-const COMPARE_ROWS: CompareRow[] = [
+const CORE_COMPARE_ROWS: CompareRow[] = [
   { key: 'brand', label: 'برند سازنده', render: (p) => p.brand },
   {
     key: 'price',
@@ -37,7 +37,15 @@ const COMPARE_ROWS: CompareRow[] = [
 ];
 
 export const ComparePage: React.FC = () => {
-  const { products, compareIds, toggleCompare, clearCompare, addToCart, navigate } = useStore();
+  const {
+    products,
+    compareIds,
+    toggleCompare,
+    clearCompare,
+    addToCart,
+    buildHref,
+    handleLinkClick,
+  } = useStore();
   const [onlyDifferences, setOnlyDifferences] = useState(false);
 
   const selectedProducts = useMemo(
@@ -50,13 +58,33 @@ export const ComparePage: React.FC = () => {
     [products, compareIds]
   );
 
+  const allRows = useMemo(() => {
+    const customLabels: string[] = [];
+    const seen = new Set<string>();
+    for (const p of selectedProducts) {
+      for (const spec of p.customSpecs || []) {
+        const lbl = spec.label.trim();
+        if (lbl && !seen.has(lbl)) {
+          seen.add(lbl);
+          customLabels.push(lbl);
+        }
+      }
+    }
+    const customRows: CompareRow[] = customLabels.map((lbl, idx) => ({
+      key: `custom-${idx}-${lbl}`,
+      label: lbl,
+      render: (p) => p.customSpecs?.find((s) => s.label.trim() === lbl)?.value || '—',
+    }));
+    return [...CORE_COMPARE_ROWS, ...customRows];
+  }, [selectedProducts]);
+
   const visibleRows = useMemo(() => {
-    if (!onlyDifferences || selectedProducts.length < 2) return COMPARE_ROWS;
-    return COMPARE_ROWS.filter((row) => {
+    if (!onlyDifferences || selectedProducts.length < 2) return allRows;
+    return allRows.filter((row) => {
       const values = selectedProducts.map((p) => row.render(p));
       return new Set(values).size > 1;
     });
-  }, [onlyDifferences, selectedProducts]);
+  }, [allRows, onlyDifferences, selectedProducts]);
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-6">
@@ -70,7 +98,7 @@ export const ComparePage: React.FC = () => {
             مقایسه کنار هم محصولات ({toPersianDigits(selectedProducts.length)} از ۳)
           </h1>
           <p className="text-xs sm:text-sm text-[#434655]">
-            مشخصات نمایشگر، تراشه، دوربین، باتری و قیمت گوشی‌ها و گجت‌ها را به‌صورت دقیق مقایسه کنید.
+            مشخصات نمایشگر، تراشه، دوربین، باتری، مشخصات ویژه و قیمت گوشی‌ها را به‌صورت دقیق مقایسه کنید.
           </p>
         </div>
 
@@ -133,14 +161,14 @@ export const ComparePage: React.FC = () => {
           <p className="text-xs sm:text-sm text-[#434655] max-w-md mx-auto">
             از منوی بالا محصولات مورد نظر خود را انتخاب کنید یا در صفحه فروشگاه روی دکمه مقایسه کلیک نمایید.
           </p>
-          <button
-            type="button"
-            onClick={() => navigate('/catalog')}
+          <a
+            href={buildHref('/catalog')}
+            onClick={(e) => handleLinkClick(e, '/catalog')}
             className="h-11 px-6 rounded-xl bg-[#004ac6] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2"
           >
             <span>مشاهده محصولات فروشگاه</span>
             <ArrowLeft className="w-4 h-4" />
-          </button>
+          </a>
         </div>
       ) : (
         <div className="bg-white rounded-3xl border border-[#e5eeff] overflow-hidden shadow-sm">
@@ -169,13 +197,13 @@ export const ComparePage: React.FC = () => {
                             className="w-full h-full object-cover"
                           />
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/product/${product.slug}`)}
-                          className="text-xs font-extrabold text-[#0b1c30] hover:text-[#004ac6] text-right line-clamp-2 leading-5 min-h-[40px]"
+                        <a
+                          href={buildHref(`/product/${product.slug}`)}
+                          onClick={(e) => handleLinkClick(e, `/product/${product.slug}`)}
+                          className="text-xs font-extrabold text-[#0b1c30] hover:text-[#004ac6] text-right line-clamp-2 leading-5 min-h-[40px] block"
                         >
                           {product.nameFa}
-                        </button>
+                        </a>
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="inline-flex items-center gap-1 font-bold text-[#0b1c30] tabular-nums-fa">
                             <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />

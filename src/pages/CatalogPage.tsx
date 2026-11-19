@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ChevronDown,
+  Clock,
   Filter,
   RotateCcw,
   Search,
@@ -9,33 +10,21 @@ import {
 } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
 import { useStore } from '../context/StoreContext';
-import { CATEGORY_ITEMS } from '../data/catalog';
-import type { BrandId, CategoryId, SortOption } from '../types/store';
+import type { BrandId, CategoryId, CategoryItem, SortOption } from '../types/store';
 import {
   computeCatalogMaxPrice,
+  extractAvailableBrands,
+  extractAvailableColors,
   filterAndSortProducts,
   formatToman,
+  paginateItems,
+  toEnglishDigits,
   toPersianDigits,
 } from '../utils/storeLogic';
 
-const BASE_BRANDS: { id: BrandId; label: string }[] = [
-  { id: 'Apple', label: 'اپل (Apple)' },
-  { id: 'Samsung', label: 'سامسونگ (Samsung)' },
-  { id: 'Xiaomi', label: 'شیائومی (Xiaomi)' },
-  { id: 'Anker', label: 'انکر (Anker)' },
-  { id: 'Honor', label: 'آنر (Honor)' },
-  { id: 'Motorola', label: 'موتورولا (Motorola)' },
-];
-
 const STORAGE_CHIPS = ['۱۲۸ گیگابایت', '۲۵۶ گیگابایت', '۵۱۲ گیگابایت'];
 const RAM_CHIPS = ['۸ گیگ', '۱۲ گیگ', '۱۶ گیگ'];
-const COLOR_OPTIONS = [
-  { id: 'midnight', label: 'مشکی / سرمه‌ای', hex: '#1e293b' },
-  { id: 'silver', label: 'سفید / نقره‌ای', hex: '#e2e8f0' },
-  { id: 'titanium', label: 'تیتانیوم طبیعی', hex: '#9c9589' },
-  { id: 'desert', label: 'کویری / طلایی', hex: '#C5B4A0' },
-  { id: 'purple', label: 'یاسی / بنفش', hex: '#a855f7' },
-];
+const PAGE_SIZE = 6;
 
 const SORT_OPTIONS: { id: SortOption; label: string }[] = [
   { id: 'newest', label: 'جدیدترین' },
@@ -46,40 +35,112 @@ const SORT_OPTIONS: { id: SortOption; label: string }[] = [
 ];
 
 export const CatalogPage: React.FC = () => {
-  const { products, filters, setFilters, resetFilters, navigate } = useStore();
+  const {
+    products,
+    categories,
+    brands,
+    filters,
+    setFilters,
+    resetFilters,
+    recentSearches,
+    addRecentSearch,
+    clearRecentSearches,
+    buildHref,
+    handleLinkClick,
+  } = useStore();
   const [brandSearch, setBrandSearch] = useState('');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [extraVisibleCount, setExtraVisibleCount] = useState(0);
+  const [localSearch, setLocalSearch] = useState(filters.searchQuery || '');
+
+  useEffect(() => {
+    setLocalSearch(filters.searchQuery || '');
+  }, [filters.searchQuery]);
+
+  // Reset pagination whenever filters change
+  useEffect(() => {
+    setCurrentPage(1);
+    setExtraVisibleCount(0);
+  }, [filters]);
+
+  const activeCategories = useMemo(
+    () => categories.filter((c) => c.isActive !== false).sort((a, b) => a.sortOrder - b.sortOrder),
+    [categories]
+  );
+
+  const nestedCategories = useMemo(() => {
+    const roots = activeCategories.filter((c) => !c.parentId);
+    const childrenByParent = new Map<string, CategoryItem[]>();
+    for (const c of activeCategories) {
+      if (c.parentId) {
+        const list = childrenByParent.get(c.parentId) ?? [];
+        list.push(c);
+        childrenByParent.set(c.parentId, list);
+      }
+    }
+    const items: Array<{ cat: CategoryItem; depth: number }> = [];
+    const appendTree = (cat: CategoryItem, depth: number) => {
+      items.push({ cat, depth });
+      const kids = childrenByParent.get(cat.id) || childrenByParent.get(cat.slug) || [];
+      for (const kid of kids) {
+        appendTree(kid, depth + 1);
+      }
+    };
+    for (const root of roots) {
+      appendTree(root, 0);
+    }
+    // Append any orphan categories whose parent wasn't active/found
+    const included = new Set(items.map((x) => x.cat.id));
+    for (const c of activeCategories) {
+      if (!included.has(c.id)) {
+        items.push({ cat: c, depth: 0 });
+      }
+    }
+    return items;
+  }, [activeCategories]);
 
   const filteredProducts = useMemo(
-    () => filterAndSortProducts(products, filters),
-    [products, filters]
+    () => filterAndSortProducts(products, filters, categories),
+    [products, filters, categories]
+  );
+
+  const effectivePageSize = PAGE_SIZE + extraVisibleCount;
+  const paginated = useMemo(
+    () => paginateItems(filteredProducts, currentPage, effectivePageSize),
+    [filteredProducts, currentPage, effectivePageSize]
   );
 
   const categoryTitle = useMemo(() => {
     if (filters.category === 'all') return 'همه محصولات فروشگاه امیر';
     if (filters.category === 'offers') return 'پیشنهادات طلایی و تخفیف‌دار';
-    return CATEGORY_ITEMS.find((c) => c.id === filters.category)?.label ?? 'فهرست محصولات';
-  }, [filters.category]);
+    return (
+      categories.find((c) => c.slug === filters.category || c.id === filters.category)?.label ??
+      'فهرست محصولات'
+    );
+  }, [categories, filters.category]);
 
   const catalogMaxPrice = useMemo(() => computeCatalogMaxPrice(products), [products]);
+  const sliderMinPrice = Math.max(0, Math.min(filters.minPrice || 0, catalogMaxPrice));
   const sliderMaxPrice = Number.isFinite(filters.maxPrice)
-    ? Math.min(filters.maxPrice, catalogMaxPrice)
+    ? Math.max(sliderMinPrice, Math.min(filters.maxPrice, catalogMaxPrice))
     : catalogMaxPrice;
-  const isPriceFiltered = Number.isFinite(filters.maxPrice) && filters.maxPrice < catalogMaxPrice;
+  const isMinPriceFiltered = sliderMinPrice > 0;
+  const isMaxPriceFiltered = Number.isFinite(filters.maxPrice) && filters.maxPrice < catalogMaxPrice;
+  const isPriceFiltered = isMinPriceFiltered || isMaxPriceFiltered;
+
+  const availableColors = useMemo(() => extractAvailableColors(products), [products]);
 
   const allBrands = useMemo(() => {
-    const map = new Map<string, { id: BrandId; label: string }>();
-    for (const b of BASE_BRANDS) {
-      map.set(b.id.toLowerCase(), b);
-    }
-    for (const p of products) {
-      const bName = String(p.brand || '').trim();
-      if (bName && !map.has(bName.toLowerCase())) {
-        map.set(bName.toLowerCase(), { id: bName, label: bName });
-      }
-    }
-    return [...map.values()];
-  }, [products]);
+    const names = extractAvailableBrands(products, brands);
+    return names.map((name) => {
+      const found = brands.find((b) => b.name.toLowerCase() === name.toLowerCase());
+      return {
+        id: name as BrandId,
+        label: found?.labelFa ? `${found.labelFa} (${name})` : name,
+      };
+    });
+  }, [brands, products]);
 
   const visibleBrands = useMemo(() => {
     const q = brandSearch.trim().toLowerCase();
@@ -110,6 +171,32 @@ export const CatalogPage: React.FC = () => {
     Boolean(filters.colorId) ||
     Boolean(filters.searchQuery.trim());
 
+  const handleCatalogSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (localSearch.trim()) {
+      addRecentSearch(localSearch.trim());
+    }
+    setFilters((p) => ({ ...p, searchQuery: localSearch }));
+  };
+
+  const handlePriceInput = (kind: 'min' | 'max', rawVal: string) => {
+    const digits = Number(toEnglishDigits(rawVal).replace(/[^\d]/g, ''));
+    const safeVal = Number.isFinite(digits) ? Math.max(0, Math.min(digits, catalogMaxPrice)) : 0;
+    if (kind === 'min') {
+      setFilters((p) => ({
+        ...p,
+        minPrice: safeVal,
+        maxPrice:
+          Number.isFinite(p.maxPrice) && p.maxPrice < safeVal ? safeVal : p.maxPrice,
+      }));
+    } else {
+      setFilters((p) => ({
+        ...p,
+        maxPrice: safeVal === 0 || safeVal >= catalogMaxPrice ? Infinity : Math.max(safeVal, p.minPrice),
+      }));
+    }
+  };
+
   const filterSidebarContent = (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -120,6 +207,7 @@ export const CatalogPage: React.FC = () => {
         {hasActiveFilters && (
           <button
             type="button"
+            data-testid="clear-all-filters-sidebar"
             onClick={resetFilters}
             className="inline-flex items-center gap-1 text-xs font-bold text-[#b54e00] hover:underline"
           >
@@ -129,35 +217,40 @@ export const CatalogPage: React.FC = () => {
         )}
       </div>
 
-      {/* Category quick selector */}
+      {/* Nested Category Selector */}
       <div className="space-y-2 border-t border-[#eff4ff] pt-4">
-        <p className="text-xs font-bold text-[#0b1c30]">دسته‌بندی</p>
-        <div className="flex flex-wrap gap-1.5">
+        <p className="text-xs font-bold text-[#0b1c30]">دسته‌بندی (تو در تو)</p>
+        <div className="flex flex-col gap-1">
           <button
             type="button"
             onClick={() => setFilters((p) => ({ ...p, category: 'all' }))}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-right text-xs font-semibold transition-colors ${
               filters.category === 'all'
                 ? 'bg-[#004ac6] text-white'
                 : 'bg-[#f8f9ff] text-[#434655] hover:bg-[#eff4ff]'
             }`}
           >
-            همه
+            همه دسته‌بندی‌ها
           </button>
-          {CATEGORY_ITEMS.map((cat) => (
-            <button
-              key={cat.id}
-              type="button"
-              onClick={() => setFilters((p) => ({ ...p, category: cat.id as CategoryId }))}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                filters.category === cat.id
-                  ? 'bg-[#004ac6] text-white'
-                  : 'bg-[#f8f9ff] text-[#434655] hover:bg-[#eff4ff]'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
+          {nestedCategories.map(({ cat, depth }) => {
+            const active = filters.category === cat.slug || filters.category === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => setFilters((p) => ({ ...p, category: cat.slug as CategoryId }))}
+                style={{ paddingRight: `${12 + depth * 14}px` }}
+                className={`py-1.5 pl-3 rounded-lg text-right text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                  active
+                    ? 'bg-[#004ac6] text-white'
+                    : 'bg-[#f8f9ff] text-[#434655] hover:bg-[#eff4ff]'
+                }`}
+              >
+                {depth > 0 && <span className="opacity-60">↳</span>}
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -200,12 +293,12 @@ export const CatalogPage: React.FC = () => {
             type="text"
             value={brandSearch}
             onChange={(e) => setBrandSearch(e.target.value)}
-            placeholder="جستجوی برند..."
+            placeholder="جستجوی برند (مثلاً Huawei)..."
             className="w-full h-9 pr-8 pl-3 rounded-xl bg-[#f8f9ff] border border-[#e5eeff] text-xs text-[#0b1c30] focus:outline-none focus:border-[#2563eb]"
           />
           <Search className="w-3.5 h-3.5 text-[#434655] absolute right-2.5 top-1/2 -translate-y-1/2" />
         </div>
-        <div className="space-y-2">
+        <div className="space-y-2 max-h-48 overflow-y-auto pl-1">
           {visibleBrands.map((brand) => (
             <label
               key={brand.id}
@@ -225,33 +318,101 @@ export const CatalogPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Max Price Slider */}
+      {/* Dual Min / Max Price Range Filter */}
       <div className="space-y-3 border-t border-[#eff4ff] pt-4">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-bold text-[#0b1c30]">سقف قیمت</p>
-          <span className="text-xs font-extrabold text-[#004ac6] tabular-nums-fa">
-            تا {formatToman(sliderMaxPrice)} تومان
-          </span>
+          <p className="text-xs font-bold text-[#0b1c30]">محدوده قیمت (تومان)</p>
+          {isPriceFiltered && (
+            <button
+              type="button"
+              onClick={() => setFilters((p) => ({ ...p, minPrice: 0, maxPrice: Infinity }))}
+              className="text-[11px] font-bold text-[#004ac6] hover:underline"
+            >
+              بازنشانی
+            </button>
+          )}
         </div>
-        <input
-          type="range"
-          min={3_000_000}
-          max={catalogMaxPrice}
-          step={1_000_000}
-          value={sliderMaxPrice}
-          onChange={(e) => {
-            const val = Number(e.target.value);
-            setFilters((p) => ({
-              ...p,
-              maxPrice: val >= catalogMaxPrice ? Infinity : val,
-            }));
-          }}
-          aria-label="حداکثر قیمت به تومان"
-          className="w-full accent-[#004ac6] cursor-pointer"
-        />
-        <div className="flex justify-between text-[11px] text-[#434655] tabular-nums-fa">
-          <span>۳ میلیون</span>
-          <span>{toPersianDigits(Math.round(catalogMaxPrice / 1_000_000))} میلیون</span>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-[#434655]">حداقل قیمت:</span>
+            <span className="font-bold text-[#0b1c30] tabular-nums-fa">
+              {formatToman(sliderMinPrice)} تومان
+            </span>
+          </div>
+          <input
+            type="range"
+            data-testid="price-min-slider"
+            min={0}
+            max={catalogMaxPrice}
+            step={1_000_000}
+            value={sliderMinPrice}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              setFilters((p) => ({
+                ...p,
+                minPrice: val,
+                maxPrice: Number.isFinite(p.maxPrice) && p.maxPrice < val ? val : p.maxPrice,
+              }));
+            }}
+            aria-label="حداقل قیمت به تومان"
+            className="w-full accent-[#004ac6] cursor-pointer"
+          />
+
+          <div className="flex items-center justify-between text-[11px] pt-1">
+            <span className="text-[#434655]">حداکثر قیمت:</span>
+            <span className="font-bold text-[#004ac6] tabular-nums-fa">
+              {formatToman(sliderMaxPrice)} تومان
+            </span>
+          </div>
+          <input
+            type="range"
+            data-testid="price-max-slider"
+            min={1_000_000}
+            max={catalogMaxPrice}
+            step={1_000_000}
+            value={sliderMaxPrice}
+            onChange={(e) => {
+              const val = Number(e.target.value);
+              setFilters((p) => ({
+                ...p,
+                maxPrice: val >= catalogMaxPrice ? Infinity : Math.max(val, p.minPrice),
+              }));
+            }}
+            aria-label="حداکثر قیمت به تومان"
+            className="w-full accent-[#004ac6] cursor-pointer"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <div>
+            <label htmlFor="min-price-input" className="text-[10px] font-bold text-[#434655] block mb-1">
+              از (تومان)
+            </label>
+            <input
+              id="min-price-input"
+              type="text"
+              dir="ltr"
+              value={sliderMinPrice > 0 ? String(sliderMinPrice) : ''}
+              placeholder="0"
+              onChange={(e) => handlePriceInput('min', e.target.value)}
+              className="w-full h-8 px-2 rounded-lg bg-[#f8f9ff] border border-[#dce9ff] text-[11px] font-bold text-[#0b1c30]"
+            />
+          </div>
+          <div>
+            <label htmlFor="max-price-input" className="text-[10px] font-bold text-[#434655] block mb-1">
+              تا (تومان)
+            </label>
+            <input
+              id="max-price-input"
+              type="text"
+              dir="ltr"
+              value={isMaxPriceFiltered ? String(sliderMaxPrice) : ''}
+              placeholder={String(catalogMaxPrice)}
+              onChange={(e) => handlePriceInput('max', e.target.value)}
+              className="w-full h-8 px-2 rounded-lg bg-[#f8f9ff] border border-[#dce9ff] text-[11px] font-bold text-[#0b1c30]"
+            />
+          </div>
         </div>
       </div>
 
@@ -299,26 +460,33 @@ export const CatalogPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Color Swatches */}
+      {/* Dynamic Available Color Swatches */}
       <div className="space-y-2.5 border-t border-[#eff4ff] pt-4">
-        <p className="text-xs font-bold text-[#0b1c30]">رنگ بدنه</p>
-        <div className="flex flex-wrap gap-2">
-          {COLOR_OPTIONS.map((c) => {
+        <p className="text-xs font-bold text-[#0b1c30]">رنگ بدنه (رنگ‌های موجود)</p>
+        <div className="flex flex-wrap gap-2" data-testid="dynamic-color-filters">
+          {availableColors.map((c) => {
             const active = filters.colorId === c.id;
             return (
               <button
                 key={c.id}
                 type="button"
-                title={c.label}
+                title={`${c.label} (${toPersianDigits(c.count)} کالا)`}
                 aria-label={c.label}
                 onClick={() =>
                   setFilters((p) => ({ ...p, colorId: p.colorId === c.id ? null : c.id }))
                 }
-                className={`w-7 h-7 rounded-full border-2 transition-transform ${
-                  active ? 'border-[#004ac6] scale-110 ring-2 ring-[#2563eb]/30' : 'border-[#dce9ff]'
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-semibold transition-all ${
+                  active
+                    ? 'border-[#004ac6] bg-[#eff4ff] text-[#004ac6]'
+                    : 'border-[#dce9ff] bg-white text-[#434655] hover:border-[#2563eb]'
                 }`}
-                style={{ backgroundColor: c.hex }}
-              />
+              >
+                <span
+                  className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
+                  style={{ backgroundColor: c.hex }}
+                />
+                <span>{c.label}</span>
+              </button>
             );
           })}
         </div>
@@ -332,9 +500,13 @@ export const CatalogPage: React.FC = () => {
       <div className="bg-white rounded-2xl border border-[#e5eeff] p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1.5">
           <div className="flex items-center gap-2 text-xs text-[#434655]">
-            <button type="button" onClick={() => navigate('/')} className="hover:text-[#004ac6]">
+            <a
+              href={buildHref('/')}
+              onClick={(e) => handleLinkClick(e, '/')}
+              className="hover:text-[#004ac6]"
+            >
               فروشگاه موبایل امیر
-            </button>
+            </a>
             <span>/</span>
             <span className="font-bold text-[#004ac6]">{categoryTitle}</span>
           </div>
@@ -382,35 +554,68 @@ export const CatalogPage: React.FC = () => {
 
         {/* Product Results Column */}
         <div className="lg:col-span-9 space-y-5">
-          {/* Search + Sort Bar */}
-          <div className="bg-white rounded-2xl border border-[#e5eeff] p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0">
-              <span className="text-xs font-bold text-[#434655] shrink-0">مرتب‌سازی:</span>
-              {SORT_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setFilters((p) => ({ ...p, sortBy: opt.id }))}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
-                    filters.sortBy === opt.id
-                      ? 'bg-[#eff4ff] text-[#004ac6]'
-                      : 'text-[#434655] hover:bg-[#f8f9ff]'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+          {/* Smart Search + Recent Searches + Sort Bar */}
+          <div className="bg-white rounded-2xl border border-[#e5eeff] p-4 space-y-3">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <form onSubmit={handleCatalogSearchSubmit} className="relative flex-1 max-w-md">
+                <input
+                  type="search"
+                  data-testid="catalog-search-input"
+                  value={localSearch}
+                  onChange={(e) => {
+                    setLocalSearch(e.target.value);
+                    setFilters((p) => ({ ...p, searchQuery: e.target.value }));
+                  }}
+                  placeholder="جستجوی هوشمند مدل یا برند (تحمل غلط املایی: مثلاً ifone یا هواوی)..."
+                  className="w-full h-10 pr-9 pl-3 rounded-xl bg-[#eff4ff] text-xs text-[#0b1c30] focus:bg-white border border-transparent focus:border-[#2563eb] focus:outline-none transition-all"
+                />
+                <Search className="w-4 h-4 text-[#434655] absolute right-3 top-1/2 -translate-y-1/2" />
+              </form>
+
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
+                <span className="text-xs font-bold text-[#434655] shrink-0">مرتب‌سازی:</span>
+                {SORT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => setFilters((p) => ({ ...p, sortBy: opt.id }))}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                      filters.sortBy === opt.id
+                        ? 'bg-[#eff4ff] text-[#004ac6]'
+                        : 'text-[#434655] hover:bg-[#f8f9ff]'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {filters.searchQuery.trim() && (
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#eff4ff] text-xs font-bold text-[#004ac6] shrink-0">
-                <span>جستجو: «{filters.searchQuery}»</span>
+            {recentSearches.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#eff4ff] text-[11px]">
+                <span className="font-bold text-[#434655] inline-flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-[#004ac6]" />
+                  جستجوهای اخیر:
+                </span>
+                {recentSearches.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => {
+                      setLocalSearch(item);
+                      setFilters((p) => ({ ...p, searchQuery: item }));
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#e5eeff] font-semibold text-[#0b1c30]"
+                  >
+                    {item}
+                  </button>
+                ))}
                 <button
                   type="button"
-                  onClick={() => setFilters((p) => ({ ...p, searchQuery: '' }))}
-                  aria-label="حذف عبارت جستجو"
+                  onClick={clearRecentSearches}
+                  className="text-rose-600 font-bold hover:underline mr-auto"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  پاک کردن تاریخچه
                 </button>
               </div>
             )}
@@ -476,10 +681,12 @@ export const CatalogPage: React.FC = () => {
               {isPriceFiltered && (
                 <button
                   type="button"
-                  onClick={() => setFilters((p) => ({ ...p, maxPrice: Infinity }))}
+                  onClick={() => setFilters((p) => ({ ...p, minPrice: 0, maxPrice: Infinity }))}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold tabular-nums-fa transition-colors"
                 >
-                  <span>تا {formatToman(sliderMaxPrice)} تومان</span>
+                  <span>
+                    قیمت: {formatToman(sliderMinPrice)} تا {formatToman(sliderMaxPrice)} تومان
+                  </span>
                   <X className="w-3 h-3" />
                 </button>
               )}
@@ -509,27 +716,115 @@ export const CatalogPage: React.FC = () => {
                   onClick={() => setFilters((p) => ({ ...p, colorId: null }))}
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
                 >
-                  <span>رنگ: {COLOR_OPTIONS.find((c) => c.id === filters.colorId)?.label ?? filters.colorId}</span>
+                  <span>
+                    رنگ: {availableColors.find((c) => c.id === filters.colorId)?.label ?? filters.colorId}
+                  </span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {filters.searchQuery.trim() && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLocalSearch('');
+                    setFilters((p) => ({ ...p, searchQuery: '' }));
+                  }}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                >
+                  <span>عبارت: {filters.searchQuery}</span>
                   <X className="w-3 h-3" />
                 </button>
               )}
               <button
                 type="button"
+                data-testid="clear-all-filters-btn"
                 onClick={resetFilters}
                 className="text-[11px] font-bold text-[#b54e00] hover:underline mr-1"
               >
-                حذف همه
+                حذف همه فیلترها
               </button>
             </div>
           )}
 
-          {/* Product Grid or Empty State */}
-          {filteredProducts.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5">
-              {filteredProducts.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-            </div>
+          {/* Product Grid + Pagination / Progressive Load More */}
+          {paginated.items.length > 0 ? (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5">
+                {paginated.items.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+              </div>
+
+              {(paginated.totalPages > 1 || paginated.items.length < filteredProducts.length) && (
+                <div
+                  data-testid="catalog-pagination"
+                  className="bg-white rounded-2xl border border-[#e5eeff] p-4 flex flex-col sm:flex-row items-center justify-between gap-4"
+                >
+                  <p className="text-xs font-bold text-[#434655] tabular-nums-fa">
+                    نمایش {toPersianDigits(paginated.items.length)} از {toPersianDigits(filteredProducts.length)} کالا · صفحه{' '}
+                    {toPersianDigits(paginated.page)} از {toPersianDigits(paginated.totalPages)}
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {paginated.page === 1 && paginated.items.length < filteredProducts.length && (
+                      <button
+                        type="button"
+                        data-testid="catalog-load-more-btn"
+                        onClick={() => setExtraVisibleCount((prev) => prev + PAGE_SIZE)}
+                        className="h-9 px-4 rounded-xl bg-[#eff4ff] hover:bg-[#004ac6] text-[#004ac6] hover:text-white text-xs font-extrabold transition-colors"
+                      >
+                        نمایش {toPersianDigits(Math.min(PAGE_SIZE, filteredProducts.length - paginated.items.length))} کالای بیشتر
+                      </button>
+                    )}
+
+                    {paginated.totalPages > 1 && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={paginated.page <= 1}
+                          onClick={() => {
+                            setCurrentPage((p) => Math.max(1, p - 1));
+                            window.scrollTo({ top: 140, behavior: 'smooth' });
+                          }}
+                          className="h-9 px-3 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] disabled:opacity-40 text-xs font-bold text-[#0b1c30]"
+                        >
+                          قبلی
+                        </button>
+                        {Array.from({ length: paginated.totalPages }, (_, i) => i + 1).map((pageNum) => (
+                          <button
+                            key={pageNum}
+                            type="button"
+                            data-testid={`catalog-page-${pageNum}`}
+                            onClick={() => {
+                              setCurrentPage(pageNum);
+                              window.scrollTo({ top: 140, behavior: 'smooth' });
+                            }}
+                            className={`w-9 h-9 rounded-xl text-xs font-extrabold tabular-nums-fa transition-colors ${
+                              paginated.page === pageNum
+                                ? 'bg-[#004ac6] text-white'
+                                : 'bg-[#f8f9ff] text-[#434655] hover:bg-[#eff4ff]'
+                            }`}
+                          >
+                            {toPersianDigits(pageNum)}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          disabled={paginated.page >= paginated.totalPages}
+                          onClick={() => {
+                            setCurrentPage((p) => Math.min(paginated.totalPages, p + 1));
+                            window.scrollTo({ top: 140, behavior: 'smooth' });
+                          }}
+                          className="h-9 px-3 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] disabled:opacity-40 text-xs font-bold text-[#0b1c30]"
+                        >
+                          بعدی
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           ) : (
             <div className="bg-white rounded-3xl border border-[#e5eeff] p-10 text-center space-y-4">
               <div className="w-14 h-14 rounded-2xl bg-[#eff4ff] text-[#004ac6] flex items-center justify-center mx-auto">

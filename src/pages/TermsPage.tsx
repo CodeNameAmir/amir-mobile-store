@@ -31,7 +31,7 @@ const SECTIONS = [
 ];
 
 export const TermsPage: React.FC = () => {
-  const { navigate } = useStore();
+  const { buildHref, handleLinkClick } = useStore();
   const [activeId, setActiveId] = useState(SECTIONS[0].id);
 
   const jumpTo = (id: string) => {
@@ -97,13 +97,13 @@ export const TermsPage: React.FC = () => {
             <p className="text-xs font-bold text-[#0b1c30]">
               پرسشی درباره شرایط گارانتی یا مرجوعی کالا دارید؟
             </p>
-            <button
-              type="button"
-              onClick={() => navigate('/contact')}
-              className="h-10 px-5 rounded-xl bg-[#004ac6] text-white text-xs font-bold"
+            <a
+              href={buildHref('/contact')}
+              onClick={(e) => handleLinkClick(e, '/contact')}
+              className="h-10 px-5 rounded-xl bg-[#004ac6] text-white text-xs font-bold inline-flex items-center"
             >
               گفتگو با پشتیبانی
-            </button>
+            </a>
           </div>
         </div>
       </div>

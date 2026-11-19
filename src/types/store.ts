@@ -1,15 +1,14 @@
-export type CategoryId =
-  | 'all'
-  | 'phones'
-  | 'tablets'
-  | 'smartwatches'
-  | 'audio'
-  | 'chargers'
-  | 'cases'
-  | 'gaming'
-  | 'offers';
+export type CategoryId = 'all' | 'offers' | (string & {});
 
-export type BrandId = 'Apple' | 'Samsung' | 'Xiaomi' | 'Honor' | 'Anker' | 'Motorola' | (string & {});
+export type BrandId =
+  | 'Apple'
+  | 'Samsung'
+  | 'Xiaomi'
+  | 'Huawei'
+  | 'Honor'
+  | 'Anker'
+  | 'Motorola'
+  | (string & {});
 
 export type SortOption = 'newest' | 'bestselling' | 'cheapest' | 'expensive' | 'popular';
 
@@ -23,6 +22,11 @@ export interface StorageVariant {
   label: string;
   subtitle: string;
   priceDelta: number;
+}
+
+export interface CustomSpecItem {
+  label: string;
+  value: string;
 }
 
 export interface ProductSpecs {
@@ -39,13 +43,33 @@ export interface ProductSpecs {
   os: string;
 }
 
+export interface CategoryItem {
+  id: string;
+  slug: string;
+  label: string;
+  subtitle: string;
+  parentId: string | null;
+  isActive: boolean;
+  image: string;
+  seoTitle: string;
+  seoDescription: string;
+  sortOrder: number;
+}
+
+export interface BrandItem {
+  id: string;
+  name: string;
+  labelFa?: string;
+  isActive: boolean;
+}
+
 export interface Product {
   id: string;
   slug: string;
   nameFa: string;
   nameEn: string;
   brand: BrandId;
-  category: Exclude<CategoryId, 'all' | 'offers'>;
+  category: string;
   price: number;
   originalPrice?: number;
   discountPercent?: number;
@@ -58,10 +82,13 @@ export interface Product {
   reviewCount: number;
   recommendPercent: number;
   image: string;
+  images?: string[];
   colorLabel: string;
   colors: ProductColor[];
   storageOptions: StorageVariant[];
   specs: ProductSpecs;
+  customSpecs?: CustomSpecItem[];
+  priceUpdatedAt?: string;
   isFeaturedDeal?: boolean;
   isPopular?: boolean;
   salesRank: number;
@@ -194,6 +221,7 @@ export interface DemoUser {
   phone: string;
   email: string;
   role?: UserRole;
+  avatarUrl?: string;
   emailVerified?: boolean;
   twoFactorEnabled?: boolean;
   hasPassword?: boolean;

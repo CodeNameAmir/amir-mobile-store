@@ -2,18 +2,9 @@ export type UserRole = 'customer' | 'admin';
 
 export type OrderStatus = 'paid' | 'preparing' | 'shipped' | 'delivered' | 'cancelled';
 
-export type CategoryId =
-  | 'all'
-  | 'phones'
-  | 'tablets'
-  | 'smartwatches'
-  | 'audio'
-  | 'chargers'
-  | 'cases'
-  | 'gaming'
-  | 'offers';
+export type CategoryId = 'all' | 'offers' | (string & {});
 
-export type ProductCategory = Exclude<CategoryId, 'all' | 'offers'>;
+export type ProductCategory = string;
 
 export interface ProductColorDTO {
   id: string;
@@ -25,6 +16,31 @@ export interface StorageVariantDTO {
   label: string;
   subtitle: string;
   priceDelta: number;
+}
+
+export interface CustomSpecItemDTO {
+  label: string;
+  value: string;
+}
+
+export interface CategoryDTO {
+  id: string;
+  slug: string;
+  label: string;
+  subtitle: string;
+  parentId: string | null;
+  isActive: boolean;
+  image: string;
+  seoTitle: string;
+  seoDescription: string;
+  sortOrder: number;
+}
+
+export interface BrandDTO {
+  id: string;
+  name: string;
+  labelFa?: string;
+  isActive: boolean;
 }
 
 export interface ProductSpecsDTO {
@@ -60,10 +76,13 @@ export interface ProductDTO {
   reviewCount: number;
   recommendPercent: number;
   image: string;
+  images?: string[];
   colorLabel: string;
   colors: ProductColorDTO[];
   storageOptions: StorageVariantDTO[];
   specs: ProductSpecsDTO;
+  customSpecs?: CustomSpecItemDTO[];
+  priceUpdatedAt?: string;
   isFeaturedDeal?: boolean;
   isPopular?: boolean;
   salesRank: number;
@@ -175,15 +194,116 @@ export interface AdminStatsDTO {
 export const FREE_SHIPPING_THRESHOLD_DEFAULT = 1_000_000;
 export const STANDARD_SHIPPING_FEE_DEFAULT = 150_000;
 
-export const CATEGORY_ITEMS = [
-  { id: 'phones', label: 'گوشی موبایل', subtitle: 'اپل، سامسونگ، شیائومی' },
-  { id: 'tablets', label: 'تبلت', subtitle: 'آیپد و گلکسی تب' },
-  { id: 'smartwatches', label: 'ساعت هوشمند', subtitle: 'اپل واچ و گلکسی واچ' },
-  { id: 'audio', label: 'هدفون و ایرپاد', subtitle: 'ایرپاد و استودیویی' },
-  { id: 'chargers', label: 'شارژر و پاوربانک', subtitle: 'فست شارژ GaN اورجینال' },
-  { id: 'cases', label: 'قاب و محافظ صفحه', subtitle: 'ضد ضربه و کاور مگ‌سیف' },
-  { id: 'gaming', label: 'لوازم گیمینگ', subtitle: 'دسته بازی و خنک‌کننده' },
-] as const;
+export const DEFAULT_DEV_CATEGORIES: CategoryDTO[] = [
+  {
+    id: 'phones',
+    slug: 'phones',
+    label: 'گوشی موبایل',
+    subtitle: 'اپل، سامسونگ، شیائومی، هواوی',
+    parentId: null,
+    isActive: true,
+    image: '',
+    seoTitle: 'خرید گوشی موبایل اصل با گارانتی و رجیستری | فروشگاه موبایل امیر',
+    seoDescription: 'جدیدترین گوشی‌های آیفون، سامسونگ، شیائومی و هواوی با گارانتی ۱۸ ماهه امیر سرویس و کد رجیستری همتا.',
+    sortOrder: 1,
+  },
+  {
+    id: 'flagship-phones',
+    slug: 'flagship-phones',
+    label: 'پرچمداران عکاسی و پرو',
+    subtitle: 'مدل‌های Ultra و Pro Max',
+    parentId: 'phones',
+    isActive: true,
+    image: '',
+    seoTitle: 'گوشی‌های پرچمدار و حرفه‌ای | فروشگاه موبایل امیر',
+    seoDescription: 'بررسی و خرید پرچمداران اپل، سامسونگ، شیائومی لایکا و هواوی پورا با ارسال اکسپرس.',
+    sortOrder: 2,
+  },
+  {
+    id: 'tablets',
+    slug: 'tablets',
+    label: 'تبلت',
+    subtitle: 'آیپد و گلکسی تب',
+    parentId: null,
+    isActive: true,
+    image: '',
+    seoTitle: 'خرید تبلت و آیپد پرو M4 | فروشگاه موبایل امیر',
+    seoDescription: 'تبلت‌های حرفه‌ای اپل و سامسونگ با گارانتی معتبر و ارسال سریع به سراسر ایران.',
+    sortOrder: 3,
+  },
+  {
+    id: 'smartwatches',
+    slug: 'smartwatches',
+    label: 'ساعت هوشمند',
+    subtitle: 'اپل واچ و گلکسی واچ',
+    parentId: null,
+    isActive: true,
+    image: '',
+    seoTitle: 'خرید ساعت هوشمند اورجینال | فروشگاه موبایل امیر',
+    seoDescription: 'اپل واچ اولترا ۲ و ساعت‌های هوشمند ورزشی با ضمانت اصالت.',
+    sortOrder: 4,
+  },
+  {
+    id: 'audio',
+    slug: 'audio',
+    label: 'هدفون و ایرپاد',
+    subtitle: 'ایرپاد و استودیویی',
+    parentId: null,
+    isActive: true,
+    image: '',
+    seoTitle: 'خرید هندزفری بی‌سیم و ایرپاد اصل | فروشگاه موبایل امیر',
+    seoDescription: 'انواع ایرپاد پرو و هندزفری‌های حذف نویز فعال با گارانتی اصلی.',
+    sortOrder: 5,
+  },
+  {
+    id: 'chargers',
+    slug: 'chargers',
+    label: 'شارژر و پاوربانک',
+    subtitle: 'فست شارژ GaN اورجینال',
+    parentId: null,
+    isActive: true,
+    image: '',
+    seoTitle: 'خرید شارژر فست GaN و پاوربانک انکر | فروشگاه موبایل امیر',
+    seoDescription: 'آداپتورهای اورجینال اپل، سامسونگ و پاوربانک‌های پرقدرت انکر.',
+    sortOrder: 6,
+  },
+  {
+    id: 'cases',
+    slug: 'cases',
+    label: 'قاب و محافظ صفحه',
+    subtitle: 'ضد ضربه و کاور مگ‌سیف',
+    parentId: null,
+    isActive: true,
+    image: '',
+    seoTitle: 'خرید قاب مگ‌سیف و گلس محافظ | فروشگاه موبایل امیر',
+    seoDescription: 'قاب‌های اورجینال و ضدضربه برای آیفون و گوشی‌های پرچمدار.',
+    sortOrder: 7,
+  },
+  {
+    id: 'gaming',
+    slug: 'gaming',
+    label: 'لوازم گیمینگ',
+    subtitle: 'دسته بازی و خنک‌کننده',
+    parentId: null,
+    isActive: true,
+    image: '',
+    seoTitle: 'خرید تجهیزات گیمینگ موبایل | فروشگاه موبایل امیر',
+    seoDescription: 'فن خنک‌کننده مغناطیسی، تریگر و لوازم حرفه‌ای موبایل گیمینگ.',
+    sortOrder: 8,
+  },
+];
+
+export const CATEGORY_ITEMS = DEFAULT_DEV_CATEGORIES;
+
+export const DEFAULT_DEV_BRANDS: BrandDTO[] = [
+  { id: 'apple', name: 'Apple', labelFa: 'اپل', isActive: true },
+  { id: 'samsung', name: 'Samsung', labelFa: 'سامسونگ', isActive: true },
+  { id: 'xiaomi', name: 'Xiaomi', labelFa: 'شیائومی', isActive: true },
+  { id: 'huawei', name: 'Huawei', labelFa: 'هواوی', isActive: true },
+  { id: 'honor', name: 'Honor', labelFa: 'آنر', isActive: true },
+  { id: 'anker', name: 'Anker', labelFa: 'انکر', isActive: true },
+  { id: 'motorola', name: 'Motorola', labelFa: 'موتورولا', isActive: true },
+];
 
 export const DEFAULT_DEV_COUPONS: CouponRuleDTO[] = [
   {
@@ -288,6 +408,62 @@ export const DEFAULT_DEV_PRODUCTS: ProductDTO[] = [
     isPopular: true,
     salesRank: 1,
     releaseOrder: 1,
+    customSpecs: [
+      { label: 'دکمه کنترل دوربین', value: 'Camera Control لمسی و فشاری' },
+      { label: 'جنس فریم', value: 'تیتانیوم گرید ۵ · گواهی IP68' },
+      { label: 'فیلمبرداری حرفه‌ای', value: '4K Dolby Vision 120fps · ProRes Log' },
+    ],
+    priceUpdatedAt: '2026-11-18T10:30:00.000Z',
+  },
+  {
+    id: 'huawei-pura-70-ultra',
+    slug: 'huawei-pura-70-ultra',
+    nameFa: 'گوشی موبایل هواوی مدل Pura 70 Ultra ظرفیت ۵۱۲ گیگابایت',
+    nameEn: 'Huawei Pura 70 Ultra 512GB XMAGE Retractable Lens',
+    brand: 'Huawei',
+    category: 'phones',
+    price: 61_500_000,
+    originalPrice: 65_000_000,
+    discountPercent: 5,
+    inStock: true,
+    stockCount: 4,
+    expressDelivery: true,
+    warranty: '۱۸ ماهه امیر سرویس + کد رجیستری همتا',
+    badgeText: 'لنز تلسکوپی XMAGE',
+    rating: 4.9,
+    reviewCount: 44,
+    recommendPercent: 95,
+    image: '',
+    colorLabel: 'سفید مرواریدی',
+    colors: [
+      { id: 'silver', name: 'سفید مرواریدی', hex: '#f1f5f9' },
+      { id: 'midnight', name: 'مشکی چرمی', hex: '#1e293b' },
+    ],
+    storageOptions: [
+      { label: '۵۱۲ گیگابایت', subtitle: 'رم ۱۶ گیگابایت', priceDelta: 0 },
+    ],
+    specs: {
+      display: '۶.۸ اینچ LTPO OLED',
+      displayDetails: '۱۲۰Hz · محافظ Kunlun Glass',
+      chipset: 'Kirin 9010',
+      chipsetDetails: 'معماری اختصاصی ۸ هسته‌ای',
+      camera: '۵۰ + ۵۰ + ۴۰ MP XMAGE',
+      cameraDetails: 'سنسور ۱ اینچی جمع‌شونده مکانیکی',
+      battery: '۵۲۰۰ میلی‌آمپر',
+      batteryDetails: 'فست شارژ ۱۰۰ وات سیمی · ۸۰ وات بی‌سیم',
+      storageDefault: '۵۱۲ گیگابایت',
+      ram: '۱۶ گیگ',
+      os: 'EMUI 14.2 گلوبال',
+    },
+    customSpecs: [
+      { label: 'دیافراگم متغیر', value: 'f/1.6 تا f/4.0 مکانیکی' },
+      { label: 'شیشه محافظ', value: 'Basalt Tempered Kunlun Glass' },
+    ],
+    priceUpdatedAt: '2026-11-18T11:00:00.000Z',
+    isFeaturedDeal: false,
+    isPopular: true,
+    salesRank: 3,
+    releaseOrder: 2,
   },
   {
     id: 'galaxy-s24-ultra',
@@ -858,12 +1034,90 @@ const PERSIAN_SEARCH_ALIASES: Record<string, string> = {
   گلکسی: 'galaxy',
   شیائومی: 'xiaomi',
   شیامی: 'xiaomi',
+  هواوی: 'huawei',
+  هوآوی: 'huawei',
+  پورا: 'pura',
+  میت: 'mate',
+  انر: 'honor',
+  آنر: 'honor',
+  موتورولا: 'motorola',
   انکر: 'anker',
   اولترا: 'ultra',
   پرو: 'pro',
   مکس: 'max',
   پرومکس: 'pro max',
+  پرمکس: 'pro max',
+  پاوربانک: 'power bank',
+  شارژر: 'charger',
 };
+
+function levenshteinDistanceServer(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j += 1) dp[j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    let prev = i - 1;
+    dp[0] = i;
+    for (let j = 1; j <= n; j += 1) {
+      const temp = dp[j];
+      if (a[i - 1] === b[j - 1]) {
+        dp[j] = prev;
+      } else {
+        dp[j] = 1 + Math.min(prev, dp[j], dp[j - 1]);
+      }
+      prev = temp;
+    }
+  }
+  return dp[n];
+}
+
+function fuzzyWordMatchServer(token: string, haystack: string, words: string[]): boolean {
+  if (haystack.includes(token)) return true;
+  const alias = PERSIAN_SEARCH_ALIASES[token];
+  if (alias && haystack.includes(alias)) return true;
+
+  const candidates = [token, ...(alias ? alias.split(/\s+/) : [])];
+  for (const cand of candidates) {
+    if (cand.length < 3) continue;
+    const maxDist = cand.length <= 4 ? 1 : 2;
+    for (const w of words) {
+      if (Math.abs(w.length - cand.length) > maxDist) continue;
+      if (levenshteinDistanceServer(cand, w) <= maxDist) return true;
+    }
+  }
+  return false;
+}
+
+export function getDescendantCategoryIdsServer(
+  categories: CategoryDTO[],
+  targetSlugOrId: string
+): Set<string> {
+  const clean = targetSlugOrId.trim().toLowerCase();
+  const result = new Set<string>([clean]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const c of categories) {
+      const idLow = c.id.toLowerCase();
+      const slugLow = c.slug.toLowerCase();
+      const parentLow = c.parentId ? c.parentId.toLowerCase() : '';
+      if (parentLow && result.has(parentLow)) {
+        if (!result.has(idLow)) {
+          result.add(idLow);
+          added = true;
+        }
+        if (!result.has(slugLow)) {
+          result.add(slugLow);
+          added = true;
+        }
+      }
+    }
+  }
+  return result;
+}
 
 function parseTimestampMsServer(raw?: string): number {
   if (!raw) return NaN;
@@ -899,6 +1153,7 @@ export interface ProductQueryParams {
   minPrice?: number;
   maxPrice?: number;
   sort?: string;
+  categories?: CategoryDTO[];
 }
 
 export function filterAndSortProducts(
@@ -906,6 +1161,10 @@ export function filterAndSortProducts(
   query: ProductQueryParams = {}
 ): ProductDTO[] {
   const category = (query.category || 'all').trim().toLowerCase();
+  const allowedCategories =
+    category && category !== 'all' && category !== 'offers'
+      ? getDescendantCategoryIdsServer(query.categories ?? DEFAULT_DEV_CATEGORIES, category)
+      : null;
   const searchRaw = toEnglishDigitsServer(query.q || '').trim().toLowerCase();
   const brandFilter = (query.brand || '')
     .split(',')
@@ -916,7 +1175,7 @@ export function filterAndSortProducts(
     const prodCategory = String(p.category || '').trim().toLowerCase();
     if (category === 'offers') {
       if (!p.discountPercent || p.discountPercent <= 0) return false;
-    } else if (category && category !== 'all' && prodCategory !== category) {
+    } else if (allowedCategories && !allowedCategories.has(prodCategory)) {
       return false;
     }
 
@@ -945,15 +1204,14 @@ export function filterAndSortProducts(
     }
 
     if (searchRaw) {
+      const customText = (p.customSpecs || []).map((s) => `${s.label} ${s.value}`).join(' ');
       const haystack = toEnglishDigitsServer(
-        `${p.nameFa} ${p.nameEn} ${p.slug} ${p.brand} ${p.category} ${p.specs.chipset} ${p.specs.storageDefault}`
+        `${p.nameFa} ${p.nameEn} ${p.slug} ${p.brand} ${p.category} ${p.specs.chipset} ${p.specs.storageDefault} ${customText}`
       ).toLowerCase();
       if (!haystack.includes(searchRaw)) {
+        const words = haystack.split(/[\s\-_/.,·،()]+/).filter(Boolean);
         const tokens = searchRaw.split(/\s+/).filter(Boolean);
-        const allMatch = tokens.every((token) => {
-          const alias = PERSIAN_SEARCH_ALIASES[token];
-          return haystack.includes(token) || (alias ? haystack.includes(alias) : false);
-        });
+        const allMatch = tokens.every((token) => fuzzyWordMatchServer(token, haystack, words));
         if (!allMatch) return false;
       }
     }

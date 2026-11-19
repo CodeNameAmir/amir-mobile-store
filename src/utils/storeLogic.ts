@@ -1,10 +1,14 @@
 import type {
+  BrandId,
+  BrandItem,
   CartItem,
+  CategoryItem,
   CheckoutFormData,
   ContactFormData,
   CouponRule,
   FilterState,
   InstallmentPlan,
+  OrderStatus,
   Product,
 } from '../types/store';
 
@@ -110,12 +114,90 @@ const PERSIAN_SEARCH_ALIASES: Record<string, string> = {
   گلکسی: 'galaxy',
   شیائومی: 'xiaomi',
   شیامی: 'xiaomi',
+  هواوی: 'huawei',
+  هوآوی: 'huawei',
+  پورا: 'pura',
+  میت: 'mate',
+  انر: 'honor',
+  آنر: 'honor',
+  موتورولا: 'motorola',
   انکر: 'anker',
   اولترا: 'ultra',
   پرو: 'pro',
   مکس: 'max',
   پرومکس: 'pro max',
+  پرمکس: 'pro max',
+  پاوربانک: 'power bank',
+  شارژر: 'charger',
 };
+
+export function levenshteinDistance(a: string, b: string): number {
+  const m = a.length;
+  const n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  const dp = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j += 1) dp[j] = j;
+  for (let i = 1; i <= m; i += 1) {
+    let prev = i - 1;
+    dp[0] = i;
+    for (let j = 1; j <= n; j += 1) {
+      const temp = dp[j];
+      if (a[i - 1] === b[j - 1]) {
+        dp[j] = prev;
+      } else {
+        dp[j] = 1 + Math.min(prev, dp[j], dp[j - 1]);
+      }
+      prev = temp;
+    }
+  }
+  return dp[n];
+}
+
+function fuzzyWordMatch(token: string, haystack: string, words: string[]): boolean {
+  if (haystack.includes(token)) return true;
+  const alias = PERSIAN_SEARCH_ALIASES[token];
+  if (alias && haystack.includes(alias)) return true;
+
+  const candidates = [token, ...(alias ? alias.split(/\s+/) : [])];
+  for (const cand of candidates) {
+    if (cand.length < 3) continue;
+    const maxDist = cand.length <= 4 ? 1 : 2;
+    for (const w of words) {
+      if (Math.abs(w.length - cand.length) > maxDist) continue;
+      if (levenshteinDistance(cand, w) <= maxDist) return true;
+    }
+  }
+  return false;
+}
+
+export function getDescendantCategoryIds(
+  categories: CategoryItem[],
+  targetSlugOrId: string
+): Set<string> {
+  const clean = targetSlugOrId.trim().toLowerCase();
+  const result = new Set<string>([clean]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const c of categories) {
+      const idLow = c.id.toLowerCase();
+      const slugLow = c.slug.toLowerCase();
+      const parentLow = c.parentId ? c.parentId.toLowerCase() : '';
+      if (parentLow && result.has(parentLow)) {
+        if (!result.has(idLow)) {
+          result.add(idLow);
+          added = true;
+        }
+        if (!result.has(slugLow)) {
+          result.add(slugLow);
+          added = true;
+        }
+      }
+    }
+  }
+  return result;
+}
 
 export const BASE_CATALOG_MAX_PRICE = 150_000_000;
 
@@ -139,6 +221,21 @@ function parseTimestampMs(raw?: string): number {
   return Number.isFinite(ms) ? ms : NaN;
 }
 
+export function formatPersianDate(raw?: string): string {
+  if (!raw) return 'به‌روزرسانی امروز';
+  const ms = parseTimestampMs(raw);
+  if (!Number.isFinite(ms)) return raw;
+  try {
+    return new Intl.DateTimeFormat('fa-IR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }).format(new Date(ms));
+  } catch {
+    return raw;
+  }
+}
+
 function compareNewestProducts(a: Product, b: Product): number {
   const timeA = parseTimestampMs(a.createdAt);
   const timeB = parseTimestampMs(b.createdAt);
@@ -156,26 +253,36 @@ export function matchesProductSearch(product: Product, queryRaw: string): boolea
   const normalizedQuery = toEnglishDigits(queryRaw.trim().toLowerCase());
   if (!normalizedQuery) return true;
 
+  const customText = (product.customSpecs || []).map((s) => `${s.label} ${s.value}`).join(' ');
   const haystack = toEnglishDigits(
-    `${product.nameFa} ${product.nameEn} ${product.slug} ${product.brand} ${product.specs.chipset} ${product.specs.storageDefault}`
+    `${product.nameFa} ${product.nameEn} ${product.slug} ${product.brand} ${product.category} ${product.specs.chipset} ${product.specs.storageDefault} ${customText}`
   ).toLowerCase();
 
   if (haystack.includes(normalizedQuery)) return true;
 
+  const words = haystack.split(/[\s\-_/.,·،()]+/).filter(Boolean);
   const tokens = normalizedQuery.split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return true;
 
-  return tokens.every((token) => {
-    const alias = PERSIAN_SEARCH_ALIASES[token];
-    return haystack.includes(token) || (alias ? haystack.includes(alias) : false);
-  });
+  return tokens.every((token) => fuzzyWordMatch(token, haystack, words));
 }
 
-export function filterAndSortProducts(products: Product[], filters: FilterState): Product[] {
+export function filterAndSortProducts(
+  products: Product[],
+  filters: FilterState,
+  categories: CategoryItem[] = []
+): Product[] {
+  const allowedCategories =
+    filters.category !== 'all' && filters.category !== 'offers'
+      ? categories.length > 0
+        ? getDescendantCategoryIds(categories, filters.category)
+        : new Set([String(filters.category).toLowerCase()])
+      : null;
+
   const filtered = products.filter((p) => {
     if (filters.category === 'offers') {
       if (!p.discountPercent || p.discountPercent <= 0) return false;
-    } else if (filters.category !== 'all' && p.category !== filters.category) {
+    } else if (allowedCategories && !allowedCategories.has(String(p.category).toLowerCase())) {
       return false;
     }
 
@@ -217,7 +324,9 @@ export function filterAndSortProducts(products: Product[], filters: FilterState)
     }
 
     if (filters.colorId) {
-      const hasColor = p.colors.some((c) => c.id === filters.colorId);
+      const hasColor = p.colors.some(
+        (c) => c.id === filters.colorId || c.hex.toLowerCase() === filters.colorId?.toLowerCase()
+      );
       if (!hasColor) return false;
     }
 
@@ -249,6 +358,183 @@ export function filterAndSortProducts(products: Product[], filters: FilterState)
   }
 
   return sorted;
+}
+
+export interface AvailableColorOption {
+  id: string;
+  label: string;
+  hex: string;
+  count: number;
+}
+
+export function extractAvailableColors(products: Product[]): AvailableColorOption[] {
+  const byId = new Map<string, AvailableColorOption>();
+  for (const p of products) {
+    const seenInProd = new Set<string>();
+    for (const c of p.colors || []) {
+      const key = String(c.id || c.hex || c.name).trim();
+      if (!key || seenInProd.has(key)) continue;
+      seenInProd.add(key);
+      const existing = byId.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        byId.set(key, {
+          id: key,
+          label: c.name.split('(')[0].trim() || c.name,
+          hex: c.hex || '#1e293b',
+          count: 1,
+        });
+      }
+    }
+  }
+  return [...byId.values()];
+}
+
+export function extractAvailableBrands(products: Product[], configuredBrands: BrandItem[] = []): BrandId[] {
+  const map = new Map<string, BrandId>();
+  for (const b of configuredBrands) {
+    if (b.isActive !== false && b.name.trim()) {
+      map.set(b.name.trim().toLowerCase(), b.name.trim());
+    }
+  }
+  for (const p of products) {
+    const name = String(p.brand || '').trim();
+    if (name && !map.has(name.toLowerCase())) {
+      map.set(name.toLowerCase(), name);
+    }
+  }
+  return [...map.values()];
+}
+
+export interface SearchSuggestionsResult {
+  products: Product[];
+  brands: BrandItem[];
+  categories: CategoryItem[];
+}
+
+export function buildSearchSuggestions(
+  queryRaw: string,
+  products: Product[],
+  categories: CategoryItem[] = [],
+  brands: BrandItem[] = []
+): SearchSuggestionsResult {
+  const clean = toEnglishDigits(queryRaw.trim().toLowerCase());
+  if (!clean) {
+    return { products: [], brands: [], categories: [] };
+  }
+
+  const matchedProducts = products.filter((p) => matchesProductSearch(p, clean)).slice(0, 5);
+
+  const tokens = clean.split(/\s+/).filter(Boolean);
+  const matchedBrands = brands
+    .filter((b) => {
+      if (b.isActive === false) return false;
+      const hay = `${b.name} ${b.labelFa || ''}`.toLowerCase();
+      const words = hay.split(/\s+/).filter(Boolean);
+      return tokens.some((t) => fuzzyWordMatch(t, hay, words));
+    })
+    .slice(0, 3);
+
+  const matchedCategories = categories
+    .filter((c) => {
+      if (c.isActive === false) return false;
+      const hay = `${c.label} ${c.subtitle} ${c.slug}`.toLowerCase();
+      return hay.includes(clean) || tokens.some((t) => hay.includes(t));
+    })
+    .slice(0, 3);
+
+  return {
+    products: matchedProducts,
+    brands: matchedBrands,
+    categories: matchedCategories,
+  };
+}
+
+export function paginateItems<T>(
+  items: T[],
+  page: number,
+  pageSize: number
+): { items: T[]; page: number; totalPages: number; totalItems: number } {
+  const safeSize = Math.max(1, Math.floor(pageSize));
+  const totalItems = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / safeSize));
+  const safePage = Math.min(totalPages, Math.max(1, Math.floor(page)));
+  const start = (safePage - 1) * safeSize;
+  return {
+    items: items.slice(start, start + safeSize),
+    page: safePage,
+    totalPages,
+    totalItems,
+  };
+}
+
+export interface OrderStageDisplay {
+  activeStageIndex: number; // 0..3 (-1 if cancelled)
+  isCancelled: boolean;
+  isDelivered: boolean;
+  badgeLabel: string;
+  headlineText: string;
+  summaryText: string;
+}
+
+export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
+  switch (status) {
+    case 'paid':
+      return {
+        activeStageIndex: 0,
+        isCancelled: false,
+        isDelivered: false,
+        badgeLabel: 'تایید پرداخت موفق',
+        headlineText: 'سفارش شما ثبت و پرداخت با موفقیت تایید شد',
+        summaryText: 'سفارش در صف تایید انبار و شروع فرآیند آماده‌سازی قرار گرفته است.',
+      };
+    case 'preparing':
+      return {
+        activeStageIndex: 1,
+        isCancelled: false,
+        isDelivered: false,
+        badgeLabel: 'در حال پردازش و بسته‌بندی',
+        headlineText: 'سفارش شما با موفقیت ثبت شد و در حال آماده‌سازی است',
+        summaryText: 'کارشناسان انبار در حال کنترل پلمپ، ثبت شناسه IMEI و بسته‌بندی ایمن مرسوله هستند.',
+      };
+    case 'shipped':
+      return {
+        activeStageIndex: 2,
+        isCancelled: false,
+        isDelivered: false,
+        badgeLabel: 'تحویل به پیک / در مسیر ارسال',
+        headlineText: 'مرسوله شما ارسال شده و در مسیر تحویل به شماست',
+        summaryText: 'بسته تحویل ناوگان ارسال شده و به‌زودی با کد تحویل اختصاصی به دست شما می‌رسد.',
+      };
+    case 'delivered':
+      return {
+        activeStageIndex: 3,
+        isCancelled: false,
+        isDelivered: true,
+        badgeLabel: 'تحویل‌شده به مشتری',
+        headlineText: 'مرسوله شما با موفقیت تحویل داده شد',
+        summaryText: 'این سفارش با موفقیت تحویل خریدار گردیده و گارانتی ۱۸ ماهه امیر سرویس فعال است.',
+      };
+    case 'cancelled':
+      return {
+        activeStageIndex: -1,
+        isCancelled: true,
+        isDelivered: false,
+        badgeLabel: 'سفارش لغو شده است',
+        headlineText: 'این سفارش لغو شده است',
+        summaryText: 'در صورت کسر وجه، استرداد مبلغ به حساب مبدا انجام شده یا در حال پیگیری مالی است.',
+      };
+    default:
+      return {
+        activeStageIndex: 1,
+        isCancelled: false,
+        isDelivered: false,
+        badgeLabel: 'در حال پردازش',
+        headlineText: 'سفارش شما ثبت شد و در حال آماده‌سازی است',
+        summaryText: 'همکاران ما در حال پردازش سفارش شما هستند.',
+      };
+  }
 }
 
 export interface CouponEvaluation {

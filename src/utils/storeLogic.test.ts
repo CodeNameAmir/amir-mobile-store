@@ -1,21 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  buildSearchSuggestions,
   calculateCareInsurancePrice,
   calculateCartSummary,
   calculateInstallmentPlan,
   computeCatalogMaxPrice,
   evaluateCoupon,
+  extractAvailableBrands,
+  extractAvailableColors,
   filterAndSortProducts,
   formatToman,
+  getDescendantCategoryIds,
+  getOrderFlowStage,
   getVariantPrice,
   matchesProductSearch,
+  paginateItems,
   toEnglishDigits,
   toPersianDigits,
   validateCheckoutForm,
   validateContactForm,
 } from './storeLogic';
-import type { CartItem, CouponRule, FilterState, Product } from '../types/store';
+import type { BrandItem, CartItem, CategoryItem, CouponRule, FilterState, Product } from '../types/store';
 
 const sampleProducts: Product[] = [
   {
@@ -341,4 +347,76 @@ test('high-priced newly added DB products (>150M) are not hidden and sort first 
   assert.equal(matchesProductSearch(iphone17, 'ایفون 17 پرومکس'), true);
   assert.equal(matchesProductSearch(iphone17, 'آیفون ۱۷ پرومکس'), true);
 });
+
+test('typo-tolerant search, nested category filtering, dual price range, dynamic colors/brands, suggestions, pagination, and order stages', () => {
+  const huaweiProd: Product = {
+    ...sampleProducts[1],
+    id: 'huawei-pura-70',
+    slug: 'huawei-pura-70',
+    nameFa: 'گوشی موبایل هواوی مدل Pura 70 Ultra',
+    nameEn: 'Huawei Pura 70 Ultra 512GB',
+    brand: 'Huawei',
+    category: 'flagship-phones',
+    price: 78_000_000,
+    colors: [{ id: 'chanson-green', name: 'سبز زمردی', hex: '#2D6A4F' }],
+    customSpecs: [{ label: 'دوربین جمع‌شونده', value: 'Retractable 1-inch' }],
+  };
+  const extended = [...sampleProducts, huaweiProd];
+
+  // Typo-tolerant and alias matching
+  assert.equal(matchesProductSearch(sampleProducts[0], 'ifone 16'), true);
+  assert.equal(matchesProductSearch(huaweiProd, 'هواوی پورا'), true);
+  assert.equal(matchesProductSearch(huaweiProd, 'Retractable'), true);
+
+  // Nested category descendants
+  const nestedCats: CategoryItem[] = [
+    { id: 'phones', slug: 'phones', label: 'گوشی', subtitle: '', parentId: null, isActive: true, image: '', seoTitle: '', seoDescription: '', sortOrder: 1 },
+    { id: 'flagship-phones', slug: 'flagship-phones', label: 'پرچمدار', subtitle: '', parentId: 'phones', isActive: true, image: '', seoTitle: '', seoDescription: '', sortOrder: 2 },
+  ];
+  const descendants = getDescendantCategoryIds(nestedCats, 'phones');
+  assert.equal(descendants.has('flagship-phones'), true);
+
+  const phonesIncludingFlagships = filterAndSortProducts(
+    extended,
+    { ...defaultFilters, category: 'phones' },
+    nestedCats
+  );
+  assert.equal(phonesIncludingFlagships.some((p) => p.id === 'huawei-pura-70'), true);
+
+  // Dual min/max price filtering
+  const midPriced = filterAndSortProducts(extended, {
+    ...defaultFilters,
+    minPrice: 70_000_000,
+    maxPrice: 85_000_000,
+  });
+  assert.deepEqual(midPriced.map((p) => p.id), ['huawei-pura-70']);
+
+  // Dynamic colors and brands
+  const availColors = extractAvailableColors(extended);
+  assert.equal(availColors.some((c) => c.id === 'chanson-green'), true);
+  const customBrands: BrandItem[] = [{ id: 'huawei', name: 'Huawei', labelFa: 'هواوی', isActive: true }];
+  const availBrands = extractAvailableBrands(extended, customBrands);
+  assert.equal(availBrands.includes('Huawei'), true);
+
+  // Suggestions + pagination
+  const suggestions = buildSearchSuggestions('هواوی', extended, nestedCats, customBrands);
+  assert.equal(suggestions.products[0]?.id, 'huawei-pura-70');
+  assert.equal(suggestions.brands[0]?.name, 'Huawei');
+
+  const page1 = paginateItems(extended, 1, 2);
+  const page2 = paginateItems(extended, 2, 2);
+  assert.equal(page1.items.length, 2);
+  assert.equal(page1.totalPages, 2);
+  assert.equal(page2.items.length, 2);
+
+  // Invoice / Tracking 5-status stage calculation
+  assert.equal(getOrderFlowStage('paid').activeStageIndex, 0);
+  assert.equal(getOrderFlowStage('preparing').activeStageIndex, 1);
+  assert.equal(getOrderFlowStage('shipped').activeStageIndex, 2);
+  assert.equal(getOrderFlowStage('delivered').isDelivered, true);
+  assert.equal(getOrderFlowStage('delivered').activeStageIndex, 3);
+  assert.equal(getOrderFlowStage('cancelled').isCancelled, true);
+  assert.equal(getOrderFlowStage('cancelled').activeStageIndex, -1);
+});
+
 

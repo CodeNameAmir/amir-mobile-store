@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   Bell,
+  Camera,
   CheckCircle2,
   Heart,
   KeyRound,
@@ -11,6 +13,7 @@ import {
   Package,
   Pencil,
   Plus,
+  Settings2,
   Shield,
   Trash2,
   UserCheck,
@@ -51,6 +54,41 @@ const EMPTY_ADDRESS_FORM = {
   isDefault: false,
 };
 
+async function resizeAvatarToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('خواندن تصویر با خطا مواجه شد.'));
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+      if (!dataUrl) {
+        reject(new Error('فایل تصویر نامعتبر است.'));
+        return;
+      }
+      const img = new Image();
+      img.onerror = () => reject(new Error('فرمت تصویر قابل پردازش نیست.'));
+      img.onload = () => {
+        const maxDim = 256;
+        const scale = Math.min(1, maxDim / Math.max(img.width || maxDim, img.height || maxDim));
+        const width = Math.max(1, Math.round((img.width || maxDim) * scale));
+        const height = Math.max(1, Math.round((img.height || maxDim) * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL('image/jpeg', 0.82);
+        resolve(compressed.length < dataUrl.length ? compressed : dataUrl);
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   const {
     orders,
@@ -59,9 +97,11 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
     stockAlerts,
     toggleStockAlert,
     products,
-    navigate,
+    buildHref,
+    handleLinkClick,
     logoutDemoUser,
     updateUserProfile,
+    deleteUserAccount,
     addUserAddress,
     updateUserAddress,
     setDefaultUserAddress,
@@ -86,6 +126,8 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   const [nationalId, setNationalId] = useState(user.nationalId || '');
   const [birthDate, setBirthDate] = useState(user.birthDate || '');
   const [newsletterOptIn, setNewsletterOptIn] = useState(user.newsletterOptIn ?? true);
+  const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl || '');
+  const [avatarBusy, setAvatarBusy] = useState(false);
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [savingProfile, setSavingProfile] = useState(false);
 
@@ -110,7 +152,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   // Orders filter
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | OrderRecord['status']>('all');
 
-  // Security / Password change & 2FA
+  // Security / Password change & 2FA & Account Deletion
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
@@ -121,13 +163,27 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   const [twoFactorBusy, setTwoFactorBusy] = useState(false);
   const [twoFactorErr, setTwoFactorErr] = useState<string | null>(null);
 
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   useEffect(() => {
     setFullName(user.fullName);
     setPhone(user.phone || '');
     setNationalId(user.nationalId || '');
     setBirthDate(user.birthDate || '');
     setNewsletterOptIn(user.newsletterOptIn ?? true);
-  }, [user.id, user.fullName, user.phone, user.nationalId, user.birthDate, user.newsletterOptIn]);
+    setAvatarUrl(user.avatarUrl || '');
+  }, [
+    user.id,
+    user.fullName,
+    user.phone,
+    user.nationalId,
+    user.birthDate,
+    user.newsletterOptIn,
+    user.avatarUrl,
+  ]);
 
   const addresses = user.addresses ?? [];
   const wishlistProducts = useMemo(
@@ -146,6 +202,56 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
     [orderStatusFilter, orders]
   );
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('لطفاً فقط فایل تصویر (JPG یا PNG) انتخاب کنید.', 'error');
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      const compressed = await resizeAvatarToDataUrl(file);
+      if (compressed.length > 140_000) {
+        showToast('حجم تصویر پس از فشرده‌سازی همچنان بالاست؛ لطفاً تصویر کوچک‌تری انتخاب کنید.', 'error');
+        return;
+      }
+      setAvatarUrl(compressed);
+      await updateUserProfile({
+        fullName: fullName.trim() || user.fullName,
+        phone: phone.trim() || user.phone || '',
+        nationalId: nationalId.trim(),
+        birthDate: birthDate.trim(),
+        newsletterOptIn,
+        avatarUrl: compressed,
+      });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'خطا در بارگذاری تصویر پروفایل.', 'error');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    setAvatarBusy(true);
+    try {
+      setAvatarUrl('');
+      await updateUserProfile({
+        fullName: fullName.trim() || user.fullName,
+        phone: phone.trim() || user.phone || '',
+        nationalId: nationalId.trim(),
+        birthDate: birthDate.trim(),
+        newsletterOptIn,
+        avatarUrl: '',
+      });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'خطا در حذف تصویر پروفایل.', 'error');
+    } finally {
+      setAvatarBusy(false);
+    }
+  };
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     const errs = validateProfileForm({ fullName, phone, nationalId });
@@ -160,11 +266,29 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
         nationalId: nationalId.trim(),
         birthDate: birthDate.trim(),
         newsletterOptIn,
+        avatarUrl,
       });
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'خطا در ذخیره پروفایل.', 'error');
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const handleDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteError(null);
+    if (user.hasPassword && !deletePassword) {
+      setDeleteError('برای تایید حذف حساب کاربری، رمز عبور فعلی را وارد کنید.');
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      await deleteUserAccount(user.hasPassword ? deletePassword : undefined);
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : 'خطا در حذف حساب کاربری.');
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -352,8 +476,17 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
       {/* Sidebar Navigation */}
       <aside className="lg:col-span-3 bg-white rounded-3xl border border-[#e5eeff] p-5 space-y-5 lg:sticky lg:top-28">
         <div className="flex items-center gap-3 pb-4 border-b border-[#eff4ff]">
-          <div className="w-12 h-12 rounded-2xl bg-[#eff4ff] text-[#004ac6] flex items-center justify-center shrink-0">
-            <UserCheck className="w-6 h-6" />
+          <div className="w-12 h-12 rounded-2xl bg-[#eff4ff] text-[#004ac6] flex items-center justify-center shrink-0 overflow-hidden border border-[#dce9ff]">
+            {avatarUrl || user.avatarUrl ? (
+              <img
+                src={avatarUrl || user.avatarUrl}
+                alt={user.fullName}
+                data-testid="sidebar-user-avatar"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <UserCheck className="w-6 h-6" />
+            )}
           </div>
           <div className="min-w-0">
             <p className="text-sm font-black text-[#0b1c30] truncate">{user.fullName}</p>
@@ -361,7 +494,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               {user.email}
             </p>
             <p className="text-[11px] font-bold text-emerald-700 mt-0.5">
-              ایمیل تاییدشده
+              {user.role === 'admin' ? 'مدیر فروشگاه · تاییدشده' : 'ایمیل تاییدشده'}
             </p>
           </div>
         </div>
@@ -374,6 +507,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 key={item.id}
                 type="button"
                 onClick={() => handleTabChange(item.id)}
+                data-testid={`dashboard-tab-${item.id}`}
                 className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap text-right ${
                   active
                     ? 'bg-[#004ac6] text-white'
@@ -387,7 +521,18 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
           })}
         </nav>
 
-        <div className="pt-3 border-t border-[#eff4ff]">
+        <div className="pt-3 border-t border-[#eff4ff] space-y-2">
+          {user.role === 'admin' && (
+            <a
+              href={buildHref('/admin')}
+              onClick={(e) => handleLinkClick(e, '/admin')}
+              data-testid="sidebar-admin-panel-link"
+              className="w-full h-10 px-3.5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition-colors"
+            >
+              <Settings2 className="w-4 h-4" />
+              <span>ورود به پنل مدیریت</span>
+            </a>
+          )}
           <button
             type="button"
             onClick={() => logoutDemoUser(false)}
@@ -423,13 +568,13 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   >
                     ویرایش اطلاعات
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/catalog')}
-                    className="h-10 px-4 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold whitespace-nowrap"
+                  <a
+                    href={buildHref('/catalog')}
+                    onClick={(e) => handleLinkClick(e, '/catalog')}
+                    className="h-10 px-4 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold whitespace-nowrap inline-flex items-center"
                   >
                     مشاهده فروشگاه
-                  </button>
+                  </a>
                 </div>
               </div>
 
@@ -511,13 +656,13 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   <p className="text-xs sm:text-sm text-[#434655]">
                     هنوز سفارشی در حساب کاربری شما ثبت نشده است.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/catalog')}
-                    className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+                  <a
+                    href={buildHref('/catalog')}
+                    onClick={(e) => handleLinkClick(e, '/catalog')}
+                    className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
                   >
                     مشاهده فروشگاه و خرید
-                  </button>
+                  </a>
                 </div>
               ) : (
                 orders.slice(0, 2).map((ord) => (
@@ -538,13 +683,13 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/tracking/${ord.orderCode}`)}
-                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold"
+                      <a
+                        href={buildHref(`/tracking/${ord.orderCode}`)}
+                        onClick={(e) => handleLinkClick(e, `/tracking/${ord.orderCode}`)}
+                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold inline-flex items-center"
                       >
                         رهگیری مرسوله
-                      </button>
+                      </a>
                     </div>
                   </div>
                 ))
@@ -565,6 +710,55 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 <p className="text-xs text-[#434655] mt-1">
                   این مشخصات برای صدور فاکتور رسمی و رجیستری قانونی همتا استفاده می‌شوند.
                 </p>
+              </div>
+
+              {/* Profile Photo Upload */}
+              <div className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#dce9ff] flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-16 h-16 rounded-2xl bg-[#eff4ff] border border-[#dce9ff] overflow-hidden flex items-center justify-center shrink-0">
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt={user.fullName}
+                        data-testid="profile-avatar-preview"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <UserCheck className="w-7 h-7 text-[#004ac6]" />
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs sm:text-sm font-black text-[#0b1c30]">تصویر پروفایل کاربری</p>
+                    <p className="text-[11px] text-[#434655]">
+                      فرمت‌های JPG / PNG پشتیبانی می‌شوند و تصویر به‌صورت خودکار بهینه می‌گردد.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="h-10 px-4 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors">
+                    <Camera className="w-4 h-4" />
+                    <span>{avatarBusy ? 'در حال بارگذاری...' : 'انتخاب / تغییر تصویر'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      disabled={avatarBusy}
+                      onChange={handleAvatarUpload}
+                      data-testid="avatar-upload-input"
+                      className="hidden"
+                    />
+                  </label>
+                  {avatarUrl && (
+                    <button
+                      type="button"
+                      disabled={avatarBusy}
+                      onClick={handleRemoveAvatar}
+                      data-testid="remove-avatar-btn"
+                      className="h-10 px-3.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold"
+                    >
+                      حذف تصویر
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1044,13 +1238,13 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 <p className="text-xs sm:text-sm text-[#434655]">
                   هنوز سفارشی در حساب کاربری شما ثبت نشده است.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => navigate('/catalog')}
-                  className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+                <a
+                  href={buildHref('/catalog')}
+                  onClick={(e) => handleLinkClick(e, '/catalog')}
+                  className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
                 >
                   شروع خرید از فروشگاه
-                </button>
+                </a>
               </div>
             ) : filteredOrders.length === 0 ? (
               <div className="p-8 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
@@ -1081,20 +1275,20 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/order-confirmed/${ord.orderCode}`)}
-                        className="px-3.5 py-2 rounded-xl bg-white border border-[#dce9ff] text-xs font-bold text-[#0b1c30] hover:border-[#004ac6]"
+                      <a
+                        href={buildHref(`/order-confirmed/${ord.orderCode}`)}
+                        onClick={(e) => handleLinkClick(e, `/order-confirmed/${ord.orderCode}`)}
+                        className="px-3.5 py-2 rounded-xl bg-white border border-[#dce9ff] text-xs font-bold text-[#0b1c30] hover:border-[#004ac6] inline-flex items-center"
                       >
                         مشاهده فاکتور
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/tracking/${ord.orderCode}`)}
-                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold"
+                      </a>
+                      <a
+                        href={buildHref(`/tracking/${ord.orderCode}`)}
+                        onClick={(e) => handleLinkClick(e, `/tracking/${ord.orderCode}`)}
+                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold inline-flex items-center"
                       >
                         رهگیری مرسوله
-                      </button>
+                      </a>
                     </div>
                   </div>
                 ))}
@@ -1125,13 +1319,13 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   <p className="text-xs sm:text-sm text-[#434655]">
                     هنوز محصولی به لیست علاقه‌مندی‌های خود اضافه نکرده‌اید.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/catalog')}
-                    className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+                  <a
+                    href={buildHref('/catalog')}
+                    onClick={(e) => handleLinkClick(e, '/catalog')}
+                    className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
                   >
                     گشت‌وگذار در فروشگاه
-                  </button>
+                  </a>
                 </div>
               )}
             </section>
@@ -1152,13 +1346,13 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       key={p.id}
                       className="p-3.5 rounded-xl bg-[#f8f9ff] flex items-center justify-between gap-3"
                     >
-                      <button
-                        type="button"
-                        onClick={() => navigate(`/product/${p.slug}`)}
+                      <a
+                        href={buildHref(`/product/${p.slug}`)}
+                        onClick={(e) => handleLinkClick(e, `/product/${p.slug}`)}
                         className="text-xs font-bold text-[#0b1c30] hover:text-[#004ac6] text-right"
                       >
                         {p.nameFa}
-                      </button>
+                      </a>
                       <button
                         type="button"
                         onClick={() => toggleStockAlert(p.id)}
@@ -1348,10 +1542,94 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               <button
                 type="button"
                 onClick={() => logoutDemoUser(true)}
-                className="h-11 px-5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-extrabold whitespace-nowrap shrink-0"
+                data-testid="logout-all-devices-btn"
+                className="h-11 px-5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-extrabold whitespace-nowrap shrink-0"
               >
                 خروج از همه دستگاه‌ها
               </button>
+            </section>
+
+            {/* Delete Account Section */}
+            <section className="bg-white rounded-3xl border border-rose-200 p-6 sm:p-8 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h2 className="text-base font-black text-rose-700 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    <span>حذف دائمی حساب کاربری</span>
+                  </h2>
+                  <p className="text-xs text-[#434655] leading-6">
+                    با حذف حساب کاربری، اطلاعات پروفایل، آدرس‌ها، لیست علاقه‌مندی و همه نشست‌های فعال شما به‌طور دائمی پاک می‌شوند.
+                  </p>
+                </div>
+                {!deleteConfirmOpen && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeleteConfirmOpen(true);
+                      setDeleteError(null);
+                    }}
+                    data-testid="open-delete-account-btn"
+                    className="h-11 px-5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-extrabold whitespace-nowrap shrink-0"
+                  >
+                    حذف حساب کاربری
+                  </button>
+                )}
+              </div>
+
+              {deleteConfirmOpen && (
+                <form
+                  onSubmit={handleDeleteAccount}
+                  data-testid="delete-account-confirm-box"
+                  className="p-4 rounded-2xl bg-rose-50/70 border border-rose-200 space-y-3"
+                >
+                  <p className="text-xs font-bold text-rose-800">
+                    آیا از حذف دائمی حساب خود مطمئن هستید؟ این عملیات قابل بازگشت نیست.
+                  </p>
+                  {deleteError && (
+                    <p className="text-xs font-bold text-rose-700 bg-white p-2.5 rounded-xl border border-rose-200">
+                      {deleteError}
+                    </p>
+                  )}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+                    {user.hasPassword && (
+                      <div className="flex-1 space-y-1">
+                        <label htmlFor="delete-account-pw" className="text-xs font-bold text-[#0b1c30] block">
+                          رمز عبور فعلی برای تایید حذف
+                        </label>
+                        <input
+                          id="delete-account-pw"
+                          type="password"
+                          dir="ltr"
+                          value={deletePassword}
+                          onChange={(e) => setDeletePassword(e.target.value)}
+                          placeholder="••••••••"
+                          data-testid="delete-account-password"
+                          className="w-full h-10 px-3 rounded-xl bg-white border border-rose-200 text-xs text-left text-[#0b1c30]"
+                        />
+                      </div>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={deleteBusy}
+                      data-testid="confirm-delete-account-btn"
+                      className="h-10 px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold whitespace-nowrap"
+                    >
+                      {deleteBusy ? 'در حال حذف...' : 'تایید و حذف دائمی حساب'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeleteConfirmOpen(false);
+                        setDeletePassword('');
+                        setDeleteError(null);
+                      }}
+                      className="h-10 px-4 rounded-xl bg-white border border-[#dce9ff] text-xs font-bold text-[#434655] whitespace-nowrap"
+                    >
+                      انصراف
+                    </button>
+                  </div>
+                </form>
+              )}
             </section>
           </div>
         )}

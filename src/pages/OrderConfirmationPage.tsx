@@ -5,6 +5,7 @@ import {
   Copy,
   Lock,
   MapPin,
+  MessageSquareText,
   PackageCheck,
   Phone,
   Printer,
@@ -12,19 +13,20 @@ import {
   ShieldCheck,
   Truck,
   User,
+  XCircle,
 } from 'lucide-react';
 import { OrderConfirmationSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import type { OrderLookupResult, OrderRecord } from '../types/store';
-import { formatToman, toPersianDigits } from '../utils/storeLogic';
+import { formatToman, getOrderFlowStage, toPersianDigits } from '../utils/storeLogic';
 
 interface OrderConfirmationPageProps {
   orderCode: string;
 }
 
 export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ orderCode }) => {
-  const { lookupOrder, verifyGuestOrder, navigate, showToast } = useStore();
+  const { lookupOrder, verifyGuestOrder, buildHref, handleLinkClick, showToast } = useStore();
   const [lookup, setLookup] = useState<OrderLookupResult | null>(null);
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [loading, setLoading] = useState(true);
@@ -129,13 +131,13 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
               </button>
             </form>
           ) : (
-            <button
-              type="button"
-              onClick={() => navigate('/account')}
-              className="w-full h-11 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-extrabold"
+            <a
+              href={buildHref('/account')}
+              onClick={(e) => handleLinkClick(e, '/account')}
+              className="w-full h-11 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-extrabold inline-flex items-center justify-center"
             >
               ورود به حساب کاربری
-            </button>
+            </a>
           )}
         </div>
       </div>
@@ -153,41 +155,87 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
             ممکن است شماره سفارش اشتباه وارد شده باشد یا سفارش در پایگاه داده ثبت نشده باشد.
           </p>
           <div className="flex items-center justify-center gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => navigate('/tracking')}
-              className="h-10 px-5 rounded-xl bg-[#004ac6] text-white text-xs font-bold"
+            <a
+              href={buildHref('/tracking')}
+              onClick={(e) => handleLinkClick(e, '/tracking')}
+              className="h-10 px-5 rounded-xl bg-[#004ac6] text-white text-xs font-bold inline-flex items-center"
             >
               پیگیری سفارش دیگر
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/catalog')}
-              className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+            </a>
+            <a
+              href={buildHref('/catalog')}
+              onClick={(e) => handleLinkClick(e, '/catalog')}
+              className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
             >
               بازگشت به فروشگاه
-            </button>
+            </a>
           </div>
         </div>
       </div>
     );
   }
 
+  const flow = getOrderFlowStage(order.status);
+
+  const stages = [
+    {
+      title: '۱. ثبت و تایید پرداخت',
+      desc: toPersianDigits(order.createdAt),
+      icon: CheckCircle2,
+    },
+    {
+      title: '۲. بررسی انبار و IMEI',
+      desc: 'ثبت سریال دستگاه و فعال‌سازی گارانتی امیر سرویس',
+      icon: ShieldCheck,
+    },
+    {
+      title: '۳. بسته‌بندی و ارسال',
+      desc: 'پلمپ امنیتی و تحویل به ناوگان ارسال اکسپرس',
+      icon: PackageCheck,
+    },
+    {
+      title: '۴. تحویل به خریدار',
+      desc: `تحویل درب منزل با ارائه پین امنیتی (${toPersianDigits(order.deliveryPin)})`,
+      icon: Truck,
+    },
+  ];
+
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-6">
-      {/* Top Celebration Banner */}
+      {/* Dynamic Status Header Banner */}
       <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-10 text-center space-y-5 shadow-[0_14px_40px_rgba(11,28,48,0.05)]">
-        <div className="w-16 h-16 rounded-full bg-[#eff4ff] text-[#004ac6] flex items-center justify-center mx-auto">
-          <ShieldCheck className="w-9 h-9" />
+        <div
+          className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${
+            flow.isCancelled
+              ? 'bg-rose-50 text-rose-600'
+              : flow.isDelivered
+              ? 'bg-emerald-50 text-emerald-600'
+              : 'bg-[#eff4ff] text-[#004ac6]'
+          }`}
+        >
+          {flow.isCancelled ? (
+            <XCircle className="w-9 h-9" />
+          ) : flow.isDelivered ? (
+            <CheckCircle2 className="w-9 h-9" />
+          ) : (
+            <ShieldCheck className="w-9 h-9" />
+          )}
         </div>
-        <span className="inline-block px-3.5 py-1 rounded-full bg-[#eff4ff] text-[#004ac6] text-xs font-extrabold">
-          ثبت سفارش آزمایشی با موفقیت تایید شد
+        <span
+          data-testid="invoice-status-badge"
+          className={`inline-block px-3.5 py-1 rounded-xl text-xs font-extrabold ${
+            flow.isCancelled
+              ? 'bg-rose-50 text-rose-700'
+              : flow.isDelivered
+              ? 'bg-emerald-50 text-emerald-700'
+              : 'bg-[#eff4ff] text-[#004ac6]'
+          }`}
+        >
+          وضعیت فعلی فاکتور: {flow.badgeLabel}
         </span>
-        <h1 className="text-xl sm:text-3xl font-black text-[#0b1c30]">
-          سفارش شما با موفقیت ثبت شد و در حال آماده‌سازی است!
-        </h1>
+        <h1 className="text-xl sm:text-3xl font-black text-[#0b1c30]">{flow.headlineText}</h1>
         <p className="text-xs sm:text-sm text-[#434655] max-w-2xl mx-auto leading-7">
-          از اعتماد شما به فروشگاه موبایل امیر سپاسگزاریم. بسته شما در اولویت پردازش انبار مرکزی قرار گرفت و شناسه IMEI در مرحله بسته‌بندی ثبت می‌گردد.
+          {flow.summaryText}
         </p>
 
         {/* Order Code + Reference Chips */}
@@ -232,52 +280,99 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
         </div>
       </section>
 
-      {/* 4-Stage Fulfillment Status */}
-      <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 space-y-5">
+      {/* Dynamic 4-Stage Fulfillment Status */}
+      <section
+        data-testid="invoice-fulfillment-section"
+        className="bg-white rounded-3xl border border-[#e5eeff] p-6 space-y-5"
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-black text-[#0b1c30]">وضعیت پردازش زنجیره تامین</h2>
-          <span className="text-xs font-bold text-[#004ac6]">مرحله فعال: تخصیص انبار و IMEI</span>
+          <span
+            data-testid="invoice-active-stage-label"
+            className={`text-xs font-bold ${
+              flow.isCancelled
+                ? 'text-rose-700'
+                : flow.isDelivered
+                ? 'text-emerald-700'
+                : 'text-[#004ac6]'
+            }`}
+          >
+            وضعیت فعلی: {flow.badgeLabel}
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#e5eeff] space-y-2">
-            <div className="flex items-center justify-between">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-              <span className="text-[11px] font-bold text-emerald-700">تکمیل شده</span>
-            </div>
-            <p className="text-sm font-extrabold text-[#0b1c30]">۱. ثبت و تایید سفارش</p>
-            <p className="text-xs text-[#434655] tabular-nums-fa">{toPersianDigits(order.createdAt)}</p>
+        {order.adminNote && (
+          <div className="p-3.5 rounded-2xl bg-[#eff4ff] border border-[#dce9ff] text-xs font-bold text-[#0b1c30] flex items-center gap-2">
+            <MessageSquareText className="w-4 h-4 text-[#004ac6] shrink-0" />
+            <span>یادداشت واحد ارسال: {order.adminNote}</span>
           </div>
+        )}
 
-          <div className="p-4 rounded-2xl bg-[#eff4ff] border-2 border-[#004ac6] space-y-2">
-            <div className="flex items-center justify-between">
-              <ShieldCheck className="w-5 h-5 text-[#004ac6]" />
-              <span className="text-[11px] font-extrabold text-[#004ac6]">در حال پردازش</span>
+        {flow.isCancelled ? (
+          <div className="p-5 rounded-2xl bg-rose-50 border border-rose-200 flex items-start gap-3 text-rose-800">
+            <XCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="text-sm font-extrabold">این سفارش لغو شده است</p>
+              <p className="text-xs leading-6">
+                پردازش ارسال متوقف گردیده است. در صورت نیاز به راهنمایی بیشتر می‌توانید شماره سفارش خود را با پشتیبانی مطرح کنید.
+              </p>
             </div>
-            <p className="text-sm font-extrabold text-[#0b1c30]">۲. بررسی انبار و IMEI</p>
-            <p className="text-xs text-[#434655]">ثبت سریال دستگاه و فعال‌سازی گارانتی امیر سرویس</p>
           </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {stages.map((stage, idx) => {
+              const IconComp = stage.icon;
+              const isCompleted =
+                idx < flow.activeStageIndex || (flow.isDelivered && idx === flow.activeStageIndex);
+              const isActive = !flow.isDelivered && idx === flow.activeStageIndex;
+              const statusText = isCompleted
+                ? 'تکمیل شده'
+                : isActive
+                ? 'مرحله فعلی'
+                : 'در انتظار';
 
-          <div className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#e5eeff] space-y-2 opacity-85">
-            <div className="flex items-center justify-between">
-              <PackageCheck className="w-5 h-5 text-[#434655]" />
-              <span className="text-[11px] font-bold text-[#434655]">مرحله بعدی</span>
-            </div>
-            <p className="text-sm font-extrabold text-[#0b1c30]">۳. بسته‌بندی ضدضربه</p>
-            <p className="text-xs text-[#434655]">پلمپ امنیتی و تحویل به ناوگان ارسال اکسپرس</p>
+              return (
+                <div
+                  key={stage.title}
+                  data-testid={`invoice-stage-${idx}`}
+                  data-stage-state={isCompleted ? 'completed' : isActive ? 'active' : 'pending'}
+                  className={`p-4 rounded-2xl space-y-2 transition-colors ${
+                    isActive
+                      ? 'bg-[#eff4ff] border-2 border-[#004ac6]'
+                      : isCompleted
+                      ? 'bg-[#f0fdf4] border border-emerald-200'
+                      : 'bg-[#f8f9ff] border border-[#e5eeff] opacity-75'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <IconComp
+                      className={`w-5 h-5 ${
+                        isCompleted
+                          ? 'text-emerald-600'
+                          : isActive
+                          ? 'text-[#004ac6]'
+                          : 'text-[#434655]'
+                      }`}
+                    />
+                    <span
+                      className={`text-[11px] font-bold ${
+                        isCompleted
+                          ? 'text-emerald-700'
+                          : isActive
+                          ? 'text-[#004ac6] font-extrabold'
+                          : 'text-[#434655]'
+                      }`}
+                    >
+                      {statusText}
+                    </span>
+                  </div>
+                  <p className="text-sm font-extrabold text-[#0b1c30]">{stage.title}</p>
+                  <p className="text-xs text-[#434655] tabular-nums-fa">{stage.desc}</p>
+                </div>
+              );
+            })}
           </div>
-
-          <div className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#e5eeff] space-y-2 opacity-75">
-            <div className="flex items-center justify-between">
-              <Truck className="w-5 h-5 text-[#434655]" />
-              <span className="text-[11px] font-bold text-[#434655]">پایانی</span>
-            </div>
-            <p className="text-sm font-extrabold text-[#0b1c30]">۴. تحویل به خریدار</p>
-            <p className="text-xs text-[#434655] tabular-nums-fa">
-              تحویل درب منزل با ارائه پین امنیتی ({toPersianDigits(order.deliveryPin)})
-            </p>
-          </div>
-        </div>
+        )}
       </section>
 
       {/* Details 2-Column Grid */}
@@ -301,9 +396,13 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
                   <SmartImage src={item.image} alt={item.nameFa} className="w-full h-full object-cover" />
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
-                  <p className="text-xs sm:text-sm font-extrabold text-[#0b1c30] line-clamp-1">
+                  <a
+                    href={buildHref(`/product/${item.slug}`)}
+                    onClick={(e) => handleLinkClick(e, `/product/${item.slug}`)}
+                    className="text-xs sm:text-sm font-extrabold text-[#0b1c30] hover:text-[#004ac6] line-clamp-1"
+                  >
                     {item.nameFa}
-                  </p>
+                  </a>
                   <p className="text-[11px] text-[#434655]">
                     {item.colorName} · {item.storageLabel} · {toPersianDigits(item.qty)} عدد
                   </p>
@@ -381,15 +480,15 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
 
           <div className="bg-white rounded-3xl border border-[#e5eeff] p-6 space-y-3 no-print">
             <h2 className="text-sm font-black text-[#0b1c30]">اقدامات بعدی</h2>
-            <button
-              type="button"
+            <a
+              href={buildHref(`/tracking/${order.orderCode}`)}
+              onClick={(e) => handleLinkClick(e, `/tracking/${order.orderCode}`)}
               data-testid="open-live-tracking-btn"
-              onClick={() => navigate(`/tracking/${order.orderCode}`)}
               className="w-full h-12 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-extrabold inline-flex items-center justify-center gap-2 transition-colors"
             >
               <Send className="w-4 h-4" />
               <span>پیگیری لحظه‌ای وضعیت مرسوله</span>
-            </button>
+            </a>
 
             <button
               type="button"
@@ -400,14 +499,14 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
               <span>چاپ رسید سفارش و فاکتور رسمی</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => navigate('/catalog')}
+            <a
+              href={buildHref('/catalog')}
+              onClick={(e) => handleLinkClick(e, '/catalog')}
               className="w-full h-10 text-xs font-bold text-[#434655] hover:text-[#004ac6] inline-flex items-center justify-center gap-1.5"
             >
               <span>بازگشت به فروشگاه و ادامه خرید</span>
               <ArrowLeft className="w-3.5 h-3.5" />
-            </button>
+            </a>
           </div>
         </div>
       </div>

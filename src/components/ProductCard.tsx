@@ -12,7 +12,8 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = false }) => {
   const {
-    navigate,
+    buildHref,
+    handleLinkClick,
     addToCart,
     wishlist,
     toggleWishlist,
@@ -26,7 +27,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
   const isCompared = compareIds.includes(product.id);
   const isAlerted = stockAlerts.includes(product.id);
 
-  const openProduct = () => navigate(`/product/${product.slug}`);
+  const productPath = `/product/${product.slug}`;
+  const productHref = buildHref(productPath);
 
   // Max 1 status badge per card to keep visual discipline clean
   const badge = !product.inStock
@@ -44,9 +46,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
     >
       {/* Image stage */}
       <div className="relative bg-[#f8f9ff] p-4 aspect-[4/3] overflow-hidden">
-        <button
-          type="button"
-          onClick={openProduct}
+        <a
+          href={productHref}
+          onClick={(e) => handleLinkClick(e, productPath)}
           className="w-full h-full block rounded-xl overflow-hidden focus:outline-none"
           aria-label={`مشاهده ${product.nameFa}`}
         >
@@ -55,7 +57,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
             alt={product.nameFa}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
-        </button>
+        </a>
 
         {badge && (
           <span
@@ -106,13 +108,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick={openProduct}
+        <a
+          href={productHref}
+          onClick={(e) => handleLinkClick(e, productPath)}
           className="text-right font-bold text-sm text-[#0b1c30] hover:text-[#004ac6] transition-colors line-clamp-2 leading-6 min-h-[48px]"
         >
           {product.nameFa}
-        </button>
+        </a>
 
         <div className="flex items-center justify-between gap-2 text-[11px] text-[#434655]">
           <span className="line-clamp-1">

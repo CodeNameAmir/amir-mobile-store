@@ -5,7 +5,7 @@ import { toPersianDigits } from '../utils/storeLogic';
 import { SmartImage } from './SmartImage';
 
 export const CompareTray: React.FC = () => {
-  const { products, compareIds, toggleCompare, clearCompare, navigate, route } = useStore();
+  const { products, compareIds, toggleCompare, clearCompare, buildHref, handleLinkClick, route } = useStore();
 
   if (compareIds.length === 0 || route.page === 'compare') {
     return null;
@@ -56,15 +56,15 @@ export const CompareTray: React.FC = () => {
           >
             <Trash2 className="w-4 h-4" />
           </button>
-          <button
-            type="button"
+          <a
+            href={buildHref('/compare')}
+            onClick={(e) => handleLinkClick(e, '/compare')}
             data-testid="open-compare-page-btn"
-            onClick={() => navigate('/compare')}
             className="h-9 px-4 rounded-xl bg-[#2563eb] hover:bg-[#004ac6] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
           >
             <span>مقایسه ({toPersianDigits(selected.length)} از ۳)</span>
             <ArrowLeft className="w-3.5 h-3.5" />
-          </button>
+          </a>
         </div>
       </div>
     </div>

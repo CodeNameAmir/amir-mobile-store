@@ -1,10 +1,18 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { hydrateOrderImages, hydrateProduct, SEED_PRODUCTS } from '../data/catalog';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  CATEGORY_ITEMS,
+  DEFAULT_BRANDS,
+  hydrateOrderImages,
+  hydrateProduct,
+  SEED_PRODUCTS,
+} from '../data/catalog';
 import { authApi, storeApi } from '../lib/authApi';
 import { storeRepository } from '../lib/supabase';
 import type {
+  BrandItem,
   CartItem,
   CategoryId,
+  CategoryItem,
   CheckoutFormData,
   CouponRule,
   DemoUser,
@@ -41,6 +49,7 @@ export type AppRoute =
   | { page: 'contact' }
   | { page: 'terms' }
   | { page: 'account' }
+  | { page: 'admin' }
   | { page: 'status' }
   | { page: 'not-found'; path: string };
 
@@ -65,10 +74,21 @@ export const DEFAULT_FILTERS: FilterState = {
   sortBy: 'newest',
 };
 
-function parseHashRoute(hashRaw: string): { route: AppRoute; categoryParam?: CategoryId; queryParam?: string } {
-  const clean = hashRaw.replace(/^#/, '') || '/';
+export function normalizeAppTarget(to: string): string {
+  const clean = to.replace(/^#/, '').trim();
+  if (!clean) return '/';
+  return clean.startsWith('/') ? clean : `/${clean}`;
+}
+
+function parseAppUrl(urlInput: string): {
+  route: AppRoute;
+  categoryParam?: CategoryId;
+  queryParam?: string;
+  brandParam?: string;
+} {
+  const clean = normalizeAppTarget(urlInput);
   const [pathPart, queryPart] = clean.split('?');
-  const path = pathPart.startsWith('/') ? pathPart : `/${pathPart}`;
+  const path = pathPart.length > 1 ? pathPart.replace(/\/+$/, '') : pathPart || '/';
   const params = new URLSearchParams(queryPart || '');
 
   if (path === '/' || path === '') {
@@ -77,7 +97,8 @@ function parseHashRoute(hashRaw: string): { route: AppRoute; categoryParam?: Cat
   if (path === '/catalog') {
     const cat = (params.get('cat') as CategoryId | null) || undefined;
     const q = params.get('q') || undefined;
-    return { route: { page: 'catalog' }, categoryParam: cat, queryParam: q };
+    const brand = params.get('brand') || undefined;
+    return { route: { page: 'catalog' }, categoryParam: cat, queryParam: q, brandParam: brand };
   }
   if (path.startsWith('/product/')) {
     const slug = decodeURIComponent(path.replace('/product/', '').trim());
@@ -102,16 +123,56 @@ function parseHashRoute(hashRaw: string): { route: AppRoute; categoryParam?: Cat
   if (path === '/contact') return { route: { page: 'contact' } };
   if (path === '/terms') return { route: { page: 'terms' } };
   if (path === '/account') return { route: { page: 'account' } };
+  if (path === '/admin') return { route: { page: 'admin' } };
   if (path === '/status') return { route: { page: 'status' } };
 
   return { route: { page: 'not-found', path } };
 }
 
+const RECENT_SEARCHES_KEY = 'amir_recent_searches_v1';
+
+function loadStoredRecentSearches(): string[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(RECENT_SEARCHES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === 'string' && x.trim().length > 0).slice(0, 6)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveStoredRecentSearches(items: string[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(items.slice(0, 6)));
+  } catch {
+    // Ignore quota errors
+  }
+}
+
 interface StoreContextValue {
   route: AppRoute;
+  navigating: boolean;
+  buildHref: (to: string) => string;
+  handleLinkClick: (e: React.MouseEvent<HTMLAnchorElement>, to: string, after?: () => void) => void;
   navigate: (to: string) => void;
-  navigateToCatalog: (opts?: { category?: CategoryId; searchQuery?: string; discountedOnly?: boolean }) => void;
+  navigateToCatalog: (opts?: {
+    category?: CategoryId;
+    searchQuery?: string;
+    discountedOnly?: boolean;
+    brand?: string;
+  }) => void;
   products: Product[];
+  categories: CategoryItem[];
+  brands: BrandItem[];
+  refreshCatalogMetadata: () => Promise<void>;
+  recentSearches: string[];
+  addRecentSearch: (q: string) => void;
+  clearRecentSearches: () => void;
   couponRules: CouponRule[];
   storeSettings: StoreSettings;
   filters: FilterState;
@@ -155,7 +216,9 @@ interface StoreContextValue {
     nationalId?: string;
     birthDate?: string;
     newsletterOptIn?: boolean;
+    avatarUrl?: string;
   }) => Promise<DemoUser>;
+  deleteUserAccount: (currentPassword?: string) => Promise<void>;
   addUserAddress: (payload: Omit<UserAddress, 'id'>) => Promise<DemoUser>;
   updateUserAddress: (id: string, payload: Omit<UserAddress, 'id'>) => Promise<DemoUser>;
   setDefaultUserAddress: (id: string) => Promise<DemoUser>;
@@ -168,9 +231,22 @@ interface StoreContextValue {
 const StoreContext = createContext<StoreContextValue | null>(null);
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const initialParsed = useMemo(() => parseHashRoute(window.location.hash), []);
+  const initialParsed = useMemo(() => {
+    if (window.location.hash && window.location.hash.startsWith('#/')) {
+      const normalized = normalizeAppTarget(window.location.hash);
+      window.history.replaceState(null, '', normalized);
+      return parseAppUrl(normalized);
+    }
+    return parseAppUrl(`${window.location.pathname}${window.location.search}`);
+  }, []);
+
   const [route, setRoute] = useState<AppRoute>(initialParsed.route);
+  const [navigating, setNavigating] = useState<boolean>(false);
+  const navTimerRef = useRef<number | null>(null);
   const [products, setProducts] = useState<Product[]>(SEED_PRODUCTS);
+  const [categories, setCategories] = useState<CategoryItem[]>(CATEGORY_ITEMS);
+  const [brands, setBrands] = useState<BrandItem[]>(DEFAULT_BRANDS);
+  const [recentSearches, setRecentSearches] = useState<string[]>(() => loadStoredRecentSearches());
   const [couponRules, setCouponRules] = useState<CouponRule[]>(DEFAULT_COUPON_RULES);
   const [storeSettings, setStoreSettings] = useState<StoreSettings>({
     announcementText: 'ارسال رایگان برای خریدهای بالای ۱ میلیون تومان به سراسر ایران',
@@ -181,6 +257,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     ...DEFAULT_FILTERS,
     category: initialParsed.categoryParam ?? 'all',
     searchQuery: initialParsed.queryParam ?? '',
+    brands: initialParsed.brandParam ? [initialParsed.brandParam] : [],
   }));
   const [cart, setCart] = useState<CartItem[]>(() => storeRepository.loadCart());
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
@@ -215,6 +292,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [dismissToast]
   );
 
+  const addRecentSearch = useCallback((q: string) => {
+    const clean = q.trim();
+    if (clean.length < 2) return;
+    setRecentSearches((prev) => {
+      const next = [clean, ...prev.filter((item) => item.toLowerCase() !== clean.toLowerCase())].slice(0, 6);
+      saveStoredRecentSearches(next);
+      return next;
+    });
+  }, []);
+
+  const clearRecentSearches = useCallback(() => {
+    setRecentSearches([]);
+    saveStoredRecentSearches([]);
+  }, []);
+
   const refreshProducts = useCallback(async () => {
     try {
       const fetched = await storeApi.getProducts();
@@ -224,17 +316,42 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, []);
 
+  const refreshCatalogMetadata = useCallback(async () => {
+    try {
+      const [fetchedCats, fetchedBrands] = await Promise.all([
+        storeApi.getCategories().catch(() => null),
+        storeApi.getBrands().catch(() => null),
+      ]);
+      if (Array.isArray(fetchedCats) && fetchedCats.length > 0) {
+        setCategories(fetchedCats);
+      }
+      if (Array.isArray(fetchedBrands) && fetchedBrands.length > 0) {
+        setBrands(fetchedBrands);
+      }
+    } catch {
+      // Keep current metadata
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     let lastRefreshAt = Date.now();
     Promise.all([
       storeApi.getProducts().catch(() => null),
+      storeApi.getCategories().catch(() => null),
+      storeApi.getBrands().catch(() => null),
       storeApi.getStoreConfig().catch(() => null),
       authApi.getStatus().catch(() => null),
-    ]).then(([fetchedProducts, fetchedConfig, authStatus]) => {
+    ]).then(([fetchedProducts, fetchedCats, fetchedBrands, fetchedConfig, authStatus]) => {
       if (!active) return;
       if (Array.isArray(fetchedProducts)) {
         setProducts(fetchedProducts.map(hydrateProduct));
+      }
+      if (Array.isArray(fetchedCats) && fetchedCats.length > 0) {
+        setCategories(fetchedCats);
+      }
+      if (Array.isArray(fetchedBrands) && fetchedBrands.length > 0) {
+        setBrands(fetchedBrands);
       }
       setProductsLoading(false);
       if (fetchedConfig) {
@@ -267,6 +384,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (document.visibilityState === 'visible' && Date.now() - lastRefreshAt > 30_000) {
         lastRefreshAt = Date.now();
         void refreshProducts();
+        void refreshCatalogMetadata();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -275,7 +393,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       active = false;
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [refreshProducts]);
+  }, [refreshCatalogMetadata, refreshProducts]);
 
   useEffect(() => {
     const uid = user?.id ?? null;
@@ -323,51 +441,169 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     [user, ordersState.userId, ordersState.list, guestOrders]
   );
 
+  const triggerNavigationTransition = useCallback(() => {
+    if (navTimerRef.current) {
+      window.clearTimeout(navTimerRef.current);
+      navTimerRef.current = null;
+    }
+    const reduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      setNavigating(false);
+      return;
+    }
+    setNavigating(true);
+    navTimerRef.current = window.setTimeout(() => {
+      setNavigating(false);
+      navTimerRef.current = null;
+    }, 180);
+  }, []);
+
   useEffect(() => {
-    const onHashChange = () => {
-      const parsed = parseHashRoute(window.location.hash);
+    const syncFromLocation = () => {
+      const target =
+        window.location.hash && window.location.hash.startsWith('#/')
+          ? normalizeAppTarget(window.location.hash)
+          : `${window.location.pathname}${window.location.search}`;
+      const parsed = parseAppUrl(target);
       setRoute(parsed.route);
       if (parsed.route.page === 'catalog') {
         setFilters((prev) => ({
           ...prev,
           category: parsed.categoryParam ?? prev.category,
           searchQuery: parsed.queryParam !== undefined ? parsed.queryParam : prev.searchQuery,
+          brands: parsed.brandParam ? [parsed.brandParam] : prev.brands,
         }));
       }
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      triggerNavigationTransition();
+      window.scrollTo({ top: 0, behavior: 'auto' });
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
 
-  const navigate = useCallback((to: string) => {
-    const normalized = to.startsWith('#') ? to : `#${to.startsWith('/') ? to : `/${to}`}`;
-    if (window.location.hash === normalized) {
-      const parsed = parseHashRoute(normalized);
-      setRoute(parsed.route);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
+    window.addEventListener('popstate', syncFromLocation);
+    window.addEventListener('hashchange', syncFromLocation);
+    return () => {
+      window.removeEventListener('popstate', syncFromLocation);
+      window.removeEventListener('hashchange', syncFromLocation);
+      if (navTimerRef.current) window.clearTimeout(navTimerRef.current);
+    };
+  }, [triggerNavigationTransition]);
+
+  useEffect(() => {
+    const baseTitle = 'فروشگاه موبایل امیر | خرید گوشی موبایل، تبلت و لوازم جانبی اصل';
+    const baseDesc =
+      'مرجع تخصصی فروش گوشی موبایل پرچمدار اپل، سامسونگ، شیائومی و هواوی با گارانتی ۱۸ ماهه امیر سرویس و رجیستری همتا.';
+    let title = baseTitle;
+    let description = baseDesc;
+
+    if (route.page === 'catalog') {
+      if (filters.category === 'offers') {
+        title = 'پیشنهادات طلایی و تخفیف‌های ویژه | فروشگاه موبایل امیر';
+      } else if (filters.category !== 'all') {
+        const activeCat = categories.find(
+          (c) => c.slug === filters.category || c.id === filters.category
+        );
+        if (activeCat) {
+          title = activeCat.seoTitle || `${activeCat.label} | فروشگاه موبایل امیر`;
+          description = activeCat.seoDescription || activeCat.subtitle || baseDesc;
+        }
+      } else if (filters.searchQuery.trim()) {
+        title = `نتایج جستجو: ${filters.searchQuery} | فروشگاه موبایل امیر`;
+      } else {
+        title = 'کاتالوگ محصولات | فروشگاه موبایل امیر';
+      }
+    } else if (route.page === 'product') {
+      const prod = products.find((p) => p.slug === route.slug);
+      if (prod) {
+        title = `${prod.nameFa} | فروشگاه موبایل امیر`;
+        description = `خرید و بررسی مشخصات ${prod.nameFa} (${prod.brand}) با گارانتی معتبر و ارسال سریع.`;
+      }
+    } else if (route.page === 'admin') {
+      title = 'پنل مدیریت فروشگاه | فروشگاه موبایل امیر';
+    } else if (route.page === 'account') {
+      title = 'حساب کاربری | فروشگاه موبایل امیر';
+    } else if (route.page === 'cart' || route.page === 'checkout') {
+      title = 'سبد خرید و تکمیل سفارش | فروشگاه موبایل امیر';
     }
-    window.location.hash = normalized;
-  }, []);
+
+    document.title = title;
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc) {
+      metaDesc.setAttribute('content', description);
+    }
+  }, [categories, filters.category, filters.searchQuery, products, route]);
+
+  const buildHref = useCallback((to: string): string => normalizeAppTarget(to), []);
+
+  const navigate = useCallback(
+    (to: string) => {
+      const normalized = normalizeAppTarget(to);
+      const current = `${window.location.pathname}${window.location.search}`;
+      if (current !== normalized) {
+        window.history.pushState(null, '', normalized);
+      }
+      const parsed = parseAppUrl(normalized);
+      setRoute(parsed.route);
+      if (parsed.route.page === 'catalog') {
+        setFilters((prev) => ({
+          ...prev,
+          category: parsed.categoryParam ?? 'all',
+          searchQuery: parsed.queryParam ?? '',
+          brands: parsed.brandParam ? [parsed.brandParam] : [],
+        }));
+      }
+      triggerNavigationTransition();
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    },
+    [triggerNavigationTransition]
+  );
+
+  const handleLinkClick = useCallback(
+    (e: React.MouseEvent<HTMLAnchorElement>, to: string, after?: () => void) => {
+      if (
+        e.defaultPrevented ||
+        e.button !== 0 ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.shiftKey ||
+        e.altKey
+      ) {
+        return;
+      }
+      e.preventDefault();
+      after?.();
+      navigate(to);
+    },
+    [navigate]
+  );
 
   const navigateToCatalog = useCallback(
-    (opts?: { category?: CategoryId; searchQuery?: string; discountedOnly?: boolean }) => {
+    (opts?: {
+      category?: CategoryId;
+      searchQuery?: string;
+      discountedOnly?: boolean;
+      brand?: string;
+    }) => {
       const cat = opts?.category ?? 'all';
       const q = opts?.searchQuery ?? '';
+      if (q.trim()) {
+        addRecentSearch(q.trim());
+      }
       setFilters({
         ...DEFAULT_FILTERS,
         category: cat,
         searchQuery: q,
+        brands: opts?.brand ? [opts.brand] : [],
         discountedOnly: Boolean(opts?.discountedOnly),
       });
       const params = new URLSearchParams();
       if (cat !== 'all') params.set('cat', cat);
       if (q.trim()) params.set('q', q.trim());
+      if (opts?.brand) params.set('brand', opts.brand);
       const suffix = params.toString();
       navigate(suffix ? `/catalog?${suffix}` : '/catalog');
     },
-    [navigate]
+    [addRecentSearch, navigate]
   );
 
   const resetFilters = useCallback(() => {
@@ -733,6 +969,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       nationalId?: string;
       birthDate?: string;
       newsletterOptIn?: boolean;
+      avatarUrl?: string;
     }) => {
       const res = await authApi.updateProfile(payload);
       setAuthenticatedUser(res.user);
@@ -740,6 +977,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return res.user;
     },
     [setAuthenticatedUser, showToast]
+  );
+
+  const deleteUserAccount = useCallback(
+    async (currentPassword?: string) => {
+      await authApi.deleteAccount({ currentPassword });
+      storeRepository.saveUser(null);
+      setOrdersState({ userId: null, list: [], loading: false });
+      setUser(null);
+      showToast('حساب کاربری شما با موفقیت حذف شد.', 'info');
+      navigate('/');
+    },
+    [navigate, showToast]
   );
 
   const addUserAddress = useCallback(
@@ -786,9 +1035,18 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     <StoreContext.Provider
       value={{
         route,
+        navigating,
+        buildHref,
+        handleLinkClick,
         navigate,
         navigateToCatalog,
         products,
+        categories,
+        brands,
+        refreshCatalogMetadata,
+        recentSearches,
+        addRecentSearch,
+        clearRecentSearches,
         couponRules,
         storeSettings,
         filters,
@@ -827,6 +1085,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         loginDemoUser,
         logoutDemoUser,
         updateUserProfile,
+        deleteUserAccount,
         addUserAddress,
         updateUserAddress,
         setDefaultUserAddress,

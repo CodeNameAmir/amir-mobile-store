@@ -33,6 +33,7 @@ import { getResendProviderStatus, sendEmailWithResend } from './server/resendSer
 import {
   calculateOrderTotalsServer,
   CATEGORY_ITEMS,
+  DEFAULT_DEV_BRANDS,
   evaluateCouponServer,
   normalizePhone,
   normalizeRole,
@@ -101,9 +102,26 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   const authService = new AuthService(storage, sessionSecret);
   const dispatchEmail = options.sendEmail || sendEmailWithResend;
 
+  // In standalone dev-memory mode (not automated unit tests passing options.storage),
+  // ensure an admin account exists when no Supabase backend is configured.
+  if (!options.storage && storage.mode === 'dev-memory' && env.NODE_ENV !== 'test') {
+    const devAdminEmail = normalizeEmail(env.DEV_ADMIN_EMAIL || 'admin@amirmobile.ir');
+    const devAdminPassword = String(env.DEV_ADMIN_PASSWORD || 'AmirAdmin123');
+    const existingAdmin = await storage.findUserByEmail(devAdminEmail);
+    if (!existingAdmin) {
+      await storage.createUser({
+        email: devAdminEmail,
+        fullName: 'مدیر فروشگاه امیر',
+        phone: '09120000001',
+        passwordHash: hashPassword(devAdminPassword),
+        role: 'admin',
+      });
+    }
+  }
+
   const app = express();
   app.set('trust proxy', 1);
-  app.use(express.json({ limit: '1mb' }));
+  app.use(express.json({ limit: '2mb' }));
 
   // Strict CORS middleware for cross-origin credentials between GitHub Pages & Render API
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -824,6 +842,25 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           ? req.body.newsletterOptIn
           : currentUser.newsletterOptIn;
 
+      let nextAvatarUrl = currentUser.avatarUrl;
+      if (req.body?.avatarUrl !== undefined) {
+        const rawAvatar = String(req.body.avatarUrl ?? '').trim();
+        if (!rawAvatar) {
+          nextAvatarUrl = undefined;
+        } else if (rawAvatar.startsWith('data:image/')) {
+          if (rawAvatar.length > 480_000) {
+            res.status(400).json({ error: 'حجم تصویر پروفایل بسیار زیاد است. لطفاً تصویر کوچک‌تری انتخاب کنید.' });
+            return;
+          }
+          nextAvatarUrl = rawAvatar;
+        } else if (/^https?:\/\//i.test(rawAvatar) && rawAvatar.length <= 1024) {
+          nextAvatarUrl = rawAvatar;
+        } else {
+          res.status(400).json({ error: 'فرمت تصویر پروفایل معتبر نیست.' });
+          return;
+        }
+      }
+
       if (fullName.length < 3) {
         res.status(400).json({ error: 'نام و نام خانوادگی باید حداقل ۳ حرف باشد.' });
         return;
@@ -837,6 +874,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         ...prev,
         fullName,
         phone,
+        avatarUrl: nextAvatarUrl,
         nationalId: nationalId || undefined,
         birthDate: birthDate || undefined,
         newsletterOptIn,
@@ -848,6 +886,22 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       }
 
       res.json({ user: toPublicUser(updated) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.delete('/api/auth/account', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const currentUser = req.authUser!;
+      const currentPassword = String(req.body?.currentPassword || '');
+      if (currentUser.passwordHash && !verifyPassword(currentPassword, currentUser.passwordHash)) {
+        res.status(400).json({ error: 'برای حذف حساب کاربری، وارد کردن رمز عبور صحیح الزامی است.' });
+        return;
+      }
+      await authService.deleteUserAccount(currentUser.id);
+      clearSessionCookie(req, res);
+      res.json({ ok: true });
     } catch (err) {
       next(err);
     }
@@ -1175,8 +1229,43 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   // ============================================================================
   // Storefront Public Catalog, Reviews, Coupons, Config, Support & Newsletter APIs
   // ============================================================================
-  app.get('/api/categories', (_req, res) => {
-    res.json({ categories: CATEGORY_ITEMS });
+  app.get('/api/categories', async (_req, res, next) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      const categories = await storage.listCategories(false).catch(() => [...CATEGORY_ITEMS]);
+      res.json({ categories });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/brands', async (_req, res, next) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      const [storedBrands, products] = await Promise.all([
+        storage.listBrands().catch(() => [...DEFAULT_DEV_BRANDS]),
+        storage.listProducts({}).catch(() => []),
+      ]);
+      const seen = new Map<string, (typeof DEFAULT_DEV_BRANDS)[number]>();
+      for (const b of storedBrands) {
+        if (b.isActive !== false) {
+          seen.set(b.name.toLowerCase(), b);
+        }
+      }
+      for (const p of products) {
+        const name = String(p.brand || '').trim();
+        if (name && !seen.has(name.toLowerCase())) {
+          seen.set(name.toLowerCase(), {
+            id: name.toLowerCase().replace(/\s+/g, '-'),
+            name,
+            isActive: true,
+          });
+        }
+      }
+      res.json({ brands: [...seen.values()] });
+    } catch (err) {
+      next(err);
+    }
   });
 
   app.get('/api/store/config', async (_req, res, next) => {
@@ -1197,8 +1286,13 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       res.setHeader('Cache-Control', 'no-store');
       const minPrice = req.query.minPrice !== undefined ? Number(req.query.minPrice) : undefined;
       const maxPrice = req.query.maxPrice !== undefined ? Number(req.query.maxPrice) : undefined;
+      const categoryParam = typeof req.query.category === 'string' ? req.query.category : undefined;
+      const categories =
+        categoryParam && categoryParam !== 'all' && categoryParam !== 'offers'
+          ? await storage.listCategories(true).catch(() => [...CATEGORY_ITEMS])
+          : undefined;
       const products = await storage.listProducts({
-        category: typeof req.query.category === 'string' ? req.query.category : undefined,
+        category: categoryParam,
         q: typeof req.query.q === 'string' ? req.query.q : undefined,
         brand: typeof req.query.brand === 'string' ? req.query.brand : undefined,
         inStock: req.query.inStock === 'true',
@@ -1207,6 +1301,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
         maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
         sort: typeof req.query.sort === 'string' ? req.query.sort : undefined,
+        categories,
       });
       res.json({ products, total: products.length });
     } catch (err) {

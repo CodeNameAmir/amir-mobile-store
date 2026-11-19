@@ -1,12 +1,15 @@
 import React from 'react';
 import { CheckCircle2, Info, X, AlertTriangle } from 'lucide-react';
+import { BackToTopButton } from './components/BackToTopButton';
 import { CompareTray } from './components/CompareTray';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
+import { RouteTransitionBar } from './components/RouteTransitionBar';
 import { TempCommitBanner } from './components/TempCommitBanner';
 import { StoreProvider, useStore } from './context/StoreContext';
 import { AboutPage } from './pages/AboutPage';
 import { AccountPage } from './pages/AccountPage';
+import { AdminPage } from './pages/AdminPage';
 import { CartCheckoutPage } from './pages/CartCheckoutPage';
 import { CatalogPage } from './pages/CatalogPage';
 import { ComparePage } from './pages/ComparePage';
@@ -96,6 +99,8 @@ const StoreShell: React.FC = () => {
         return <TermsPage />;
       case 'account':
         return <AccountPage />;
+      case 'admin':
+        return <AdminPage />;
       case 'status':
         return <ServerStatusPage />;
       case 'not-found':
@@ -106,12 +111,14 @@ const StoreShell: React.FC = () => {
 
   return (
     <div className={`min-h-screen flex flex-col bg-[#f8f9ff] text-[#0b1c30] ${showCompareSpacer ? 'pb-20' : ''}`}>
+      <RouteTransitionBar />
       <Navbar />
       {/* TEMPORARY: Delete TempCommitBanner when GitHub commit indicator is no longer needed */}
       <TempCommitBanner />
       <main className="flex-1">{renderPage()}</main>
       <Footer />
       <CompareTray />
+      <BackToTopButton />
       <ToastStack />
     </div>
   );

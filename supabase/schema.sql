@@ -301,3 +301,57 @@ create index if not exists idx_auth_otp_expires_at on public.auth_otp_challenges
 alter table public.app_users enable row level security;
 alter table public.auth_otp_challenges enable row level security;
 
+-- 9. Extended Profile Avatar, Unlimited Nested Categories & Custom Brands
+alter table public.app_users
+  add column if not exists avatar_url text;
+
+create table if not exists public.categories (
+  id text primary key,
+  slug text unique not null,
+  label text not null,
+  subtitle text default '',
+  parent_id text references public.categories(id) on delete set null,
+  is_active boolean default true,
+  image text default '',
+  seo_title text default '',
+  seo_description text default '',
+  sort_order integer default 100,
+  created_at timestamptz default now()
+);
+
+create table if not exists public.brands (
+  id text primary key,
+  name text unique not null,
+  label_fa text default '',
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+
+alter table public.categories enable row level security;
+alter table public.brands enable row level security;
+
+drop policy if exists "Public can view active categories" on public.categories;
+create policy "Public can view active categories"
+  on public.categories for select
+  using (is_active = true);
+
+drop policy if exists "Authenticated admin full access categories" on public.categories;
+create policy "Authenticated admin full access categories"
+  on public.categories for all
+  to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "Public can view active brands" on public.brands;
+create policy "Public can view active brands"
+  on public.brands for select
+  using (is_active = true);
+
+drop policy if exists "Authenticated admin full access brands" on public.brands;
+create policy "Authenticated admin full access brands"
+  on public.brands for all
+  to authenticated
+  using (true)
+  with check (true);
+
+

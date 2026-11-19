@@ -38,7 +38,7 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
 };
 
 export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCode }) => {
-  const { orders, lookupOrder, verifyGuestOrder, navigate, showToast } = useStore();
+  const { orders, lookupOrder, verifyGuestOrder, buildHref, handleLinkClick, showToast } = useStore();
   const defaultCode = initialCode || orders[0]?.orderCode || '';
   const [searchCode, setSearchCode] = useState(defaultCode);
   const [lookup, setLookup] = useState<OrderLookupResult | null>(null);
@@ -233,13 +233,13 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
               <p className="text-xs sm:text-sm text-[#434655] leading-6">
                 این سفارش متعلق به یک حساب کاربری ثبت‌شده است. برای حفظ حریم خصوصی و مشاهده جزئیات کامل، لطفاً وارد حساب کاربری خود شوید.
               </p>
-              <button
-                type="button"
-                onClick={() => navigate('/account')}
-                className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-extrabold"
+              <a
+                href={buildHref('/account')}
+                onClick={(e) => handleLinkClick(e, '/account')}
+                className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-extrabold inline-flex items-center"
               >
                 ورود به حساب کاربری
-              </button>
+              </a>
             </div>
           )}
         </section>
@@ -376,13 +376,13 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                       {order.shippingAddress}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/order-confirmed/${order.orderCode}`)}
+                  <a
+                    href={buildHref(`/order-confirmed/${order.orderCode}`)}
+                    onClick={(e) => handleLinkClick(e, `/order-confirmed/${order.orderCode}`)}
                     className="text-xs font-extrabold text-[#004ac6] hover:underline shrink-0"
                   >
                     مشاهده فاکتور
-                  </button>
+                  </a>
                 </div>
               </div>
             </div>

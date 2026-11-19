@@ -3,13 +3,17 @@ import {
   ArrowLeft,
   Bell,
   Calculator,
+  CalendarClock,
   Camera,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Cpu,
   Heart,
   Minus,
   Plus,
   Scale,
+  Share2,
   ShieldCheck,
   ShieldPlus,
   ShoppingBag,
@@ -22,12 +26,13 @@ import { ProductCard } from '../components/ProductCard';
 import { ReviewCardSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
-import { CATEGORY_ITEMS, hydrateProduct } from '../data/catalog';
+import { hydrateProduct } from '../data/catalog';
 import { storeApi } from '../lib/authApi';
-import type { Product, ProductReview } from '../types/store';
+import type { CategoryId, Product, ProductReview } from '../types/store';
 import {
   calculateCareInsurancePrice,
   calculateInstallmentPlan,
+  formatPersianDate,
   formatToman,
   getVariantPrice,
   toPersianDigits,
@@ -40,7 +45,10 @@ interface ProductDetailPageProps {
 export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) => {
   const {
     products,
+    categories,
     productsLoading,
+    buildHref,
+    handleLinkClick,
     navigate,
     navigateToCatalog,
     addToCart,
@@ -89,6 +97,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
   const product = productFromList || fetchedProduct;
 
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [selectedColorId, setSelectedColorId] = useState('');
   const [selectedStorage, setSelectedStorage] = useState('');
   const [includeCarePlus, setIncludeCarePlus] = useState(false);
@@ -104,6 +113,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   useEffect(() => {
     if (!product) return;
     let mounted = true;
+    setActiveImageIndex(0);
     setSelectedColorId(product.colors[0]?.id || 'default');
     setSelectedStorage(product.storageOptions[0]?.label || product.specs.storageDefault);
     setIncludeCarePlus(false);
@@ -127,10 +137,23 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     };
   }, [product, markProductViewed]);
 
+  const galleryImages = useMemo(() => {
+    if (!product) return [];
+    const list = [product.image, ...(product.images || [])]
+      .map((u) => u.trim())
+      .filter(Boolean);
+    return [...new Set(list)];
+  }, [product]);
+
   const complementaryItems = useMemo(() => {
     if (!product) return [];
     return products
-      .filter((p) => p.id !== product.id && p.inStock && (p.category === 'chargers' || p.category === 'cases' || p.category === 'audio'))
+      .filter(
+        (p) =>
+          p.id !== product.id &&
+          p.inStock &&
+          (p.category === 'chargers' || p.category === 'cases' || p.category === 'audio')
+      )
       .slice(0, 3);
   }, [products, product]);
 
@@ -163,14 +186,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     return (
       <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-16 text-center space-y-4">
         <h1 className="text-2xl font-black text-[#0b1c30]">محصول مورد نظر یافت نشد</h1>
-        <p className="text-sm text-[#434655]">ممکن است نشانی محصول تغییر کرده یا از فهرست حذف شده باشد.</p>
-        <button
-          type="button"
-          onClick={() => navigate('/catalog')}
-          className="h-11 px-6 rounded-xl bg-[#004ac6] text-white text-sm font-bold"
+        <p className="text-sm text-[#434655]">
+          ممکن است نشانی محصول تغییر کرده یا از فهرست حذف شده باشد.
+        </p>
+        <a
+          href={buildHref('/catalog')}
+          onClick={(e) => handleLinkClick(e, '/catalog')}
+          className="h-11 px-6 rounded-xl bg-[#004ac6] text-white text-sm font-bold inline-flex items-center"
         >
           بازگشت به فروشگاه
-        </button>
+        </a>
       </div>
     );
   }
@@ -181,7 +206,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     selectedStorage
   );
   const carePlusPrice = calculateCareInsurancePrice(variantPrice, product.category);
-  const effectiveUnitPrice = includeCarePlus && carePlusPrice > 0 ? variantPrice + carePlusPrice : variantPrice;
+  const effectiveUnitPrice =
+    includeCarePlus && carePlusPrice > 0 ? variantPrice + carePlusPrice : variantPrice;
   const effectiveOriginalPrice =
     includeCarePlus && carePlusPrice > 0 ? variantOriginal + carePlusPrice : variantOriginal;
   const effectiveWarranty =
@@ -192,10 +218,35 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const installmentPreview = calculateInstallmentPlan(effectiveUnitPrice, 30, 12);
 
   const categoryLabel =
-    CATEGORY_ITEMS.find((c) => c.id === product.category)?.label ?? 'محصولات';
+    categories.find((c) => c.id === product.category || c.slug === product.category)?.label ??
+    'محصولات';
   const isWishlisted = wishlist.includes(product.id);
   const isCompared = compareIds.includes(product.id);
   const isAlerted = stockAlerts.includes(product.id);
+  const currentGalleryImg = galleryImages[activeImageIndex % Math.max(1, galleryImages.length)] || product.image;
+  const formattedPriceDate = formatPersianDate(product.priceUpdatedAt || product.updatedAt);
+
+  const handleShareProduct = async () => {
+    const shareUrl = window.location.href;
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: product.nameFa,
+          text: `${product.nameFa} با قیمت ${formatToman(effectiveUnitPrice)} تومان در فروشگاه موبایل امیر`,
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // Fallback to clipboard copy if user dismissed native share or unsupported
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast('لینک مستقیم محصول در حافظه کپی شد و آماده اشتراک‌گذاری است.', 'success');
+    } catch {
+      showToast(`لینک محصول: ${shareUrl}`, 'info');
+    }
+  };
 
   const handleAddToCart = (goToCart = false) => {
     addToCart(product, {
@@ -240,31 +291,41 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-6 md:py-8 space-y-10">
       {/* Breadcrumb */}
       <nav aria-label="مسیر صفحه" className="flex flex-wrap items-center gap-2 text-xs text-[#434655]">
-        <button type="button" onClick={() => navigate('/')} className="hover:text-[#004ac6]">
+        <a
+          href={buildHref('/')}
+          onClick={(e) => handleLinkClick(e, '/')}
+          className="hover:text-[#004ac6]"
+        >
           فروشگاه موبایل امیر
-        </button>
+        </a>
         <span>/</span>
-        <button
-          type="button"
-          onClick={() => navigateToCatalog({ category: product.category })}
+        <a
+          href={buildHref(`/catalog?cat=${encodeURIComponent(product.category)}`)}
+          onClick={(e) => {
+            if (e.button === 0 && !e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              navigateToCatalog({ category: product.category as CategoryId });
+            }
+          }}
           className="hover:text-[#004ac6]"
         >
           {categoryLabel}
-        </button>
+        </a>
         <span>/</span>
         <span className="font-bold text-[#0b1c30] line-clamp-1">{product.nameFa}</span>
       </nav>
 
       {/* Main 3-Column PDP Grid */}
       <div className="bg-white rounded-3xl border border-[#e5eeff] p-5 sm:p-8 shadow-[0_14px_40px_rgba(11,28,48,0.05)] grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Col 1: Product Visual Gallery */}
-        <div className="lg:col-span-4 space-y-4">
+        {/* Col 1: Product Multi-Image Gallery Slider */}
+        <div className="lg:col-span-4 space-y-3">
           <div className="relative aspect-square rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] overflow-hidden p-4">
             <SmartImage
-              src={product.image}
-              alt={product.nameFa}
+              src={currentGalleryImg}
+              alt={`${product.nameFa} - تصویر ${toPersianDigits(activeImageIndex + 1)}`}
               loading="eager"
-              className="w-full h-full object-cover rounded-xl"
+              data-testid="pdp-main-image"
+              className="w-full h-full object-cover rounded-xl transition-opacity duration-200"
             />
             {product.discountPercent && product.inStock && (
               <span className="absolute top-4 right-4 px-3 py-1 rounded-xl bg-[#b54e00] text-white text-xs font-extrabold tabular-nums-fa shadow-sm">
@@ -294,8 +355,67 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               >
                 <Scale className="w-5 h-5" />
               </button>
+              <button
+                type="button"
+                data-testid="pdp-share-btn"
+                onClick={handleShareProduct}
+                aria-label="اشتراک‌گذاری محصول"
+                title="اشتراک‌گذاری محصول"
+                className="w-10 h-10 rounded-xl bg-white text-[#434655] hover:text-[#004ac6] flex items-center justify-center shadow-sm transition-colors"
+              >
+                <Share2 className="w-5 h-5" />
+              </button>
             </div>
+
+            {galleryImages.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  data-testid="pdp-gallery-prev"
+                  onClick={() =>
+                    setActiveImageIndex((i) => (i - 1 + galleryImages.length) % galleryImages.length)
+                  }
+                  aria-label="تصویر قبلی"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-[#0b1c30] shadow-md flex items-center justify-center"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  data-testid="pdp-gallery-next"
+                  onClick={() => setActiveImageIndex((i) => (i + 1) % galleryImages.length)}
+                  aria-label="تصویر بعدی"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-[#0b1c30] shadow-md flex items-center justify-center"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="absolute bottom-3 left-3 px-2.5 py-1 rounded-lg bg-[#0b1c30]/75 text-white text-[11px] font-bold tabular-nums-fa">
+                  {toPersianDigits(activeImageIndex + 1)} / {toPersianDigits(galleryImages.length)}
+                </span>
+              </>
+            )}
           </div>
+
+          {galleryImages.length > 1 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1" data-testid="pdp-gallery-thumbs">
+              {galleryImages.map((imgSrc, idx) => (
+                <button
+                  key={`${imgSrc}-${idx}`}
+                  type="button"
+                  data-testid={`pdp-thumb-${idx}`}
+                  onClick={() => setActiveImageIndex(idx)}
+                  aria-label={`نمایش تصویر ${toPersianDigits(idx + 1)}`}
+                  className={`w-16 h-16 rounded-xl overflow-hidden border-2 shrink-0 bg-[#f8f9ff] transition-all ${
+                    idx === activeImageIndex
+                      ? 'border-[#004ac6] ring-2 ring-[#2563eb]/20'
+                      : 'border-[#e5eeff] opacity-75 hover:opacity-100'
+                  }`}
+                >
+                  <SmartImage src={imgSrc} alt={`${product.nameFa} ${idx + 1}`} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div className="p-3 rounded-xl bg-[#eff4ff] text-[#004ac6] font-bold flex items-center gap-2">
@@ -313,9 +433,18 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         <div className="lg:col-span-5 space-y-6">
           <div className="space-y-2 border-b border-[#eff4ff] pb-5">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-extrabold text-[#004ac6] uppercase tracking-wider">
+              <a
+                href={buildHref(`/catalog?brand=${encodeURIComponent(product.brand)}`)}
+                onClick={(e) => {
+                  if (e.button === 0 && !e.metaKey && !e.ctrlKey) {
+                    e.preventDefault();
+                    navigateToCatalog({ brand: product.brand });
+                  }
+                }}
+                className="text-xs font-extrabold text-[#004ac6] hover:underline uppercase tracking-wider"
+              >
                 {product.brand}
-              </span>
+              </a>
               <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0b1c30] tabular-nums-fa">
                 <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
                 {toPersianDigits(product.rating)} از ۵ ({toPersianDigits(reviews.length)} دیدگاه)
@@ -328,9 +457,19 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
             <p className="text-xs text-[#434655] font-medium" dir="ltr">
               {product.nameEn}
             </p>
-            <p className="text-xs font-bold text-emerald-700 pt-1">
-              ✓ {toPersianDigits(product.recommendPercent)}٪ از خریداران این کالا را پیشنهاد کرده‌اند
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <p className="text-xs font-bold text-emerald-700">
+                ✓ {toPersianDigits(product.recommendPercent)}٪ از خریداران این کالا را پیشنهاد کرده‌اند
+              </p>
+              <button
+                type="button"
+                onClick={handleShareProduct}
+                className="text-xs font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                اشتراک‌گذاری محصول
+              </button>
+            </div>
           </div>
 
           {/* Color Picker */}
@@ -466,6 +605,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   <p className="text-[11px] font-bold text-emerald-700">
                     ● موجود در انبار امیر ({toPersianDigits(product.stockCount)} عدد آماده ارسال)
                   </p>
+                  <p
+                    data-testid="pdp-price-updated-at"
+                    className="text-[11px] text-[#434655] inline-flex items-center gap-1 pt-1 tabular-nums-fa"
+                  >
+                    <CalendarClock className="w-3.5 h-3.5 text-[#004ac6]" />
+                    آخرین به‌روزرسانی قیمت: {formattedPriceDate}
+                  </p>
                 </div>
 
                 {/* Amir Care+ Screen & Accident Protection Toggle */}
@@ -543,9 +689,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 </div>
 
                 {/* Inline Installment Preview */}
-                <button
-                  type="button"
-                  onClick={() => navigate('/installments')}
+                <a
+                  href={buildHref('/installments')}
+                  onClick={(e) => handleLinkClick(e, '/installments')}
                   className="w-full p-3 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-right transition-colors flex items-center justify-between gap-2"
                 >
                   <div className="space-y-0.5">
@@ -558,7 +704,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     </p>
                   </div>
                   <ArrowLeft className="w-4 h-4 text-[#004ac6] shrink-0" />
-                </button>
+                </a>
               </>
             ) : (
               <div className="space-y-4">
@@ -600,13 +746,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   <SmartImage src={acc.image} alt={acc.nameFa} className="w-full h-full object-cover" />
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/product/${acc.slug}`)}
-                    className="text-xs font-extrabold text-[#0b1c30] hover:text-[#004ac6] line-clamp-2 text-right"
+                  <a
+                    href={buildHref(`/product/${acc.slug}`)}
+                    onClick={(e) => handleLinkClick(e, `/product/${acc.slug}`)}
+                    className="text-xs font-extrabold text-[#0b1c30] hover:text-[#004ac6] line-clamp-2 text-right block"
                   >
                     {acc.nameFa}
-                  </button>
+                  </a>
                   <p className="text-xs font-extrabold text-[#004ac6] tabular-nums-fa">
                     {formatToman(acc.price)} تومان
                   </p>
@@ -624,7 +770,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         </section>
       )}
 
-      {/* Detailed Tabs: Specs, Expert Review, Customer Reviews */}
+      {/* Detailed Tabs: Specs (incl. customSpecs), Expert Review, Customer Reviews */}
       <section className="bg-white rounded-3xl border border-[#e5eeff] overflow-hidden">
         <div className="flex items-center gap-2 border-b border-[#eff4ff] px-5 pt-4 overflow-x-auto">
           {(
@@ -651,23 +797,42 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
         <div className="p-6 sm:p-8">
           {activeTab === 'specs' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
-              {[
-                { k: 'نمایشگر و پنل', v: `${product.specs.display} — ${product.specs.displayDetails}` },
-                { k: 'تراشه و پردازنده', v: `${product.specs.chipset} — ${product.specs.chipsetDetails}` },
-                { k: 'سیستم دوربین', v: `${product.specs.camera} — ${product.specs.cameraDetails}` },
-                { k: 'باتری و توان شارژ', v: `${product.specs.battery} — ${product.specs.batteryDetails}` },
-                { k: 'حافظه رم و داخلی', v: `${product.specs.ram} رم / ${selectedStorage}` },
-                { k: 'سیستم‌عامل و ضمانت', v: `${product.specs.os} · ${product.warranty}` },
-              ].map((row) => (
-                <div
-                  key={row.k}
-                  className="p-4 rounded-xl bg-[#f8f9ff] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                >
-                  <span className="font-bold text-[#434655]">{row.k}</span>
-                  <span className="font-extrabold text-[#0b1c30]">{row.v}</span>
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
+                {[
+                  { k: 'نمایشگر و پنل', v: `${product.specs.display} — ${product.specs.displayDetails}` },
+                  { k: 'تراشه و پردازنده', v: `${product.specs.chipset} — ${product.specs.chipsetDetails}` },
+                  { k: 'سیستم دوربین', v: `${product.specs.camera} — ${product.specs.cameraDetails}` },
+                  { k: 'باتری و توان شارژ', v: `${product.specs.battery} — ${product.specs.batteryDetails}` },
+                  { k: 'حافظه رم و داخلی', v: `${product.specs.ram} رم / ${selectedStorage}` },
+                  { k: 'سیستم‌عامل و ضمانت', v: `${product.specs.os} · ${product.warranty}` },
+                ].map((row) => (
+                  <div
+                    key={row.k}
+                    className="p-4 rounded-xl bg-[#f8f9ff] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                  >
+                    <span className="font-bold text-[#434655]">{row.k}</span>
+                    <span className="font-extrabold text-[#0b1c30]">{row.v}</span>
+                  </div>
+                ))}
+              </div>
+
+              {product.customSpecs && product.customSpecs.length > 0 && (
+                <div className="space-y-3 border-t border-[#eff4ff] pt-5" data-testid="pdp-custom-specs">
+                  <h3 className="text-sm font-black text-[#0b1c30]">مشخصات ویژه و تخصصی محصول</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs sm:text-sm">
+                    {product.customSpecs.map((spec, idx) => (
+                      <div
+                        key={`${spec.label}-${idx}`}
+                        className="p-4 rounded-xl bg-[#eff4ff]/60 border border-[#dce9ff] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                      >
+                        <span className="font-bold text-[#004ac6]">{spec.label}</span>
+                        <span className="font-extrabold text-[#0b1c30]">{spec.value}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
+              )}
             </div>
           )}
 

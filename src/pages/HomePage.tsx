@@ -1,8 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   Award,
   BatteryCharging,
+  ChevronLeft,
+  ChevronRight,
   Flame,
   Gamepad2,
   Headphones,
@@ -20,13 +22,14 @@ import { ProductCard } from '../components/ProductCard';
 import { SmartImage } from '../components/SmartImage';
 import { DEFAULT_FILTERS, useStore } from '../context/StoreContext';
 import { STORE_ASSETS } from '../data/assets';
-import {
-  CATEGORY_ITEMS,
-  CUSTOMER_TESTIMONIALS,
-  TECH_ARTICLES,
-} from '../data/catalog';
+import { CUSTOMER_TESTIMONIALS, TECH_ARTICLES } from '../data/catalog';
 import type { BrandId, CategoryId } from '../types/store';
-import { filterAndSortProducts, formatToman, toPersianDigits } from '../utils/storeLogic';
+import {
+  extractAvailableBrands,
+  filterAndSortProducts,
+  formatToman,
+  toPersianDigits,
+} from '../utils/storeLogic';
 
 const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   phones: <Smartphone className="w-6 h-6" />,
@@ -38,23 +41,133 @@ const CATEGORY_ICONS: Record<string, React.ReactNode> = {
   gaming: <Gamepad2 className="w-6 h-6" />,
 };
 
+interface PromoSlide {
+  id: string;
+  badge: string;
+  title: string;
+  subtitle: string;
+  ctaLabel: string;
+  ctaHref: string;
+  secondaryLabel: string;
+  secondaryHref: string;
+  image: string;
+  discountBadge?: string;
+  captionTitle: string;
+  captionSub: string;
+}
+
 export const HomePage: React.FC = () => {
-  const { products, navigate, navigateToCatalog } = useStore();
+  const {
+    products,
+    categories,
+    brands,
+    buildHref,
+    handleLinkClick,
+    navigateToCatalog,
+  } = useStore();
   const [popularBrand, setPopularBrand] = useState<'ALL' | BrandId>('ALL');
+  const [activeSlide, setActiveSlide] = useState(0);
+  const [sliderPaused, setSliderPaused] = useState(false);
+
+  const flagshipIphone = useMemo(
+    () => products.find((p) => p.slug === 'iphone-16-pro-max') || products[0],
+    [products]
+  );
+
+  const promoSlides = useMemo<PromoSlide[]>(
+    () => [
+      {
+        id: 'iphone-16-hero',
+        badge: 'پرچمدار جدید اپل موجود شد · رجیستری رسمی همتا',
+        title: 'آیفون ۱۶ پرو مکس تیتانیوم؛ قدرت بی‌رقیب، تحویل فوری',
+        subtitle:
+          'تراشه ۳ نانومتری A18 Pro، دکمه اختصاصی Camera Control و نمایشگر ۶.۹ اینچی با ۱۸ ماه گارانتی طلایی امیر سرویس.',
+        ctaLabel: 'خرید iPhone 16 Pro Max',
+        ctaHref: `/product/${flagshipIphone.slug}`,
+        secondaryLabel: 'مشاهده تمام گوشی‌ها',
+        secondaryHref: '/catalog?cat=phones',
+        image: STORE_ASSETS.heroIphone,
+        discountBadge: '۴٪ تخفیف',
+        captionTitle: 'تضمین پلمپ و کد همتا',
+        captionSub: `شروع از ${formatToman(flagshipIphone.price)} تومان`,
+      },
+      {
+        id: 'flagship-camera-promo',
+        badge: 'کمپین عکاسی موبایل · هواوی، سامسونگ و شیائومی',
+        title: 'دنیای پرچمداران عکاسی با سنسورهای لایکا و XMAGE',
+        subtitle:
+          'گوشی‌های Huawei Pura 70 Ultra و سری اولترا با زوم اپتیکال حرفه‌ای، رجیستری قطعی و ارسال اکسپرس.',
+        ctaLabel: 'مشاهده Huawei Pura 70 Ultra',
+        ctaHref: '/product/huawei-pura-70-ultra',
+        secondaryLabel: 'فیلتر برند هواوی',
+        secondaryHref: '/catalog?brand=Huawei',
+        image: STORE_ASSETS.promoShowcase,
+        discountBadge: 'جدیدترین موجودی',
+        captionTitle: 'پوشش کامل برندهای روز',
+        captionSub: 'اپل، سامسونگ، شیائومی و هواوی',
+      },
+      {
+        id: 'anker-power-promo',
+        badge: 'جشنواره انرژی اورجینال · گارانتی تعویض ۱۸ ماهه',
+        title: 'آداپتورهای فست GaN و پاوربانک‌های پرقدرت انکر',
+        subtitle:
+          'محافظت هوشمند از سلامت باتری گوشی و لپ‌تاپ با فناوری ActiveShield و پشتیبانی از شارژ ۱۴۰ واتی.',
+        ctaLabel: 'مشاهده پاوربانک‌های انکر',
+        ctaHref: '/catalog?cat=chargers',
+        secondaryLabel: 'تخفیف‌های ویژه',
+        secondaryHref: '/catalog?cat=offers',
+        image: STORE_ASSETS.ankerCharger,
+        discountBadge: 'تا ۱۸٪ تخفیف',
+        captionTitle: 'ضمانت اصالت انکر',
+        captionSub: 'ارسال رایگان بالای ۱ میلیون تومان',
+      },
+    ],
+    [flagshipIphone]
+  );
+
+  useEffect(() => {
+    const reduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduced || sliderPaused) return;
+    const timer = window.setInterval(() => {
+      setActiveSlide((prev) => (prev + 1) % promoSlides.length);
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [promoSlides.length, sliderPaused]);
+
+  const currentSlide = promoSlides[activeSlide % promoSlides.length];
+
+  const activeCategories = useMemo(
+    () =>
+      categories
+        .filter((c) => c.isActive !== false && !c.parentId)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    [categories]
+  );
+
+  const phoneBrands = useMemo(() => {
+    const phones = products.filter((p) => p.category === 'phones' && p.inStock);
+    return extractAvailableBrands(phones, brands).slice(0, 6);
+  }, [brands, products]);
 
   const amazingDeals = useMemo(
-    () => products.filter((p) => p.isFeaturedDeal && p.inStock).slice(0, 4),
+    () => products.filter((p) => (p.isFeaturedDeal || (p.discountPercent ?? 0) > 0) && p.inStock).slice(0, 4),
     [products]
   );
 
   const newestProducts = useMemo(
     () =>
-      filterAndSortProducts(products, {
-        ...DEFAULT_FILTERS,
-        inStockOnly: true,
-        sortBy: 'newest',
-      }).slice(0, 4),
-    [products]
+      filterAndSortProducts(
+        products,
+        {
+          ...DEFAULT_FILTERS,
+          inStockOnly: true,
+          sortBy: 'newest',
+        },
+        categories
+      ).slice(0, 4),
+    [categories, products]
   );
 
   const popularPhones = useMemo(() => {
@@ -65,88 +178,153 @@ export const HomePage: React.FC = () => {
     return phones.filter((p) => p.brand === popularBrand).slice(0, 4);
   }, [products, popularBrand]);
 
-  const flagshipIphone = useMemo(
-    () => products.find((p) => p.slug === 'iphone-16-pro-max') || products[0],
-    [products]
-  );
-
   return (
     <div className="space-y-12 md:space-y-16 pb-4">
-      {/* Hero Campaign Section */}
-      <section className="max-w-[1440px] mx-auto px-4 lg:px-8 pt-6 md:pt-8">
-        <div className="relative rounded-3xl overflow-hidden bg-gradient-to-bl from-[#0b1c30] via-[#132945] to-[#004ac6] text-white shadow-[0_24px_60px_rgba(11,28,48,0.18)]">
+      {/* Promotional Banner Slider (اسلایدر بنرهای تبلیغاتی) */}
+      <section
+        className="max-w-[1440px] mx-auto px-4 lg:px-8 pt-6 md:pt-8"
+        onMouseEnter={() => setSliderPaused(true)}
+        onMouseLeave={() => setSliderPaused(false)}
+      >
+        <div
+          data-testid="home-promo-slider"
+          className="relative rounded-3xl overflow-hidden bg-gradient-to-bl from-[#0b1c30] via-[#132945] to-[#004ac6] text-white shadow-[0_24px_60px_rgba(11,28,48,0.18)]"
+        >
           <div className="grid grid-cols-1 lg:grid-cols-12 items-center gap-8 p-6 sm:p-10 lg:p-14">
             <div className="lg:col-span-7 space-y-5 z-10">
               <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 backdrop-blur-sm border border-white/15 text-xs font-bold text-[#ffdbca]">
                 <Sparkles className="w-4 h-4 text-[#ffdbca]" />
-                <span>پرچمدار جدید اپل موجود شد · رجیستری رسمی همتا</span>
+                <span>{currentSlide.badge}</span>
               </div>
 
-              <h1 className="text-2xl sm:text-4xl lg:text-[42px] font-black leading-[1.35] tracking-tight">
-                آیفون ۱۶ پرو مکس تیتانیوم؛
-                <br />
-                <span className="text-[#93c5fd]">قدرت بی‌رقیب، تحویل فوری</span>
+              <h1 className="text-2xl sm:text-4xl lg:text-[40px] font-black leading-[1.35] tracking-tight">
+                {currentSlide.title}
               </h1>
 
               <p className="text-sm sm:text-base text-[#d6e3ff] max-w-xl leading-7">
-                تراشه ۳ نانومتری A18 Pro، دکمه اختصاصی Camera Control و نمایشگر ۶.۹ اینچی با ۱۸ ماه گارانتی طلایی امیر سرویس و ارسال اکسپرس ۳ ساعته در تهران.
+                {currentSlide.subtitle}
               </p>
 
               <div className="flex flex-wrap items-center gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => navigate(`/product/${flagshipIphone.slug}`)}
+                <a
+                  href={buildHref(currentSlide.ctaHref)}
+                  onClick={(e) => handleLinkClick(e, currentSlide.ctaHref)}
                   className="w-full sm:w-auto justify-center h-12 px-6 rounded-xl bg-white hover:bg-[#eff4ff] text-[#004ac6] font-extrabold text-sm inline-flex items-center gap-2 shadow-lg transition-colors"
                 >
-                  <span>خرید iPhone 16 Pro Max</span>
+                  <span>{currentSlide.ctaLabel}</span>
                   <ArrowLeft className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigateToCatalog({ category: 'phones' })}
-                  className="w-full sm:w-auto justify-center h-12 px-6 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm border border-white/20 transition-colors"
+                </a>
+                <a
+                  href={buildHref(currentSlide.secondaryHref)}
+                  onClick={(e) => handleLinkClick(e, currentSlide.secondaryHref)}
+                  className="w-full sm:w-auto justify-center h-12 px-6 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-sm border border-white/20 inline-flex items-center transition-colors"
                 >
-                  مشاهده تمام گوشی‌ها
-                </button>
+                  {currentSlide.secondaryLabel}
+                </a>
               </div>
 
-              <div className="grid grid-cols-3 gap-4 pt-4 max-w-lg border-t border-white/15">
-                <div>
-                  <p className="text-xs text-[#93c5fd]">شروع قیمت</p>
-                  <p className="text-sm sm:text-base font-extrabold tabular-nums-fa mt-0.5">
-                    {formatToman(flagshipIphone.price)} تومان
-                  </p>
+              {/* Slider Navigation Controls */}
+              <div className="flex items-center justify-between pt-3 max-w-lg border-t border-white/15">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="promo-slider-prev"
+                    onClick={() =>
+                      setActiveSlide((prev) => (prev - 1 + promoSlides.length) % promoSlides.length)
+                    }
+                    aria-label="اسلاید قبلی"
+                    className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="promo-slider-next"
+                    onClick={() => setActiveSlide((prev) => (prev + 1) % promoSlides.length)}
+                    aria-label="اسلاید بعدی"
+                    className="w-9 h-9 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-bold text-[#93c5fd] mr-2 tabular-nums-fa">
+                    {toPersianDigits(activeSlide + 1)} / {toPersianDigits(promoSlides.length)}
+                  </span>
                 </div>
-                <div>
-                  <p className="text-xs text-[#93c5fd]">ضمانت اصالت</p>
-                  <p className="text-sm sm:text-base font-extrabold mt-0.5">۱۸ ماهه امیر سرویس</p>
-                </div>
-                <div>
-                  <p className="text-xs text-[#93c5fd]">وضعیت انبار</p>
-                  <p className="text-sm sm:text-base font-extrabold mt-0.5">پلمپ شرکتی آماده ارسال</p>
+
+                <div className="flex items-center gap-1.5">
+                  {promoSlides.map((slide, idx) => (
+                    <button
+                      key={slide.id}
+                      type="button"
+                      onClick={() => setActiveSlide(idx)}
+                      aria-label={`نمایش بنر ${toPersianDigits(idx + 1)}`}
+                      className={`h-2 rounded-full transition-all ${
+                        idx === activeSlide ? 'w-7 bg-white' : 'w-2 bg-white/35 hover:bg-white/60'
+                      }`}
+                    />
+                  ))}
                 </div>
               </div>
             </div>
 
             <div className="lg:col-span-5 flex flex-col items-center">
-              <div className="relative w-full max-w-[420px] aspect-[4/3] rounded-2xl overflow-hidden bg-white/5 border border-white/15 shadow-2xl">
+              <div className="relative w-full max-w-[440px] aspect-[4/3] rounded-2xl overflow-hidden bg-white/5 border border-white/15 shadow-2xl">
                 <SmartImage
-                  src={STORE_ASSETS.heroIphone}
-                  alt="آیفون ۱۶ پرو مکس تیتانیوم کویری"
+                  src={currentSlide.image}
+                  alt={currentSlide.title}
                   loading="eager"
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover transition-opacity duration-300"
                 />
                 <div className="absolute bottom-3 right-3 left-3 p-3 rounded-xl bg-[#0b1c30]/85 backdrop-blur-md border border-white/15 flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-xs font-bold text-white">تضمین پلمپ و کد همتا</p>
-                    <p className="text-[11px] text-[#93c5fd]">ارسال رایگان به سراسر کشور</p>
+                    <p className="text-xs font-bold text-white">{currentSlide.captionTitle}</p>
+                    <p className="text-[11px] text-[#93c5fd] tabular-nums-fa">{currentSlide.captionSub}</p>
                   </div>
-                  <span className="px-2.5 py-1 rounded-lg bg-[#b54e00] text-white text-xs font-extrabold tabular-nums-fa">
-                    ۴٪ تخفیف
-                  </span>
+                  {currentSlide.discountBadge && (
+                    <span className="px-2.5 py-1 rounded-lg bg-[#b54e00] text-white text-xs font-extrabold tabular-nums-fa">
+                      {currentSlide.discountBadge}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Dedicated Special Discounts Banner (بنر تخفیف‌های ویژه) */}
+      <section className="max-w-[1440px] mx-auto px-4 lg:px-8">
+        <div
+          data-testid="special-discounts-banner"
+          className="rounded-3xl bg-gradient-to-l from-[#b54e00] via-[#9c4100] to-[#0b1c30] text-white p-6 sm:p-8 flex flex-col lg:flex-row lg:items-center justify-between gap-6 shadow-[0_14px_34px_rgba(181,78,0,0.18)]"
+        >
+          <div className="space-y-2 max-w-2xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-white/15 text-[#ffdbca] text-xs font-extrabold">
+              <Flame className="w-4 h-4" />
+              <span>بنر تخفیف‌های ویژه فصل فروشگاه امیر</span>
+            </div>
+            <h2 className="text-xl sm:text-2xl font-black leading-snug">
+              تا ۱۵٪ تخفیف نقدی + ۵۰۰ هزار تومان هدیه کد خرید اول{' '}
+              <span dir="ltr" className="inline-block whitespace-nowrap">(AMIR-OFF)</span>
+            </h2>
+            <p className="text-xs sm:text-sm text-[#ffedd5] leading-6">
+              تمامی محصولات دارای برچسب پیشنهاد شگفت‌انگیز با ارسال رایگان، گارانتی ۱۸ ماهه و تضمین کمترین قیمت عرضه می‌شوند.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 shrink-0">
+            <a
+              href={buildHref('/catalog?cat=offers')}
+              onClick={(e) => {
+                if (e.button === 0 && !e.metaKey && !e.ctrlKey) {
+                  e.preventDefault();
+                  navigateToCatalog({ category: 'offers', discountedOnly: true });
+                }
+              }}
+              className="h-12 px-6 rounded-xl bg-white hover:bg-[#ffdbca] text-[#8e3c00] font-extrabold text-xs sm:text-sm inline-flex items-center gap-2 shadow-md transition-colors"
+            >
+              <span>مشاهده لیست تخفیف‌های ویژه</span>
+              <ArrowLeft className="w-4 h-4" />
+            </a>
           </div>
         </div>
       </section>
@@ -169,14 +347,19 @@ export const HomePage: React.FC = () => {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => navigateToCatalog({ category: 'offers', discountedOnly: true })}
+            <a
+              href={buildHref('/catalog?cat=offers')}
+              onClick={(e) => {
+                if (e.button === 0 && !e.metaKey && !e.ctrlKey) {
+                  e.preventDefault();
+                  navigateToCatalog({ category: 'offers', discountedOnly: true });
+                }
+              }}
               className="self-start sm:self-auto inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white hover:bg-[#004ac6] text-[#004ac6] hover:text-white text-xs sm:text-sm font-bold shadow-sm transition-colors"
             >
               <span>مشاهده همه تخفیف‌ها</span>
               <ArrowLeft className="w-4 h-4" />
-            </button>
+            </a>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
@@ -187,7 +370,7 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* Category Grid */}
+      {/* Dynamic Category Grid */}
       <section className="max-w-[1440px] mx-auto px-4 lg:px-8 space-y-6">
         <div className="flex items-end justify-between gap-4">
           <div>
@@ -198,32 +381,47 @@ export const HomePage: React.FC = () => {
               دسترسی سریع به اکوسیستم کامل موبایل و گجت‌های هوشمند
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => navigateToCatalog({ category: 'all' })}
+          <a
+            href={buildHref('/catalog')}
+            onClick={(e) => handleLinkClick(e, '/catalog')}
             className="text-xs sm:text-sm font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1"
           >
             <span>همه محصولات</span>
             <ArrowLeft className="w-4 h-4" />
-          </button>
+          </a>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 sm:gap-4">
-          {CATEGORY_ITEMS.map((cat) => (
-            <button
+          {activeCategories.map((cat) => (
+            <a
               key={cat.id}
-              type="button"
-              onClick={() => navigateToCatalog({ category: cat.id as CategoryId })}
+              href={buildHref(`/catalog?cat=${encodeURIComponent(cat.slug)}`)}
+              onClick={(e) => {
+                if (e.button === 0 && !e.metaKey && !e.ctrlKey) {
+                  e.preventDefault();
+                  navigateToCatalog({ category: cat.slug as CategoryId });
+                }
+              }}
               className="group bg-white rounded-2xl border border-[#e5eeff] hover:border-[#2563eb] hover:shadow-[0_12px_28px_rgba(0,74,198,0.08)] p-4 text-center flex flex-col items-center gap-3 transition-all"
             >
-              <div className="w-12 h-12 rounded-2xl bg-[#eff4ff] group-hover:bg-[#004ac6] text-[#004ac6] group-hover:text-white flex items-center justify-center transition-colors">
-                {CATEGORY_ICONS[cat.id]}
-              </div>
+              {cat.image ? (
+                <div className="w-14 h-14 rounded-2xl bg-[#eff4ff] overflow-hidden border border-[#dce9ff] shrink-0">
+                  <SmartImage
+                    src={cat.image}
+                    alt={cat.label}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  />
+                </div>
+              ) : (
+                <div className="w-12 h-12 rounded-2xl bg-[#eff4ff] group-hover:bg-[#004ac6] text-[#004ac6] group-hover:text-white flex items-center justify-center transition-colors">
+                  {CATEGORY_ICONS[cat.slug] ?? <Smartphone className="w-6 h-6" />}
+                </div>
+              )}
               <div>
                 <p className="text-xs sm:text-sm font-bold text-[#0b1c30]">{cat.label}</p>
                 <p className="text-[11px] text-[#434655] mt-0.5 line-clamp-1">{cat.subtitle}</p>
               </div>
-            </button>
+            </a>
           ))}
         </div>
       </section>
@@ -240,14 +438,14 @@ export const HomePage: React.FC = () => {
                 تازه‌ترین کالاهای اضافه‌شده و موجود در انبار با گارانتی رسمی
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => navigateToCatalog({ category: 'all' })}
+            <a
+              href={buildHref('/catalog')}
+              onClick={(e) => handleLinkClick(e, '/catalog')}
               className="text-xs sm:text-sm font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1 shrink-0"
             >
               <span>مشاهده همه کالاها</span>
               <ArrowLeft className="w-4 h-4" />
-            </button>
+            </a>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
@@ -258,7 +456,7 @@ export const HomePage: React.FC = () => {
         </section>
       )}
 
-      {/* Popular Smartphones with interactive Brand Filter */}
+      {/* Popular Smartphones with dynamic Brand Filter */}
       <section className="max-w-[1440px] mx-auto px-4 lg:px-8 space-y-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -266,32 +464,39 @@ export const HomePage: React.FC = () => {
               پرطرفدارترین گوشی‌های هوشمند
             </h2>
             <p className="text-xs sm:text-sm text-[#434655] mt-1">
-              پرفروش‌ترین مدل‌های اپل، سامسونگ و شیائومی با رجیستری قطعی
+              پرفروش‌ترین مدل‌های اپل، سامسونگ، شیائومی و هواوی با رجیستری قطعی
             </p>
           </div>
 
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            {(
-              [
-                { id: 'ALL', label: 'همه برندها' },
-                { id: 'Apple', label: 'اپل (Apple)' },
-                { id: 'Samsung', label: 'سامسونگ (Samsung)' },
-                { id: 'Xiaomi', label: 'شیائومی (Xiaomi)' },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setPopularBrand(tab.id)}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
-                  popularBrand === tab.id
-                    ? 'bg-[#004ac6] text-white shadow-sm'
-                    : 'bg-white border border-[#e5eeff] text-[#434655] hover:border-[#2563eb]'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+            <button
+              type="button"
+              onClick={() => setPopularBrand('ALL')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                popularBrand === 'ALL'
+                  ? 'bg-[#004ac6] text-white shadow-sm'
+                  : 'bg-white border border-[#e5eeff] text-[#434655] hover:border-[#2563eb]'
+              }`}
+            >
+              همه برندها
+            </button>
+            {phoneBrands.map((bName) => {
+              const bObj = brands.find((b) => b.name.toLowerCase() === bName.toLowerCase());
+              return (
+                <button
+                  key={bName}
+                  type="button"
+                  onClick={() => setPopularBrand(bName)}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                    popularBrand === bName
+                      ? 'bg-[#004ac6] text-white shadow-sm'
+                      : 'bg-white border border-[#e5eeff] text-[#434655] hover:border-[#2563eb]'
+                  }`}
+                >
+                  {bObj?.labelFa ? `${bObj.labelFa} (${bName})` : bName}
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -317,21 +522,21 @@ export const HomePage: React.FC = () => {
               مجموعه کامل آداپتورهای ۶۵ وات GaN و پاوربانک‌های ۱۴۰ واتی انکر با گارانتی ۱۸ ماهه تعویض و تاییدیه MFi اپل آماده ارسال است.
             </p>
             <div className="flex flex-wrap items-center gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => navigate('/product/anker-prime-powerbank-24000')}
+              <a
+                href={buildHref('/product/anker-prime-powerbank-24000')}
+                onClick={(e) => handleLinkClick(e, '/product/anker-prime-powerbank-24000')}
                 className="h-11 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors"
               >
                 <span>مشاهده پاوربانک ۲۴۰۰۰ انکر</span>
                 <ArrowLeft className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => navigateToCatalog({ category: 'chargers' })}
-                className="h-11 px-5 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs sm:text-sm font-bold transition-colors"
+              </a>
+              <a
+                href={buildHref('/catalog?cat=chargers')}
+                onClick={(e) => handleLinkClick(e, '/catalog?cat=chargers')}
+                className="h-11 px-5 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs sm:text-sm font-bold inline-flex items-center transition-colors"
               >
                 همه شارژرها و پاوربانک‌ها
-              </button>
+              </a>
             </div>
           </div>
 
@@ -361,26 +566,26 @@ export const HomePage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 shrink-0">
-            <button
-              type="button"
-              onClick={() => navigate('/installments')}
+            <a
+              href={buildHref('/installments')}
+              onClick={(e) => handleLinkClick(e, '/installments')}
               className="h-11 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 shadow-sm transition-colors"
             >
               <span>محاسبه‌گر اقساط و تعویض</span>
               <ArrowLeft className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => navigate('/compare')}
-              className="h-11 px-5 rounded-xl bg-white hover:bg-[#eff4ff] border border-[#004ac6] text-[#004ac6] text-xs sm:text-sm font-bold transition-colors"
+            </a>
+            <a
+              href={buildHref('/compare')}
+              onClick={(e) => handleLinkClick(e, '/compare')}
+              className="h-11 px-5 rounded-xl bg-white hover:bg-[#eff4ff] border border-[#004ac6] text-[#004ac6] text-xs sm:text-sm font-bold inline-flex items-center transition-colors"
             >
               مقایسه تخصصی موبایل‌ها
-            </button>
+            </a>
           </div>
         </div>
       </section>
 
-      {/* Why Amir Mobile (3 concise proof cards) */}
+      {/* Why Amir Mobile */}
       <section className="max-w-[1440px] mx-auto px-4 lg:px-8 grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
         <div className="bg-white rounded-2xl border border-[#e5eeff] p-6 space-y-2.5">
           <div className="w-10 h-10 rounded-xl bg-[#eff4ff] text-[#004ac6] flex items-center justify-center">
@@ -433,13 +638,17 @@ export const HomePage: React.FC = () => {
               key={art.id}
               className="bg-white rounded-2xl border border-[#e5eeff] overflow-hidden flex flex-col hover:shadow-md transition-shadow"
             >
-              <div className="aspect-[16/9] bg-[#f8f9ff] overflow-hidden">
+              <a
+                href={buildHref(`/product/${art.targetSlug}`)}
+                onClick={(e) => handleLinkClick(e, `/product/${art.targetSlug}`)}
+                className="aspect-[16/9] bg-[#f8f9ff] overflow-hidden block"
+              >
                 <SmartImage
                   src={art.image}
                   alt={art.title}
                   className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
                 />
-              </div>
+              </a>
               <div className="p-5 flex-1 flex flex-col gap-2.5">
                 <div className="flex items-center justify-between text-[11px] text-[#434655]">
                   <span className="px-2.5 py-0.5 rounded-md bg-[#eff4ff] text-[#004ac6] font-bold">
@@ -449,14 +658,14 @@ export const HomePage: React.FC = () => {
                 </div>
                 <h3 className="text-sm font-extrabold text-[#0b1c30] leading-6">{art.title}</h3>
                 <p className="text-xs text-[#434655] leading-6 flex-1">{art.excerpt}</p>
-                <button
-                  type="button"
-                  onClick={() => navigate(`/product/${art.targetSlug}`)}
+                <a
+                  href={buildHref(`/product/${art.targetSlug}`)}
+                  onClick={(e) => handleLinkClick(e, `/product/${art.targetSlug}`)}
                   className="self-start text-xs font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1 pt-2"
                 >
                   <span>بررسی محصول مرتبط</span>
                   <ArrowLeft className="w-3.5 h-3.5" />
-                </button>
+                </a>
               </div>
             </article>
           ))}

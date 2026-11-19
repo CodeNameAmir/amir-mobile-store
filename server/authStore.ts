@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { resolveSessionSecret, resolveSupabaseAdminConfig } from './config.ts';
 import {
+  DEFAULT_DEV_BRANDS,
+  DEFAULT_DEV_CATEGORIES,
   DEFAULT_DEV_COUPONS,
   DEFAULT_DEV_PRODUCTS,
   DEFAULT_DEV_REVIEWS,
@@ -14,7 +16,10 @@ import {
   type AdminAuditLogDTO,
   type AdminCustomerDTO,
   type AdminStatsDTO,
+  type BrandDTO,
+  type CategoryDTO,
   type CouponRuleDTO,
+  type CustomSpecItemDTO,
   type OrderStatus,
   type ProductCategory,
   type ProductColorDTO,
@@ -88,6 +93,7 @@ export interface StoredUserRecord {
   fullName: string;
   phone: string;
   role: UserRole;
+  avatarUrl?: string;
   nationalId?: string;
   birthDate?: string;
   newsletterOptIn: boolean;
@@ -107,6 +113,7 @@ export interface PublicUserDTO {
   fullName: string;
   phone: string;
   role: UserRole;
+  avatarUrl?: string;
   nationalId?: string;
   birthDate?: string;
   newsletterOptIn: boolean;
@@ -161,6 +168,7 @@ export interface AuthStorageAdapter {
     userId: string,
     updater: (user: StoredUserRecord) => StoredUserRecord
   ): Promise<StoredUserRecord | null>;
+  deleteUser(userId: string): Promise<boolean>;
   getOtpChallenge(challengeKey: string): Promise<OtpChallengeRecord | null>;
   upsertOtpChallenge(challenge: OtpChallengeRecord): Promise<void>;
   deleteOtpChallenge(challengeKey: string): Promise<void>;
@@ -189,6 +197,12 @@ export interface AuthStorageAdapter {
   ): Promise<ProductDTO | null>;
   deleteProduct(id: string): Promise<boolean>;
   decrementProductStock(productId: string, qty: number): Promise<void>;
+  listCategories(includeInactive?: boolean): Promise<CategoryDTO[]>;
+  upsertCategory(category: CategoryDTO): Promise<CategoryDTO>;
+  deleteCategory(idOrSlug: string): Promise<boolean>;
+  listBrands(): Promise<BrandDTO[]>;
+  upsertBrand(brand: BrandDTO): Promise<BrandDTO>;
+  deleteBrand(idOrName: string): Promise<boolean>;
   listActiveCoupons(): Promise<CouponRuleDTO[]>;
   getStoreSettings(): Promise<StoreSettingsDTO>;
   listProductReviews(productId: string): Promise<ProductReviewDTO[]>;
@@ -240,6 +254,7 @@ export function toPublicUser(user: StoredUserRecord): PublicUserDTO {
     fullName: user.fullName,
     phone: user.phone,
     role: normalizeRole(user.role),
+    avatarUrl: user.avatarUrl,
     nationalId: user.nationalId,
     birthDate: user.birthDate,
     newsletterOptIn: user.newsletterOptIn,
@@ -339,6 +354,7 @@ function mapSupabaseUserRow(row: Record<string, unknown>): StoredUserRecord {
     fullName: String(row.full_name || ''),
     phone: String(row.phone || ''),
     role: normalizeRole(row.role),
+    avatarUrl: typeof row.avatar_url === 'string' && row.avatar_url.trim() ? row.avatar_url.trim() : undefined,
     nationalId: row.national_id ? String(row.national_id) : undefined,
     birthDate: row.birth_date ? String(row.birth_date) : undefined,
     newsletterOptIn: row.newsletter_opt_in !== false,
@@ -378,11 +394,34 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
   const parsedSpecs = parseJsonValue<unknown>(row.specs, {});
   const rawSpecs = (
     parsedSpecs && typeof parsedSpecs === 'object' && !Array.isArray(parsedSpecs) ? parsedSpecs : {}
-  ) as Partial<ProductSpecsDTO>;
+  ) as Partial<ProductSpecsDTO> & {
+    __images?: unknown;
+    __customSpecs?: unknown;
+    __priceUpdatedAt?: unknown;
+  };
   const parsedColors = parseJsonValue<unknown>(row.colors, []);
   const rawColors = Array.isArray(parsedColors) ? (parsedColors as ProductColorDTO[]) : [];
   const parsedStorage = parseJsonValue<unknown>(row.storage_options, []);
   const rawStorage = Array.isArray(parsedStorage) ? (parsedStorage as StorageVariantDTO[]) : [];
+
+  const mainImage = typeof row.image_url === 'string' && row.image_url.trim() ? row.image_url.trim() : '';
+  const embeddedImages = Array.isArray(rawSpecs.__images)
+    ? rawSpecs.__images.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
+  const imagesList = Array.from(new Set([mainImage, ...embeddedImages].filter(Boolean)));
+  const customSpecs = Array.isArray(rawSpecs.__customSpecs)
+    ? (rawSpecs.__customSpecs as Array<{ label?: unknown; value?: unknown }>)
+        .map((s) => ({ label: String(s?.label || '').trim(), value: String(s?.value || '').trim() }))
+        .filter((s) => s.label && s.value)
+    : [];
+  const priceUpdatedAt =
+    typeof rawSpecs.__priceUpdatedAt === 'string' && rawSpecs.__priceUpdatedAt.trim()
+      ? rawSpecs.__priceUpdatedAt.trim()
+      : row.updated_at
+      ? String(row.updated_at)
+      : row.created_at
+      ? String(row.created_at)
+      : undefined;
 
   const stockCount = Math.max(0, Number(row.stock_count ?? 0) || 0);
   const inStock = parseBooleanFlag(row.in_stock, stockCount > 0);
@@ -394,7 +433,7 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
     nameFa: String(row.name_fa || ''),
     nameEn: String(row.name_en || ''),
     brand: String(row.brand || 'Apple').trim(),
-    category: (String(row.category || 'phones').trim().toLowerCase() as ProductCategory),
+    category: String(row.category || 'phones').trim().toLowerCase() as ProductCategory,
     price: Number(row.price || 0),
     originalPrice:
       row.original_price !== null && row.original_price !== undefined
@@ -413,7 +452,8 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
     rating: Number.isFinite(ratingNum) ? ratingNum : 4.8,
     reviewCount: Number(row.review_count ?? 0),
     recommendPercent: Number(row.recommend_percent ?? 95),
-    image: typeof row.image_url === 'string' && row.image_url.trim() ? row.image_url.trim() : '',
+    image: mainImage,
+    images: imagesList.length > 0 ? imagesList : undefined,
     colorLabel: String(row.color_label || rawColors[0]?.name || 'مشکی'),
     colors:
       rawColors.length > 0 ? rawColors : [{ id: 'midnight', name: 'مشکی', hex: '#1e293b' }],
@@ -434,6 +474,8 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
       ram: rawSpecs.ram || '۸ گیگ',
       os: rawSpecs.os || 'نسخه رسمی گلوبال',
     },
+    customSpecs: customSpecs.length > 0 ? customSpecs : undefined,
+    priceUpdatedAt,
     isFeaturedDeal: parseBooleanFlag(row.is_featured_deal, false),
     isPopular: parseBooleanFlag(row.is_popular, false),
     salesRank: Number(row.sales_rank ?? 100),
@@ -444,6 +486,20 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
 }
 
 function toSupabaseProductRow(p: ProductDTO): Record<string, unknown> {
+  const cleanImages = Array.isArray(p.images)
+    ? Array.from(new Set([p.image, ...p.images].map((u) => String(u || '').trim()).filter(Boolean)))
+    : [];
+  const cleanCustomSpecs: CustomSpecItemDTO[] = Array.isArray(p.customSpecs)
+    ? p.customSpecs
+        .map((s) => ({ label: String(s?.label || '').trim(), value: String(s?.value || '').trim() }))
+        .filter((s) => s.label && s.value)
+    : [];
+
+  const specsPayload: Record<string, unknown> = { ...p.specs };
+  if (cleanImages.length > 0) specsPayload.__images = cleanImages;
+  if (cleanCustomSpecs.length > 0) specsPayload.__customSpecs = cleanCustomSpecs;
+  if (p.priceUpdatedAt) specsPayload.__priceUpdatedAt = p.priceUpdatedAt;
+
   return {
     id: p.id,
     slug: p.slug,
@@ -462,11 +518,11 @@ function toSupabaseProductRow(p: ProductDTO): Record<string, unknown> {
     rating: p.rating,
     review_count: p.reviewCount,
     recommend_percent: p.recommendPercent,
-    image_url: p.image || null,
+    image_url: p.image || cleanImages[0] || null,
     color_label: p.colorLabel,
     colors: p.colors,
     storage_options: p.storageOptions,
-    specs: p.specs,
+    specs: specsPayload,
     is_featured_deal: Boolean(p.isFeaturedDeal),
     is_popular: Boolean(p.isPopular),
     sales_rank: p.salesRank,
@@ -591,7 +647,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         email: params.email,
         full_name: params.fullName.trim(),
         phone: params.phone.trim(),
-        role: 'customer',
+        role: params.role ? normalizeRole(params.role) : 'customer',
         newsletter_opt_in: true,
         email_verified: true,
         two_factor_enabled: false,
@@ -614,31 +670,54 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (!current) return null;
       const next = updater(current);
 
-      const { data, error } = await supabase
+      const basePayload: Record<string, unknown> = {
+        email: next.email,
+        full_name: next.fullName,
+        phone: next.phone,
+        role: normalizeRole(next.role),
+        national_id: next.nationalId ?? null,
+        birth_date: next.birthDate ?? null,
+        newsletter_opt_in: next.newsletterOptIn,
+        email_verified: next.emailVerified,
+        two_factor_enabled: next.twoFactorEnabled,
+        password_hash: next.passwordHash ?? null,
+        addresses: next.addresses,
+        wishlist: next.wishlist,
+        active_session_ids: next.activeSessionIds,
+        last_login_at: next.lastLoginAt,
+      };
+
+      const withAvatar = { ...basePayload, avatar_url: next.avatarUrl ?? null };
+      let { data, error } = await supabase
         .from('app_users')
-        .update({
-          email: next.email,
-          full_name: next.fullName,
-          phone: next.phone,
-          national_id: next.nationalId ?? null,
-          birth_date: next.birthDate ?? null,
-          newsletter_opt_in: next.newsletterOptIn,
-          email_verified: next.emailVerified,
-          two_factor_enabled: next.twoFactorEnabled,
-          password_hash: next.passwordHash ?? null,
-          addresses: next.addresses,
-          wishlist: next.wishlist,
-          active_session_ids: next.activeSessionIds,
-          last_login_at: next.lastLoginAt,
-        })
+        .update(withAvatar)
         .eq('id', userId)
         .select('*')
         .single();
+
+      if (error && isSchemaColumnMismatch(error)) {
+        const fallback = await supabase
+          .from('app_users')
+          .update(basePayload)
+          .eq('id', userId)
+          .select('*')
+          .single();
+        data = fallback.data;
+        error = fallback.error;
+      }
 
       if (error || !data) {
         throw new Error(`Supabase update user failed: ${error?.message || 'no row returned'}`);
       }
       return mapSupabaseUserRow(data as Record<string, unknown>);
+    },
+
+    async deleteUser(userId: string) {
+      const { error } = await supabase.from('app_users').delete().eq('id', userId);
+      if (error) {
+        throw new Error(`Supabase delete user failed: ${error.message}`);
+      }
+      return true;
     },
 
     async getOtpChallenge(challengeKey: string) {
@@ -796,7 +875,11 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
     },
 
     async createProduct(product: ProductDTO) {
-      const row = toSupabaseProductRow(product);
+      const nowIso = new Date().toISOString();
+      const row = toSupabaseProductRow({
+        ...product,
+        priceUpdatedAt: product.priceUpdatedAt || nowIso,
+      });
       const { data, error } = await supabase.from('products').insert(row).select('*').single();
       if (error || !data) {
         throw new Error(`Supabase create product failed: ${error?.message || 'no row returned'}`);
@@ -807,6 +890,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
     async updateProduct(id: string, patch: Partial<ProductDTO>) {
       const current = await this.findProductByIdOrSlug(id);
       if (!current) return null;
+      const priceChanged = typeof patch.price === 'number' && patch.price !== current.price;
       const merged: ProductDTO = {
         ...current,
         ...patch,
@@ -814,6 +898,11 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         specs: patch.specs ? { ...current.specs, ...patch.specs } : current.specs,
         colors: patch.colors ?? current.colors,
         storageOptions: patch.storageOptions ?? current.storageOptions,
+        images: patch.images !== undefined ? patch.images : current.images,
+        customSpecs: patch.customSpecs !== undefined ? patch.customSpecs : current.customSpecs,
+        priceUpdatedAt: priceChanged
+          ? new Date().toISOString()
+          : patch.priceUpdatedAt ?? current.priceUpdatedAt,
       };
       if (typeof patch.stockCount === 'number' && patch.inStock === undefined) {
         merged.inStock = patch.stockCount > 0;
@@ -872,6 +961,204 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
           updated_at: new Date().toISOString(),
         })
         .eq('id', current.id);
+    },
+
+    async listCategories(includeInactive = false) {
+      try {
+        const { data, error } = await supabase
+          .from('categories')
+          .select('*')
+          .order('sort_order', { ascending: true });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          const mapped: CategoryDTO[] = data.map((row: Record<string, unknown>) => ({
+            id: String(row.id || row.slug),
+            slug: String(row.slug || row.id),
+            label: String(row.label || ''),
+            subtitle: String(row.subtitle || ''),
+            parentId: row.parent_id ? String(row.parent_id) : null,
+            isActive: row.is_active !== false,
+            image: String(row.image || ''),
+            seoTitle: String(row.seo_title || ''),
+            seoDescription: String(row.seo_description || ''),
+            sortOrder: Number(row.sort_order ?? 100),
+          }));
+          mapped.sort((a, b) => a.sortOrder - b.sortOrder);
+          return includeInactive ? mapped : mapped.filter((c) => c.isActive);
+        }
+      } catch {
+        // Fallback to store_settings or defaults below
+      }
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', 'catalog_categories')
+          .maybeSingle();
+        if (data?.value && Array.isArray(data.value) && data.value.length > 0) {
+          const list = (data.value as CategoryDTO[]).slice().sort((a, b) => a.sortOrder - b.sortOrder);
+          return includeInactive ? list : list.filter((c) => c.isActive);
+        }
+      } catch {
+        // Ignore if store_settings missing in isolated tests
+      }
+      const fallback = DEFAULT_DEV_CATEGORIES.map((c) => ({ ...c })).sort((a, b) => a.sortOrder - b.sortOrder);
+      return includeInactive ? fallback : fallback.filter((c) => c.isActive);
+    },
+
+    async upsertCategory(category: CategoryDTO) {
+      try {
+        const { data, error } = await supabase
+          .from('categories')
+          .upsert({
+            id: category.id,
+            slug: category.slug,
+            label: category.label,
+            subtitle: category.subtitle,
+            parent_id: category.parentId || null,
+            is_active: category.isActive,
+            image: category.image,
+            seo_title: category.seoTitle,
+            seo_description: category.seoDescription,
+            sort_order: category.sortOrder,
+          })
+          .select('*')
+          .single();
+        if (!error && data) {
+          return {
+            id: String(data.id),
+            slug: String(data.slug),
+            label: String(data.label),
+            subtitle: String(data.subtitle || ''),
+            parentId: data.parent_id ? String(data.parent_id) : null,
+            isActive: data.is_active !== false,
+            image: String(data.image || ''),
+            seoTitle: String(data.seo_title || ''),
+            seoDescription: String(data.seo_description || ''),
+            sortOrder: Number(data.sort_order ?? 100),
+          };
+        }
+      } catch {
+        // Fallback to store_settings
+      }
+      const existing = await this.listCategories(true);
+      const next = [...existing.filter((c) => c.id !== category.id && c.slug !== category.slug), category].sort(
+        (a, b) => a.sortOrder - b.sortOrder
+      );
+      await supabase.from('store_settings').upsert({
+        key: 'catalog_categories',
+        value: next,
+        updated_at: new Date().toISOString(),
+      });
+      return category;
+    },
+
+    async deleteCategory(idOrSlug: string) {
+      const clean = idOrSlug.trim().toLowerCase();
+      try {
+        const { error } = await supabase.from('categories').delete().or(`id.eq.${clean},slug.eq.${clean}`);
+        if (!error) return true;
+      } catch {
+        // Fallback to store_settings
+      }
+      const existing = await this.listCategories(true);
+      const filtered = existing
+        .filter((c) => c.id.toLowerCase() !== clean && c.slug.toLowerCase() !== clean)
+        .map((c) => (c.parentId?.toLowerCase() === clean ? { ...c, parentId: null } : c));
+      if (filtered.length === existing.length) return false;
+      await supabase.from('store_settings').upsert({
+        key: 'catalog_categories',
+        value: filtered,
+        updated_at: new Date().toISOString(),
+      });
+      return true;
+    },
+
+    async listBrands() {
+      try {
+        const { data, error } = await supabase.from('brands').select('*');
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return data.map((row: Record<string, unknown>) => ({
+            id: String(row.id || row.name),
+            name: String(row.name || ''),
+            labelFa: row.label_fa ? String(row.label_fa) : undefined,
+            isActive: row.is_active !== false,
+          }));
+        }
+      } catch {
+        // Fallback to store_settings
+      }
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', 'catalog_brands')
+          .maybeSingle();
+        if (data?.value && Array.isArray(data.value) && data.value.length > 0) {
+          return data.value as BrandDTO[];
+        }
+      } catch {
+        // Ignore
+      }
+      return DEFAULT_DEV_BRANDS.map((b) => ({ ...b }));
+    },
+
+    async upsertBrand(brand: BrandDTO) {
+      try {
+        const { data, error } = await supabase
+          .from('brands')
+          .upsert({
+            id: brand.id,
+            name: brand.name,
+            label_fa: brand.labelFa ?? '',
+            is_active: brand.isActive,
+          })
+          .select('*')
+          .single();
+        if (!error && data) {
+          return {
+            id: String(data.id),
+            name: String(data.name),
+            labelFa: data.label_fa ? String(data.label_fa) : undefined,
+            isActive: data.is_active !== false,
+          };
+        }
+      } catch {
+        // Fallback
+      }
+      const existing = await this.listBrands();
+      const next = [
+        ...existing.filter(
+          (b) => b.id.toLowerCase() !== brand.id.toLowerCase() && b.name.toLowerCase() !== brand.name.toLowerCase()
+        ),
+        brand,
+      ];
+      await supabase.from('store_settings').upsert({
+        key: 'catalog_brands',
+        value: next,
+        updated_at: new Date().toISOString(),
+      });
+      return brand;
+    },
+
+    async deleteBrand(idOrName: string) {
+      const clean = idOrName.trim().toLowerCase();
+      try {
+        const { error } = await supabase.from('brands').delete().or(`id.eq.${clean},name.ilike.${clean}`);
+        if (!error) return true;
+      } catch {
+        // Fallback
+      }
+      const existing = await this.listBrands();
+      const next = existing.filter(
+        (b) => b.id.toLowerCase() !== clean && b.name.toLowerCase() !== clean
+      );
+      if (next.length === existing.length) return false;
+      await supabase.from('store_settings').upsert({
+        key: 'catalog_brands',
+        value: next,
+        updated_at: new Date().toISOString(),
+      });
+      return true;
     },
 
     async listActiveCoupons() {
@@ -1223,7 +1510,11 @@ export function createMemoryAuthStorage(options?: {
     colors: p.colors.map((c) => ({ ...c })),
     storageOptions: p.storageOptions.map((s) => ({ ...s })),
     specs: { ...p.specs },
+    images: p.images ? [...p.images] : undefined,
+    customSpecs: p.customSpecs ? p.customSpecs.map((cs) => ({ ...cs })) : undefined,
   }));
+  const categories: CategoryDTO[] = DEFAULT_DEV_CATEGORIES.map((c) => ({ ...c }));
+  const brands: BrandDTO[] = DEFAULT_DEV_BRANDS.map((b) => ({ ...b }));
   const coupons: CouponRuleDTO[] = DEFAULT_DEV_COUPONS.map((c) => ({ ...c }));
   const settings: StoreSettingsDTO = { ...DEFAULT_DEV_SETTINGS };
   const reviewsByProduct = new Map<string, ProductReviewDTO[]>();
@@ -1308,6 +1599,10 @@ export function createMemoryAuthStorage(options?: {
       };
     },
 
+    async deleteUser(userId: string) {
+      return users.delete(userId);
+    },
+
     async getOtpChallenge(challengeKey: string) {
       const item = otps.get(challengeKey);
       return item ? { ...item } : null;
@@ -1381,8 +1676,10 @@ export function createMemoryAuthStorage(options?: {
           colors: p.colors.map((c) => ({ ...c })),
           storageOptions: p.storageOptions.map((s) => ({ ...s })),
           specs: { ...p.specs },
+          images: p.images ? [...p.images] : undefined,
+          customSpecs: p.customSpecs ? p.customSpecs.map((cs) => ({ ...cs })) : undefined,
         })),
-        query
+        { ...query, categories: query.categories ?? categories }
       );
     },
 
@@ -1395,6 +1692,8 @@ export function createMemoryAuthStorage(options?: {
             colors: found.colors.map((c) => ({ ...c })),
             storageOptions: found.storageOptions.map((s) => ({ ...s })),
             specs: { ...found.specs },
+            images: found.images ? [...found.images] : undefined,
+            customSpecs: found.customSpecs ? found.customSpecs.map((cs) => ({ ...cs })) : undefined,
           }
         : null;
     },
@@ -1405,9 +1704,12 @@ export function createMemoryAuthStorage(options?: {
         ...product,
         createdAt: product.createdAt || nowIso,
         updatedAt: product.updatedAt || nowIso,
+        priceUpdatedAt: product.priceUpdatedAt || nowIso,
         colors: product.colors.map((c) => ({ ...c })),
         storageOptions: product.storageOptions.map((s) => ({ ...s })),
         specs: { ...product.specs },
+        images: product.images ? [...product.images] : undefined,
+        customSpecs: product.customSpecs ? product.customSpecs.map((cs) => ({ ...cs })) : undefined,
       };
       products.push(copy);
       return copy;
@@ -1417,6 +1719,8 @@ export function createMemoryAuthStorage(options?: {
       const idx = products.findIndex((p) => p.id === id || p.slug === id);
       if (idx < 0) return null;
       const current = products[idx];
+      const nowIso = new Date().toISOString();
+      const priceChanged = typeof patch.price === 'number' && patch.price !== current.price;
       const next: ProductDTO = {
         ...current,
         ...patch,
@@ -1424,6 +1728,12 @@ export function createMemoryAuthStorage(options?: {
         specs: patch.specs ? { ...current.specs, ...patch.specs } : current.specs,
         colors: patch.colors ?? current.colors,
         storageOptions: patch.storageOptions ?? current.storageOptions,
+        images: patch.images !== undefined ? patch.images : current.images,
+        customSpecs: patch.customSpecs !== undefined ? patch.customSpecs : current.customSpecs,
+        priceUpdatedAt: priceChanged
+          ? nowIso
+          : patch.priceUpdatedAt ?? current.priceUpdatedAt,
+        updatedAt: nowIso,
       };
       if (typeof patch.stockCount === 'number' && patch.inStock === undefined) {
         next.inStock = patch.stockCount > 0;
@@ -1461,6 +1771,63 @@ export function createMemoryAuthStorage(options?: {
         stockCount: nextStock,
         inStock: nextStock > 0,
       };
+    },
+
+    async listCategories(includeInactive = false) {
+      const list = categories.map((c) => ({ ...c })).sort((a, b) => a.sortOrder - b.sortOrder);
+      return includeInactive ? list : list.filter((c) => c.isActive);
+    },
+
+    async upsertCategory(category: CategoryDTO) {
+      const idx = categories.findIndex((c) => c.id === category.id || c.slug === category.slug);
+      const copy = { ...category };
+      if (idx >= 0) {
+        categories[idx] = copy;
+      } else {
+        categories.push(copy);
+      }
+      return { ...copy };
+    },
+
+    async deleteCategory(idOrSlug: string) {
+      const clean = idOrSlug.trim().toLowerCase();
+      const idx = categories.findIndex((c) => c.id.toLowerCase() === clean || c.slug.toLowerCase() === clean);
+      if (idx < 0) return false;
+      const removed = categories[idx];
+      categories.splice(idx, 1);
+      for (let i = 0; i < categories.length; i += 1) {
+        if (categories[i].parentId === removed.id || categories[i].parentId === removed.slug) {
+          categories[i] = { ...categories[i], parentId: null };
+        }
+      }
+      return true;
+    },
+
+    async listBrands() {
+      return brands.map((b) => ({ ...b }));
+    },
+
+    async upsertBrand(brand: BrandDTO) {
+      const idx = brands.findIndex(
+        (b) => b.id.toLowerCase() === brand.id.toLowerCase() || b.name.toLowerCase() === brand.name.toLowerCase()
+      );
+      const copy = { ...brand };
+      if (idx >= 0) {
+        brands[idx] = copy;
+      } else {
+        brands.push(copy);
+      }
+      return { ...copy };
+    },
+
+    async deleteBrand(idOrName: string) {
+      const clean = idOrName.trim().toLowerCase();
+      const idx = brands.findIndex(
+        (b) => b.id.toLowerCase() === clean || b.name.toLowerCase() === clean
+      );
+      if (idx < 0) return false;
+      brands.splice(idx, 1);
+      return true;
     },
 
     async listActiveCoupons() {
@@ -1669,6 +2036,10 @@ export class AuthService {
 
   updateUserRecord(userId: string, updater: (user: StoredUserRecord) => StoredUserRecord) {
     return this.storage.updateUser(userId, updater);
+  }
+
+  deleteUserAccount(userId: string) {
+    return this.storage.deleteUser(userId);
   }
 
   listUserOrders(userId: string) {

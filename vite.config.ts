@@ -62,8 +62,8 @@ export default defineConfig(() => {
   const buildInfo = resolveBuildCommitInfo();
 
   return {
-    // Relative base ensures assets resolve cleanly on GitHub Pages subpaths and ArvanCloud CDN
-    base: process.env.VITE_BASE_PATH || './',
+    // Root-absolute base ensures nested SPA routes resolve scripts and assets cleanly (override via VITE_BASE_PATH for subpath hosting)
+    base: process.env.VITE_BASE_PATH || '/',
     plugins: [react(), tailwindcss()],
     define: {
       __APP_BUILD_INFO__: JSON.stringify(buildInfo),

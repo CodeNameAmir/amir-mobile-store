@@ -1,15 +1,114 @@
-import type { OrderRecord, Product, ProductReview } from '../types/store';
+import type { BrandItem, CategoryItem, OrderRecord, Product, ProductReview } from '../types/store';
 import { STORE_ASSETS } from './assets';
 
-export const CATEGORY_ITEMS = [
-  { id: 'phones', label: 'گوشی موبایل', subtitle: 'اپل، سامسونگ، شیائومی' },
-  { id: 'tablets', label: 'تبلت', subtitle: 'آیپد و گلکسی تب' },
-  { id: 'smartwatches', label: 'ساعت هوشمند', subtitle: 'اپل واچ و گلکسی واچ' },
-  { id: 'audio', label: 'هدفون و ایرپاد', subtitle: 'ایرپاد و استودیویی' },
-  { id: 'chargers', label: 'شارژر و پاوربانک', subtitle: 'فست شارژ GaN اورجینال' },
-  { id: 'cases', label: 'قاب و محافظ صفحه', subtitle: 'ضد ضربه و کاور مگ‌سیف' },
-  { id: 'gaming', label: 'لوازم گیمینگ', subtitle: 'دسته بازی و خنک‌کننده' },
-] as const;
+export const CATEGORY_ITEMS: CategoryItem[] = [
+  {
+    id: 'phones',
+    slug: 'phones',
+    label: 'گوشی موبایل',
+    subtitle: 'اپل، سامسونگ، شیائومی، هواوی',
+    parentId: null,
+    isActive: true,
+    image: STORE_ASSETS.heroIphone,
+    seoTitle: 'خرید گوشی موبایل اصل با گارانتی و رجیستری | فروشگاه موبایل امیر',
+    seoDescription: 'جدیدترین گوشی‌های آیفون، سامسونگ، شیائومی و هواوی با گارانتی ۱۸ ماهه امیر سرویس و کد رجیستری همتا.',
+    sortOrder: 1,
+  },
+  {
+    id: 'flagship-phones',
+    slug: 'flagship-phones',
+    label: 'پرچمداران عکاسی و پرو',
+    subtitle: 'مدل‌های Ultra و Pro Max',
+    parentId: 'phones',
+    isActive: true,
+    image: STORE_ASSETS.iphoneCamera,
+    seoTitle: 'گوشی‌های پرچمدار و حرفه‌ای | فروشگاه موبایل امیر',
+    seoDescription: 'بررسی و خرید پرچمداران اپل، سامسونگ، شیائومی لایکا و هواوی پورا با ارسال اکسپرس.',
+    sortOrder: 2,
+  },
+  {
+    id: 'tablets',
+    slug: 'tablets',
+    label: 'تبلت',
+    subtitle: 'آیپد و گلکسی تب',
+    parentId: null,
+    isActive: true,
+    image: STORE_ASSETS.promoShowcase,
+    seoTitle: 'خرید تبلت و آیپد پرو M4 | فروشگاه موبایل امیر',
+    seoDescription: 'تبلت‌های حرفه‌ای اپل و سامسونگ با گارانتی معتبر و ارسال سریع به سراسر ایران.',
+    sortOrder: 3,
+  },
+  {
+    id: 'smartwatches',
+    slug: 'smartwatches',
+    label: 'ساعت هوشمند',
+    subtitle: 'اپل واچ و گلکسی واچ',
+    parentId: null,
+    isActive: true,
+    image: STORE_ASSETS.audioWearables,
+    seoTitle: 'خرید ساعت هوشمند اورجینال | فروشگاه موبایل امیر',
+    seoDescription: 'اپل واچ اولترا ۲ و ساعت‌های هوشمند ورزشی با ضمانت اصالت.',
+    sortOrder: 4,
+  },
+  {
+    id: 'audio',
+    slug: 'audio',
+    label: 'هدفون و ایرپاد',
+    subtitle: 'ایرپاد و استودیویی',
+    parentId: null,
+    isActive: true,
+    image: STORE_ASSETS.audioWearables,
+    seoTitle: 'خرید هندزفری بی‌سیم و ایرپاد اصل | فروشگاه موبایل امیر',
+    seoDescription: 'انواع ایرپاد پرو و هندزفری‌های حذف نویز فعال با گارانتی اصلی.',
+    sortOrder: 5,
+  },
+  {
+    id: 'chargers',
+    slug: 'chargers',
+    label: 'شارژر و پاوربانک',
+    subtitle: 'فست شارژ GaN اورجینال',
+    parentId: null,
+    isActive: true,
+    image: STORE_ASSETS.ankerCharger,
+    seoTitle: 'خرید شارژر فست GaN و پاوربانک انکر | فروشگاه موبایل امیر',
+    seoDescription: 'آداپتورهای اورجینال اپل، سامسونگ و پاوربانک‌های پرقدرت انکر.',
+    sortOrder: 6,
+  },
+  {
+    id: 'cases',
+    slug: 'cases',
+    label: 'قاب و محافظ صفحه',
+    subtitle: 'ضد ضربه و کاور مگ‌سیف',
+    parentId: null,
+    isActive: true,
+    image: STORE_ASSETS.iphoneSide,
+    seoTitle: 'خرید قاب مگ‌سیف و گلس محافظ | فروشگاه موبایل امیر',
+    seoDescription: 'قاب‌های اورجینال و ضدضربه برای آیفون و گوشی‌های پرچمدار.',
+    sortOrder: 7,
+  },
+  {
+    id: 'gaming',
+    slug: 'gaming',
+    label: 'لوازم گیمینگ',
+    subtitle: 'دسته بازی و خنک‌کننده',
+    parentId: null,
+    isActive: true,
+    image: STORE_ASSETS.ankerCharger,
+    seoTitle: 'خرید تجهیزات گیمینگ موبایل | فروشگاه موبایل امیر',
+    seoDescription: 'فن خنک‌کننده مغناطیسی، تریگر و لوازم حرفه‌ای موبایل گیمینگ.',
+    sortOrder: 8,
+  },
+];
+
+export const DEFAULT_BRANDS: BrandItem[] = [
+  { id: 'apple', name: 'Apple', labelFa: 'اپل', isActive: true },
+  { id: 'samsung', name: 'Samsung', labelFa: 'سامسونگ', isActive: true },
+  { id: 'xiaomi', name: 'Xiaomi', labelFa: 'شیائومی', isActive: true },
+  { id: 'huawei', name: 'Huawei', labelFa: 'هواوی', isActive: true },
+  { id: 'honor', name: 'Honor', labelFa: 'آنر', isActive: true },
+  { id: 'anker', name: 'Anker', labelFa: 'انکر', isActive: true },
+  { id: 'motorola', name: 'Motorola', labelFa: 'موتورولا', isActive: true },
+];
 
 export const SEED_PRODUCTS: Product[] = [
   {
@@ -31,6 +130,11 @@ export const SEED_PRODUCTS: Product[] = [
     reviewCount: 142,
     recommendPercent: 96,
     image: STORE_ASSETS.heroIphone,
+    images: [
+      STORE_ASSETS.heroIphone,
+      STORE_ASSETS.iphoneSide,
+      STORE_ASSETS.iphoneCamera,
+    ],
     colorLabel: 'تیتانیوم کویری',
     colors: [
       { id: 'desert', name: 'تیتانیوم کویری (Desert Titanium)', hex: '#C5B4A0' },
@@ -56,10 +160,67 @@ export const SEED_PRODUCTS: Product[] = [
       ram: '۸ گیگ',
       os: 'iOS 18',
     },
+    customSpecs: [
+      { label: 'دکمه کنترل دوربین', value: 'Camera Control لمسی و فشاری' },
+      { label: 'جنس فریم', value: 'تیتانیوم گرید ۵ · گواهی IP68' },
+      { label: 'فیلمبرداری حرفه‌ای', value: '4K Dolby Vision 120fps · ProRes Log' },
+    ],
+    priceUpdatedAt: '2026-11-18T10:30:00.000Z',
     isFeaturedDeal: false,
     isPopular: true,
     salesRank: 1,
     releaseOrder: 1,
+  },
+  {
+    id: 'huawei-pura-70-ultra',
+    slug: 'huawei-pura-70-ultra',
+    nameFa: 'گوشی موبایل هواوی مدل Pura 70 Ultra ظرفیت ۵۱۲ گیگابایت',
+    nameEn: 'Huawei Pura 70 Ultra 512GB XMAGE Retractable Lens',
+    brand: 'Huawei',
+    category: 'phones',
+    price: 61_500_000,
+    originalPrice: 65_000_000,
+    discountPercent: 5,
+    inStock: true,
+    stockCount: 4,
+    expressDelivery: true,
+    warranty: '۱۸ ماهه امیر سرویس + کد رجیستری همتا',
+    badgeText: 'لنز تلسکوپی XMAGE',
+    rating: 4.9,
+    reviewCount: 44,
+    recommendPercent: 95,
+    image: STORE_ASSETS.huaweiPura,
+    images: [STORE_ASSETS.huaweiPura, STORE_ASSETS.promoShowcase],
+    colorLabel: 'سفید مرواریدی',
+    colors: [
+      { id: 'silver', name: 'سفید مرواریدی', hex: '#f1f5f9' },
+      { id: 'midnight', name: 'مشکی چرمی', hex: '#1e293b' },
+    ],
+    storageOptions: [
+      { label: '۵۱۲ گیگابایت', subtitle: 'رم ۱۶ گیگابایت', priceDelta: 0 },
+    ],
+    specs: {
+      display: '۶.۸ اینچ LTPO OLED',
+      displayDetails: '۱۲۰Hz · محافظ Kunlun Glass',
+      chipset: 'Kirin 9010',
+      chipsetDetails: 'معماری اختصاصی ۸ هسته‌ای',
+      camera: '۵۰ + ۵۰ + ۴۰ MP XMAGE',
+      cameraDetails: 'سنسور ۱ اینچی جمع‌شونده مکانیکی',
+      battery: '۵۲۰۰ میلی‌آمپر',
+      batteryDetails: 'فست شارژ ۱۰۰ وات سیمی · ۸۰ وات بی‌سیم',
+      storageDefault: '۵۱۲ گیگابایت',
+      ram: '۱۶ گیگ',
+      os: 'EMUI 14.2 گلوبال',
+    },
+    customSpecs: [
+      { label: 'دیافراگم متغیر', value: 'f/1.6 تا f/4.0 مکانیکی' },
+      { label: 'شیشه محافظ', value: 'Basalt Tempered Kunlun Glass' },
+    ],
+    priceUpdatedAt: '2026-11-18T11:00:00.000Z',
+    isFeaturedDeal: false,
+    isPopular: true,
+    salesRank: 3,
+    releaseOrder: 2,
   },
   {
     id: 'galaxy-s24-ultra',
@@ -736,14 +897,16 @@ export const DEMO_SAMPLE_ORDER: OrderRecord = {
 const SEED_BY_ID = new Map(SEED_PRODUCTS.map((p) => [p.id, p]));
 
 export function resolveFallbackProductImage(brand?: string, category?: string): string {
-  if (category === 'chargers' || category === 'gaming' || brand === 'Anker') {
+  const b = String(brand || '').toLowerCase();
+  if (category === 'chargers' || category === 'gaming' || b === 'anker') {
     return STORE_ASSETS.ankerCharger;
   }
   if (category === 'audio' || category === 'smartwatches') {
     return STORE_ASSETS.audioWearables;
   }
-  if (brand === 'Samsung') return STORE_ASSETS.samsungUltra;
-  if (brand === 'Xiaomi') return STORE_ASSETS.xiaomiLeica;
+  if (b === 'samsung') return STORE_ASSETS.samsungUltra;
+  if (b === 'xiaomi') return STORE_ASSETS.xiaomiLeica;
+  if (b === 'huawei') return STORE_ASSETS.huaweiPura;
   return STORE_ASSETS.heroIphone;
 }
 
@@ -763,9 +926,25 @@ export function resolveProductImage(
 }
 
 export function hydrateProduct(product: Product): Product {
+  const primary = resolveProductImage(
+    product.image,
+    product.id || product.slug,
+    product.brand,
+    product.category
+  );
+  const seed = SEED_BY_ID.get(product.id || product.slug);
+  const rawGallery = Array.isArray(product.images) && product.images.length > 0
+    ? product.images
+    : seed?.images && seed.images.length > 0
+    ? seed.images
+    : [];
+  const mergedImages = Array.from(new Set([primary, ...rawGallery].map((u) => String(u || '').trim()).filter(Boolean)));
   return {
     ...product,
-    image: resolveProductImage(product.image, product.id || product.slug, product.brand, product.category),
+    image: primary,
+    images: mergedImages.length > 0 ? mergedImages : [primary],
+    customSpecs: product.customSpecs ?? seed?.customSpecs,
+    priceUpdatedAt: product.priceUpdatedAt ?? seed?.priceUpdatedAt ?? product.updatedAt ?? product.createdAt,
   };
 }
 
