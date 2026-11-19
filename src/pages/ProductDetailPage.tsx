@@ -23,7 +23,11 @@ import {
   Zap,
 } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
-import { ReviewCardSkeleton } from '../components/Skeleton';
+import {
+  ProductBuyBoxSkeleton,
+  ProductDetailSkeleton,
+  ReviewCardSkeleton,
+} from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import { hydrateProduct } from '../data/catalog';
@@ -47,6 +51,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     products,
     categories,
     productsLoading,
+    upsertProduct,
     buildHref,
     handleLinkClick,
     navigate,
@@ -63,39 +68,44 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     showToast,
   } = useStore();
 
-  const [fetchedProduct, setFetchedProduct] = useState<Product | null>(null);
-  const [slugLookupLoading, setSlugLookupLoading] = useState(false);
+  const [liveLookup, setLiveLookup] = useState<{
+    slug: string;
+    product: Product | null;
+    loading: boolean;
+  }>({ slug: '', product: null, loading: true });
 
   const productFromList = useMemo(
     () => products.find((p) => p.slug === slug || p.id === slug) || null,
     [products, slug]
   );
 
+  // Always verify live stock, price, and specs from the database when entering a product page
   useEffect(() => {
-    setFetchedProduct(null);
-    if (productFromList || productsLoading) return;
     let active = true;
-    setSlugLookupLoading(true);
+    setLiveLookup({ slug, product: null, loading: true });
     storeApi
       .getProductBySlug(slug)
       .then((res) => {
         if (!active) return;
-        setFetchedProduct(hydrateProduct(res.product));
+        const hydrated = hydrateProduct(res.product);
+        setLiveLookup({ slug, product: hydrated, loading: false });
+        upsertProduct(hydrated);
       })
       .catch(() => {
         if (!active) return;
-        setFetchedProduct(null);
-      })
-      .finally(() => {
-        if (!active) return;
-        setSlugLookupLoading(false);
+        setLiveLookup({ slug, product: null, loading: false });
       });
     return () => {
       active = false;
     };
-  }, [slug, productFromList, productsLoading]);
+  }, [slug, upsertProduct]);
 
-  const product = productFromList || fetchedProduct;
+  const isCurrentSlugLookup = liveLookup.slug === slug;
+  const liveStockChecking = !isCurrentSlugLookup || liveLookup.loading;
+  const liveProduct = isCurrentSlugLookup ? liveLookup.product : null;
+  // Never display stale seed data before live catalog hydration finishes
+  const product = liveProduct || (!productsLoading ? productFromList : null);
+  const productId = product?.id ?? null;
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [selectedColorId, setSelectedColorId] = useState('');
@@ -110,19 +120,20 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState('');
 
+  // Reset selections and fetch reviews only when switching to a different product ID
   useEffect(() => {
-    if (!product) return;
+    if (!productId || !product) return;
     let mounted = true;
     setActiveImageIndex(0);
     setSelectedColorId(product.colors[0]?.id || 'default');
     setSelectedStorage(product.storageOptions[0]?.label || product.specs.storageDefault);
     setIncludeCarePlus(false);
     setQty(1);
-    markProductViewed(product.id);
+    markProductViewed(productId);
     setReviews([]);
     setReviewsLoading(true);
     storeApi
-      .getProductReviews(product.id)
+      .getProductReviews(productId)
       .then((fetched) => {
         if (!mounted) return;
         setReviews(fetched);
@@ -135,7 +146,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     return () => {
       mounted = false;
     };
-  }, [product, markProductViewed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productId, markProductViewed]);
+
+  // Clamp chosen quantity if live DB stock turns out lower than current selection
+  useEffect(() => {
+    if (!product || !product.inStock) return;
+    setQty((prev) => Math.max(1, Math.min(prev, product.stockCount || 1)));
+  }, [product?.inStock, product?.stockCount]);
 
   const galleryImages = useMemo(() => {
     if (!product) return [];
@@ -166,20 +184,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       .slice(0, 4);
   }, [recentlyViewedIds, products, product]);
 
-  if (!product && (productsLoading || slugLookupLoading)) {
-    return (
-      <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-6">
-        <div className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <div className="lg:col-span-4 aspect-square rounded-2xl skeleton-shimmer" />
-          <div className="lg:col-span-5 space-y-4">
-            <div className="h-6 w-2/3 rounded-xl skeleton-shimmer" />
-            <div className="h-4 w-1/2 rounded-xl skeleton-shimmer" />
-            <div className="h-32 w-full rounded-2xl skeleton-shimmer" />
-          </div>
-          <div className="lg:col-span-3 h-72 rounded-2xl skeleton-shimmer" />
-        </div>
-      </div>
-    );
+  if (!product && (productsLoading || liveStockChecking)) {
+    return <ProductDetailSkeleton />;
   }
 
   if (!product) {
@@ -582,7 +588,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               </div>
             </div>
 
-            {product.inStock ? (
+            {liveStockChecking ? (
+              <ProductBuyBoxSkeleton />
+            ) : product.inStock ? (
               <>
                 <div className="space-y-1">
                   {effectiveOriginalPrice > effectiveUnitPrice && (

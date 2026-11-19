@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { DualPriceRangeSlider } from '../components/DualPriceRangeSlider';
 import { ProductCard } from '../components/ProductCard';
+import { ProductCardSkeleton, SkeletonBox } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
 import type { BrandId, CategoryId, CategoryItem, SortOption } from '../types/store';
 import {
@@ -38,6 +39,7 @@ const SORT_OPTIONS: { id: SortOption; label: string }[] = [
 export const CatalogPage: React.FC = () => {
   const {
     products,
+    productsLoading,
     categories,
     brands,
     filters,
@@ -440,31 +442,39 @@ export const CatalogPage: React.FC = () => {
       <div className="space-y-2.5 border-t border-[#eff4ff] pt-4">
         <p className="text-xs font-bold text-[#0b1c30]">رنگ بدنه (رنگ‌های موجود)</p>
         <div className="flex flex-wrap gap-2" data-testid="dynamic-color-filters">
-          {availableColors.map((c) => {
-            const active = filters.colorId === c.id;
-            return (
-              <button
-                key={c.id}
-                type="button"
-                title={`${c.label} (${toPersianDigits(c.count)} کالا)`}
-                aria-label={c.label}
-                onClick={() =>
-                  setFilters((p) => ({ ...p, colorId: p.colorId === c.id ? null : c.id }))
-                }
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-semibold transition-all ${
-                  active
-                    ? 'border-[#004ac6] bg-[#eff4ff] text-[#004ac6]'
-                    : 'border-[#dce9ff] bg-white text-[#434655] hover:border-[#2563eb]'
-                }`}
-              >
-                <span
-                  className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
-                  style={{ backgroundColor: c.hex }}
-                />
-                <span>{c.label}</span>
-              </button>
-            );
-          })}
+          {productsLoading && availableColors.length === 0 ? (
+            <>
+              <SkeletonBox className="h-7 w-20 rounded-xl" />
+              <SkeletonBox className="h-7 w-24 rounded-xl" />
+              <SkeletonBox className="h-7 w-16 rounded-xl" />
+            </>
+          ) : (
+            availableColors.map((c) => {
+              const active = filters.colorId === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  title={`${c.label} (${toPersianDigits(c.count)} کالا)`}
+                  aria-label={c.label}
+                  onClick={() =>
+                    setFilters((p) => ({ ...p, colorId: p.colorId === c.id ? null : c.id }))
+                  }
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-semibold transition-all ${
+                    active
+                      ? 'border-[#004ac6] bg-[#eff4ff] text-[#004ac6]'
+                      : 'border-[#dce9ff] bg-white text-[#434655] hover:border-[#2563eb]'
+                  }`}
+                >
+                  <span
+                    className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
+                    style={{ backgroundColor: c.hex }}
+                  />
+                  <span>{c.label}</span>
+                </button>
+              );
+            })
+          )}
         </div>
       </div>
     </div>
@@ -490,9 +500,13 @@ export const CatalogPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="px-3.5 py-2 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold tabular-nums-fa">
-            {toPersianDigits(filteredProducts.length)} کالا یافت شد
-          </span>
+          {productsLoading ? (
+            <SkeletonBox className="h-8 w-24 rounded-xl" />
+          ) : (
+            <span className="px-3.5 py-2 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold tabular-nums-fa">
+              {toPersianDigits(filteredProducts.length)} کالا یافت شد
+            </span>
+          )}
           <button
             type="button"
             onClick={() => setMobileFiltersOpen((v) => !v)}
@@ -735,7 +749,19 @@ export const CatalogPage: React.FC = () => {
           )}
 
           {/* Product Grid + Pagination / Progressive Load More */}
-          {paginated.items.length > 0 ? (
+          {productsLoading ? (
+            <div
+              role="status"
+              aria-busy="true"
+              aria-label="در حال بارگذاری محصولات از انبار"
+              data-testid="catalog-products-skeleton"
+              className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5"
+            >
+              {Array.from({ length: PAGE_SIZE }).map((_, idx) => (
+                <ProductCardSkeleton key={idx} />
+              ))}
+            </div>
+          ) : paginated.items.length > 0 ? (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5">
                 {paginated.items.map((product) => (

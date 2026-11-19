@@ -7,6 +7,7 @@ import {
   ShieldCheck,
   Smartphone,
 } from 'lucide-react';
+import { InstallmentsPageSkeleton } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
 import {
   calculateInstallmentPlan,
@@ -23,7 +24,7 @@ const TRADE_IN_BASE_VALUES: Record<string, number> = {
 };
 
 export const InstallmentsPage: React.FC = () => {
-  const { products, buildHref, handleLinkClick } = useStore();
+  const { products, productsLoading, buildHref, handleLinkClick } = useStore();
   const eligibleProducts = useMemo(
     () => products.filter((p) => p.inStock && p.price >= 10_000_000),
     [products]
@@ -50,6 +51,10 @@ export const InstallmentsPage: React.FC = () => {
     () => calculateInstallmentPlan(effectivePrice, downPercent, months),
     [effectivePrice, downPercent, months]
   );
+
+  if (productsLoading) {
+    return <InstallmentsPageSkeleton />;
+  }
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-8">

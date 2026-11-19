@@ -199,6 +199,7 @@ interface StoreContextValue {
   ordersLoading: boolean;
   productsLoading: boolean;
   refreshProducts: () => Promise<void>;
+  upsertProduct: (fresh: Product) => void;
   createDemoOrder: (form: CheckoutFormData) => Promise<OrderRecord>;
   findOrder: (code: string) => Promise<OrderRecord | null>;
   lookupOrder: (code: string) => Promise<OrderLookupResult>;
@@ -242,7 +243,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [route, setRoute] = useState<AppRoute>(initialParsed.route);
   const [navigating, setNavigating] = useState<boolean>(false);
   const navTimerRef = useRef<number | null>(null);
-  const [products, setProducts] = useState<Product[]>(SEED_PRODUCTS);
+  const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>(CATEGORY_ITEMS);
   const [brands, setBrands] = useState<BrandItem[]>(DEFAULT_BRANDS);
   const [recentSearches, setRecentSearches] = useState<string[]>(() => loadStoredRecentSearches());
@@ -324,6 +325,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, []);
 
+  const upsertProduct = useCallback((fresh: Product) => {
+    const hydrated = hydrateProduct(fresh);
+    setProducts((prev) => {
+      const idx = prev.findIndex((p) => p.id === hydrated.id || p.slug === hydrated.slug);
+      if (idx === -1) return [hydrated, ...prev];
+      const next = [...prev];
+      next[idx] = hydrated;
+      return next;
+    });
+  }, []);
+
   const refreshCatalogMetadata = useCallback(async () => {
     try {
       const [fetchedCats, fetchedBrands] = await Promise.all([
@@ -354,6 +366,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (!active) return;
       if (Array.isArray(fetchedProducts)) {
         setProducts(fetchedProducts.map(hydrateProduct));
+      } else {
+        // Offline / unreachable backend fallback only after the live request actually fails
+        setProducts((prev) => (prev.length > 0 ? prev : SEED_PRODUCTS));
       }
       if (Array.isArray(fetchedCats) && fetchedCats.length > 0) {
         setCategories(fetchedCats);
@@ -1081,6 +1096,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         ordersLoading,
         productsLoading,
         refreshProducts,
+        upsertProduct,
         createDemoOrder,
         findOrder,
         lookupOrder,

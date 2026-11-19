@@ -19,6 +19,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
+import { ProductCardSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { DEFAULT_FILTERS, useStore } from '../context/StoreContext';
 import { STORE_ASSETS } from '../data/assets';
@@ -59,6 +60,7 @@ interface PromoSlide {
 export const HomePage: React.FC = () => {
   const {
     products,
+    productsLoading,
     categories,
     brands,
     buildHref,
@@ -83,13 +85,13 @@ export const HomePage: React.FC = () => {
         subtitle:
           'تراشه ۳ نانومتری A18 Pro، دکمه اختصاصی Camera Control و نمایشگر ۶.۹ اینچی با ۱۸ ماه گارانتی طلایی امیر سرویس.',
         ctaLabel: 'خرید iPhone 16 Pro Max',
-        ctaHref: `/product/${flagshipIphone.slug}`,
+        ctaHref: flagshipIphone ? `/product/${flagshipIphone.slug}` : '/product/iphone-16-pro-max',
         secondaryLabel: 'مشاهده تمام گوشی‌ها',
         secondaryHref: '/catalog?cat=phones',
         image: STORE_ASSETS.heroIphone,
         discountBadge: '۴٪ تخفیف',
         captionTitle: 'تضمین پلمپ و کد همتا',
-        captionSub: `شروع از ${formatToman(flagshipIphone.price)} تومان`,
+        captionSub: flagshipIphone ? `شروع از ${formatToman(flagshipIphone.price)} تومان` : '',
       },
       {
         id: 'flagship-camera-promo',
@@ -278,7 +280,14 @@ export const HomePage: React.FC = () => {
                 <div className="absolute bottom-3 right-3 left-3 p-3 rounded-xl bg-[#0b1c30]/85 backdrop-blur-md border border-white/15 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs font-bold text-white">{currentSlide.captionTitle}</p>
-                    <p className="text-[11px] text-[#93c5fd] tabular-nums-fa">{currentSlide.captionSub}</p>
+                    {currentSlide.captionSub ? (
+                      <p className="text-[11px] text-[#93c5fd] tabular-nums-fa">{currentSlide.captionSub}</p>
+                    ) : (
+                      <div
+                        aria-hidden="true"
+                        className="h-3.5 w-32 mt-1 rounded-md bg-white/20 animate-pulse"
+                      />
+                    )}
                   </div>
                   {currentSlide.discountBadge && (
                     <span className="px-2.5 py-1 rounded-lg bg-[#b54e00] text-white text-xs font-extrabold tabular-nums-fa">
@@ -362,10 +371,18 @@ export const HomePage: React.FC = () => {
             </a>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
-            {amazingDeals.map((product) => (
-              <ProductCard key={product.id} product={product} compact />
-            ))}
+          <div
+            data-testid={productsLoading ? 'home-deals-skeleton' : undefined}
+            aria-busy={productsLoading || undefined}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5"
+          >
+            {productsLoading
+              ? Array.from({ length: 4 }).map((_, idx) => (
+                  <ProductCardSkeleton key={idx} compact />
+                ))
+              : amazingDeals.map((product) => (
+                  <ProductCard key={product.id} product={product} compact />
+                ))}
           </div>
         </div>
       </section>
@@ -427,7 +444,7 @@ export const HomePage: React.FC = () => {
       </section>
 
       {/* Newest Arrivals Shelf */}
-      {newestProducts.length > 0 && (
+      {(productsLoading || newestProducts.length > 0) && (
         <section className="max-w-[1440px] mx-auto px-4 lg:px-8 space-y-6">
           <div className="flex items-end justify-between gap-4">
             <div>
@@ -448,10 +465,15 @@ export const HomePage: React.FC = () => {
             </a>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
-            {newestProducts.map((product) => (
-              <ProductCard key={product.id} product={product} />
-            ))}
+          <div
+            aria-busy={productsLoading || undefined}
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5"
+          >
+            {productsLoading
+              ? Array.from({ length: 4 }).map((_, idx) => <ProductCardSkeleton key={idx} />)
+              : newestProducts.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
           </div>
         </section>
       )}
@@ -500,10 +522,13 @@ export const HomePage: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
-          {popularPhones.map((phone) => (
-            <ProductCard key={phone.id} product={phone} />
-          ))}
+        <div
+          aria-busy={productsLoading || undefined}
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5"
+        >
+          {productsLoading
+            ? Array.from({ length: 4 }).map((_, idx) => <ProductCardSkeleton key={idx} />)
+            : popularPhones.map((phone) => <ProductCard key={phone.id} product={phone} />)}
         </div>
       </section>
 

@@ -8,6 +8,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
+import { ComparePageSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import type { Product } from '../types/store';
@@ -39,6 +40,7 @@ const CORE_COMPARE_ROWS: CompareRow[] = [
 export const ComparePage: React.FC = () => {
   const {
     products,
+    productsLoading,
     compareIds,
     toggleCompare,
     clearCompare,
@@ -85,6 +87,10 @@ export const ComparePage: React.FC = () => {
       return new Set(values).size > 1;
     });
   }, [allRows, onlyDifferences, selectedProducts]);
+
+  if (productsLoading) {
+    return <ComparePageSkeleton />;
+  }
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-6">
