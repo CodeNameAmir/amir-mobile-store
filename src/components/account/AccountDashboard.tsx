@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  AtSign,
   Bell,
   Camera,
   CheckCircle2,
+  Copy,
+  ExternalLink,
   Heart,
   KeyRound,
   LayoutDashboard,
@@ -15,6 +18,7 @@ import {
   Plus,
   Settings2,
   Shield,
+  Sparkles,
   Trash2,
   UserCheck,
 } from 'lucide-react';
@@ -22,13 +26,16 @@ import { useStore } from '../../context/StoreContext';
 import { authApi } from '../../lib/authApi';
 import type { DemoUser, OrderRecord, UserAddress } from '../../types/store';
 import {
+  generateUsernameSuggestions,
   getPasswordStrength,
   isValidEmail,
   isValidOtpCode,
   normalizeEmail,
   normalizeOtpCode,
+  normalizeUsername,
   validateAddressForm,
   validateProfileForm,
+  validateUsername,
 } from '../../utils/authLogic';
 import { formatToman, toPersianDigits } from '../../utils/storeLogic';
 import { ProductCard } from '../ProductCard';
@@ -101,6 +108,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
     handleLinkClick,
     logoutDemoUser,
     updateUserProfile,
+    updateUserUsername,
     deleteUserAccount,
     addUserAddress,
     updateUserAddress,
@@ -130,6 +138,20 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
   const [savingProfile, setSavingProfile] = useState(false);
+
+  // Username management state
+  const [usernameInput, setUsernameInput] = useState(user.username || '');
+  const [savingUsername, setSavingUsername] = useState(false);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [usernameCheck, setUsernameCheck] = useState<{
+    checking: boolean;
+    checkedNormalized: string;
+    valid?: boolean;
+    available?: boolean;
+    isCurrent?: boolean;
+    error?: string;
+    suggestions?: string[];
+  }>({ checking: false, checkedNormalized: '' });
 
   // Email change flow
   const [newEmailInput, setNewEmailInput] = useState('');
@@ -175,8 +197,10 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
     setBirthDate(user.birthDate || '');
     setNewsletterOptIn(user.newsletterOptIn ?? true);
     setAvatarUrl(user.avatarUrl || '');
+    setUsernameInput(user.username || '');
   }, [
     user.id,
+    user.username,
     user.fullName,
     user.phone,
     user.nationalId,
@@ -184,6 +208,73 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
     user.newsletterOptIn,
     user.avatarUrl,
   ]);
+
+  useEffect(() => {
+    if (activeTab !== 'profile') return;
+    const normalized = normalizeUsername(usernameInput);
+    if (!normalized) {
+      setUsernameCheck({ checking: false, checkedNormalized: '' });
+      return;
+    }
+    if (user.username && normalized === user.username) {
+      setUsernameCheck({
+        checking: false,
+        checkedNormalized: normalized,
+        valid: true,
+        available: true,
+        isCurrent: true,
+      });
+      return;
+    }
+    const clientCheck = validateUsername(normalized);
+    if (!clientCheck.valid) {
+      setUsernameCheck({
+        checking: false,
+        checkedNormalized: normalized,
+        valid: false,
+        available: false,
+        error: clientCheck.error,
+        suggestions: generateUsernameSuggestions(user.email || user.fullName),
+      });
+      return;
+    }
+
+    let active = true;
+    setUsernameCheck((prev) => ({ ...prev, checking: true, checkedNormalized: normalized }));
+    const timer = window.setTimeout(() => {
+      authApi
+        .checkUsernameAvailability(normalized, user.email || user.fullName)
+        .then((res) => {
+          if (!active) return;
+          setUsernameCheck({
+            checking: false,
+            checkedNormalized: res.normalized,
+            valid: res.valid,
+            available: res.available,
+            isCurrent: res.isCurrent,
+            error: res.error,
+            suggestions: res.suggestions,
+          });
+        })
+        .catch(() => {
+          if (!active) return;
+          setUsernameCheck({ checking: false, checkedNormalized: normalized });
+        });
+    }, 300);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [activeTab, user.email, user.fullName, user.username, usernameInput]);
+
+  const defaultUsernameSuggestions = useMemo(
+    () =>
+      usernameCheck.suggestions && usernameCheck.suggestions.length > 0
+        ? usernameCheck.suggestions
+        : generateUsernameSuggestions(user.email || user.fullName),
+    [user.email, user.fullName, usernameCheck.suggestions]
+  );
 
   const addresses = user.addresses ?? [];
   const wishlistProducts = useMemo(
@@ -275,6 +366,38 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
       showToast(err instanceof Error ? err.message : 'خطا در ذخیره پروفایل.', 'error');
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const handleSaveUsername = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setUsernameError(null);
+    const check = validateUsername(usernameInput);
+    if (!check.valid) {
+      setUsernameError(check.error || 'نام کاربری معتبر نیست.');
+      return;
+    }
+    if (check.normalized === user.username) {
+      showToast('این نام کاربری هم‌اکنون روی حساب شما ثبت شده است.', 'info');
+      return;
+    }
+    setSavingUsername(true);
+    try {
+      const updated = await updateUserUsername(check.normalized);
+      setUsernameInput(updated.username || check.normalized);
+    } catch (err) {
+      setUsernameError(err instanceof Error ? err.message : 'خطا در ذخیره نام کاربری.');
+    } finally {
+      setSavingUsername(false);
+    }
+  };
+
+  const handleCopyText = async (text: string, message: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(message, 'success');
+    } catch {
+      showToast(text, 'info');
     }
   };
 
@@ -493,6 +616,25 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
           </div>
           <div className="min-w-0">
             <p className="text-sm font-black text-[#0b1c30] truncate">{user.fullName}</p>
+            {user.username ? (
+              <a
+                href={buildHref(`/u/${user.username}`)}
+                onClick={(e) => handleLinkClick(e, `/u/${user.username}`)}
+                dir="ltr"
+                data-testid="sidebar-username-link"
+                className="text-xs font-mono font-bold text-[#004ac6] hover:underline truncate block text-right"
+              >
+                @{user.username}
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => handleTabChange('profile')}
+                className="text-[11px] font-bold text-[#004ac6] hover:underline block"
+              >
+                + تنظیم نام کاربری
+              </button>
+            )}
             <p dir="ltr" className="text-xs text-[#434655] truncate text-right">
               {user.email}
             </p>
@@ -556,15 +698,38 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
-                  <h1 className="text-xl sm:text-2xl font-black text-[#0b1c30]">
-                    سلام {user.fullName}
-                  </h1>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <h1 className="text-xl sm:text-2xl font-black text-[#0b1c30]">
+                      سلام {user.fullName}
+                    </h1>
+                    {user.username && (
+                      <a
+                        href={buildHref(`/u/${user.username}`)}
+                        onClick={(e) => handleLinkClick(e, `/u/${user.username}`)}
+                        dir="ltr"
+                        data-testid="overview-username-badge"
+                        className="px-2.5 py-0.5 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] border border-[#dce9ff] text-[#004ac6] font-mono text-xs font-bold transition-colors"
+                      >
+                        @{user.username}
+                      </a>
+                    )}
+                  </div>
                   <p className="text-xs sm:text-sm text-[#434655] mt-1">
                     نشانی ایمیل <span dir="ltr" className="font-semibold text-[#0b1c30]">{user.email}</span>
                     {user.phone ? ` · موبایل ${toPersianDigits(user.phone)}` : ' · شماره موبایل ثبت نشده'}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {user.username && (
+                    <a
+                      href={buildHref(`/u/${user.username}`)}
+                      onClick={(e) => handleLinkClick(e, `/u/${user.username}`)}
+                      className="h-10 px-4 rounded-xl bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#dce9ff] text-[#0b1c30] text-xs font-bold whitespace-nowrap inline-flex items-center gap-1.5"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5 text-[#004ac6]" />
+                      <span>پروفایل عمومی</span>
+                    </a>
+                  )}
                   <button
                     type="button"
                     onClick={() => handleTabChange('profile')}
@@ -856,6 +1021,170 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 </button>
               </div>
             </form>
+
+            {/* Username & Public Profile Card */}
+            <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-black text-[#0b1c30] flex items-center gap-2">
+                    <AtSign className="w-4 h-4 text-[#004ac6]" />
+                    <span>نام کاربری و پروفایل عمومی</span>
+                  </h2>
+                  <p className="text-xs text-[#434655] mt-1 leading-6">
+                    با ثبت نام کاربری اختصاصی، می‌توانید با{' '}
+                    <span dir="ltr" className="font-mono font-bold text-[#0b1c30]">
+                      @username
+                    </span>{' '}
+                    وارد حساب شوید و لینک پروفایل عمومی خود را به اشتراک بگذارید.
+                  </p>
+                </div>
+
+                {user.username && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleCopyText(
+                          `@${user.username}`,
+                          'نام کاربری در حافظه کپی شد.'
+                        )
+                      }
+                      className="h-9 px-3 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span dir="ltr" className="font-mono">
+                        @{user.username}
+                      </span>
+                    </button>
+                    <a
+                      href={buildHref(`/u/${user.username}`)}
+                      onClick={(e) => handleLinkClick(e, `/u/${user.username}`)}
+                      data-testid="view-public-profile-link"
+                      className="h-9 px-3 rounded-xl bg-[#213145] hover:bg-[#004ac6] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>مشاهده صفحه عمومی</span>
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {usernameError && (
+                <p className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold">
+                  {usernameError}
+                </p>
+              )}
+
+              <form onSubmit={handleSaveUsername} className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <label htmlFor="prof-username" className="text-xs font-bold text-[#0b1c30]">
+                    نام کاربری (۳ تا ۲۴ کاراکتر انگلیسی، عدد، نقطه و خط زیر)
+                  </label>
+                  {normalizeUsername(usernameInput) && (
+                    <span
+                      data-testid="profile-username-availability"
+                      className={`text-[11px] font-bold ${
+                        usernameCheck.checking
+                          ? 'text-[#434655]'
+                          : usernameCheck.isCurrent
+                          ? 'text-[#004ac6]'
+                          : usernameCheck.available
+                          ? 'text-emerald-700'
+                          : 'text-rose-600'
+                      }`}
+                    >
+                      {usernameCheck.checking
+                        ? 'در حال بررسی...'
+                        : usernameCheck.isCurrent
+                        ? 'نام کاربری فعلی شما'
+                        : usernameCheck.available
+                        ? 'قابل انتخاب است ✓'
+                        : usernameCheck.error || 'قبلاً انتخاب شده'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      id="prof-username"
+                      type="text"
+                      dir="ltr"
+                      value={usernameInput}
+                      onChange={(e) => {
+                        setUsernameInput(e.target.value);
+                        setUsernameError(null);
+                      }}
+                      placeholder="amir_mobile"
+                      data-testid="profile-username-input"
+                      className="w-full h-11 pr-3.5 pl-9 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] font-mono text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    />
+                    <AtSign className="w-4 h-4 text-[#004ac6] absolute left-3 top-1/2 -translate-y-1/2" />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={savingUsername}
+                    data-testid="save-username-btn"
+                    className="h-11 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-xs font-extrabold inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
+                  >
+                    <span>
+                      {savingUsername
+                        ? 'در حال ثبت...'
+                        : user.username
+                        ? 'تغییر نام کاربری'
+                        : 'ثبت نام کاربری'}
+                    </span>
+                  </button>
+                </div>
+
+                {defaultUsernameSuggestions.length > 0 && !usernameCheck.available && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-[#434655] inline-flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-[#004ac6]" />
+                      پیشنهادها:
+                    </span>
+                    {defaultUsernameSuggestions.slice(0, 4).map((sug) => (
+                      <button
+                        key={sug}
+                        type="button"
+                        dir="ltr"
+                        onClick={() => {
+                          setUsernameInput(sug);
+                          setUsernameError(null);
+                        }}
+                        className="px-2 py-0.5 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] font-mono text-[11px] font-bold transition-colors"
+                      >
+                        @{sug}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {user.username && (
+                  <div className="p-3 rounded-xl bg-[#f8f9ff] border border-[#eff4ff] flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="text-[#434655]">
+                      نشانی صفحه عمومی شما:{' '}
+                      <span dir="ltr" className="font-mono font-bold text-[#004ac6]">
+                        /u/{user.username}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleCopyText(
+                          `${window.location.origin}/u/${user.username}`,
+                          'لینک صفحه عمومی کپی شد.'
+                        )
+                      }
+                      className="text-[11px] font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1"
+                    >
+                      <Copy className="w-3 h-3" />
+                      <span>کپی لینک عمومی</span>
+                    </button>
+                  </div>
+                )}
+              </form>
+            </section>
 
             {/* Change Email with Resend Verification */}
             <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">

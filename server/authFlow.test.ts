@@ -731,3 +731,324 @@ test('Frontend API base URL resolves VITE_API_URL and guards amir-mobile-store.c
     'https://api.codenameamir.ir/api/auth/send-otp'
   );
 });
+
+test('Username API flow: availability, signup, identifier login/OTP/reset with maskedEmail, change, public profile, and review badge', async () => {
+  const issuedOtps = new Map<string, string>();
+  const storage = createMemoryAuthStorage();
+
+  const app = await createServerApp({
+    storage,
+    disableVite: true,
+    env: {
+      NODE_ENV: 'test',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      CORS_ORIGIN: ALLOWED_ORIGIN,
+    },
+    onOtpIssued: ({ email, purpose, code }) => {
+      issuedOtps.set(`${purpose}::${email}`, code);
+    },
+    sendEmail: async () => ({
+      sent: true,
+      provider: 'resend',
+      emailId: 'mock-username-email',
+    }),
+  });
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+  const jar = createCookieJar();
+
+  const apiFetch = async (path: string, init: RequestInit = {}) => {
+    const res = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(jar.header() ? { cookie: jar.header() } : {}),
+        ...(init.headers || {}),
+      },
+    });
+    jar.capture(res);
+    const body = (await res.json().catch(() => ({}))) as Record<string, any>;
+    return { res, body };
+  };
+
+  try {
+    // 1. Live availability check (reserved, invalid, valid)
+    const reservedCheck = await apiFetch('/api/auth/username-available?username=admin');
+    assert.equal(reservedCheck.res.status, 200);
+    assert.equal(reservedCheck.body.valid, false);
+    assert.equal(reservedCheck.body.available, false);
+
+    const validCheck = await apiFetch('/api/auth/username-available?username=@Amir_Test1');
+    assert.equal(validCheck.res.status, 200);
+    assert.equal(validCheck.body.valid, true);
+    assert.equal(validCheck.body.available, true);
+    assert.equal(validCheck.body.normalized, 'amir_test1');
+
+    // 2. Signup with username
+    const email1 = 'alice.user@codenameamir.ir';
+    const pw1 = 'AlicePass2026!';
+    const signupReq = await apiFetch('/api/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: email1,
+        username: '@Alice_Store',
+        purpose: 'signup',
+        fullName: 'آلیس محمدی',
+        phone: '09123334455',
+        password: pw1,
+      }),
+    });
+    assert.equal(signupReq.res.status, 200);
+    const code1 = issuedOtps.get(`signup::${email1}`);
+    assert.ok(code1);
+
+    const verifySignup = await apiFetch('/api/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email: email1, purpose: 'signup', code: code1 }),
+    });
+    assert.equal(verifySignup.res.status, 200);
+    assert.equal(verifySignup.body.user.username, 'alice_store');
+
+    // Own username returns isCurrent=true; unauthenticated visitor sees available=false + suggestions
+    const selfCheck = await apiFetch('/api/auth/username-available?username=alice_store');
+    assert.equal(selfCheck.body.available, true);
+    assert.equal(selfCheck.body.isCurrent, true);
+
+    const visitorCheckRes = await fetch(`${baseUrl}/api/auth/username-available?username=alice_store`);
+    const visitorCheck = (await visitorCheckRes.json()) as Record<string, any>;
+    assert.equal(visitorCheck.available, false);
+    assert.ok(Array.isArray(visitorCheck.suggestions) && visitorCheck.suggestions.length > 0);
+
+    // 3. Submit review attaches authorUsername and renders safely
+    const reviewRes = await apiFetch('/api/products/iphone-16-pro-max/reviews', {
+      method: 'POST',
+      body: JSON.stringify({
+        author: 'آلیس محمدی',
+        rating: 5,
+        comment: 'کیفیت عالی و ارسال سریع فروشگاه امیر.',
+      }),
+    });
+    assert.equal(reviewRes.res.status, 201);
+    assert.equal(reviewRes.body.review.authorUsername, 'alice_store');
+
+    // 4. Logout & login with @username + password
+    await apiFetch('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
+
+    const loginByUsername = await apiFetch('/api/auth/login-password', {
+      method: 'POST',
+      body: JSON.stringify({ identifier: '@Alice_Store', password: pw1 }),
+    });
+    assert.equal(loginByUsername.res.status, 200);
+    assert.equal(loginByUsername.body.authenticated, true);
+    assert.equal(loginByUsername.body.user.username, 'alice_store');
+
+    // 5. Logout & OTP login using username returns maskedEmail (never full raw email)
+    await apiFetch('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) });
+    const otpByUsername = await apiFetch('/api/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ identifier: 'alice_store', purpose: 'login' }),
+    });
+    assert.equal(otpByUsername.res.status, 200);
+    assert.ok(otpByUsername.body.maskedEmail);
+    assert.notEqual(otpByUsername.body.maskedEmail, email1);
+    assert.equal(otpByUsername.body.email, undefined);
+
+    const loginOtpCode = issuedOtps.get(`login::${email1}`);
+    assert.ok(loginOtpCode);
+    const verifyOtpByUsername = await apiFetch('/api/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({
+        identifier: 'alice_store',
+        purpose: 'login',
+        code: loginOtpCode,
+      }),
+    });
+    assert.equal(verifyOtpByUsername.res.status, 200);
+    assert.equal(verifyOtpByUsername.body.authenticated, true);
+
+    // 6. Change username via PATCH /api/auth/username & verify old username freed
+    const changeUsername = await apiFetch('/api/auth/username', {
+      method: 'PATCH',
+      body: JSON.stringify({ username: 'alice.pro' }),
+    });
+    assert.equal(changeUsername.res.status, 200);
+    assert.equal(changeUsername.body.user.username, 'alice.pro');
+
+    const oldAvail = await apiFetch('/api/auth/username-available?username=alice_store');
+    assert.equal(oldAvail.body.available, true);
+
+    // 7. Public profile endpoint returns ONLY safe fields & rejects unknown with 404
+    const publicProfile = await apiFetch('/api/users/@Alice.Pro', { method: 'GET' });
+    assert.equal(publicProfile.res.status, 200);
+    assert.equal(publicProfile.body.profile.username, 'alice.pro');
+    assert.equal(publicProfile.body.profile.fullName, 'آلیس محمدی');
+    assert.equal(publicProfile.body.profile.email, undefined);
+    assert.equal(publicProfile.body.profile.phone, undefined);
+    assert.equal(publicProfile.body.profile.addresses, undefined);
+
+    const missingProfile = await apiFetch('/api/users/alice_store', { method: 'GET' });
+    assert.equal(missingProfile.res.status, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve()))
+    );
+  }
+});
+
+test('Supabase auth storage adapter falls back to store_settings when app_users.username column is missing', async () => {
+  const userRows = new Map<string, Record<string, unknown>>();
+  const settingRows = new Map<string, Record<string, unknown>>();
+
+  const mockSupabase = {
+    from(table: string) {
+      if (table === 'app_users') {
+        return {
+          select(_cols?: string, opts?: { count?: string; head?: boolean }) {
+            if (opts?.head) {
+              return Promise.resolve({ count: userRows.size, error: null });
+            }
+            return {
+              ilike() {
+                return {
+                  maybeSingle: async () => ({
+                    data: null,
+                    error: { code: 'PGRST204', message: "Could not find the 'username' column of 'app_users'" },
+                  }),
+                };
+              },
+              eq(field: string, value: string) {
+                return {
+                  maybeSingle: async () => {
+                    if (field === 'username') {
+                      return {
+                        data: null,
+                        error: { code: 'PGRST204', message: "Could not find the 'username' column of 'app_users'" },
+                      };
+                    }
+                    const found = [...userRows.values()].find((r) => r[field] === value) || null;
+                    return { data: found, error: null };
+                  },
+                };
+              },
+            };
+          },
+          insert(row: Record<string, unknown>) {
+            if ('username' in row) {
+              return {
+                select() {
+                  return {
+                    single: async () => ({
+                      data: null,
+                      error: { code: 'PGRST204', message: "Could not find the 'username' column of 'app_users'" },
+                    }),
+                  };
+                },
+              };
+            }
+            userRows.set(String(row.id), row);
+            return {
+              select() {
+                return {
+                  single: async () => ({ data: row, error: null }),
+                };
+              },
+            };
+          },
+          update(patch: Record<string, unknown>) {
+            if ('username' in patch) {
+              return {
+                eq() {
+                  return {
+                    select() {
+                      return {
+                        single: async () => ({
+                          data: null,
+                          error: { code: 'PGRST204', message: "Could not find the 'username' column of 'app_users'" },
+                        }),
+                      };
+                    },
+                  };
+                },
+              };
+            }
+            return {
+              eq(field: string, value: string) {
+                const existing = [...userRows.values()].find((r) => r[field] === value);
+                const updated = existing ? { ...existing, ...patch } : null;
+                if (updated) userRows.set(String(updated.id), updated);
+                return {
+                  select() {
+                    return {
+                      single: async () => ({ data: updated, error: null }),
+                    };
+                  },
+                };
+              },
+            };
+          },
+        };
+      }
+
+      if (table === 'store_settings') {
+        return {
+          select() {
+            return {
+              eq(field: string, value: string) {
+                return {
+                  maybeSingle: async () => {
+                    const found = [...settingRows.values()].find((r) => r[field] === value) || null;
+                    return { data: found, error: null };
+                  },
+                };
+              },
+            };
+          },
+          upsert: async (row: Record<string, unknown>) => {
+            settingRows.set(String(row.key), row);
+            return { error: null };
+          },
+          delete() {
+            return {
+              eq: async (field: string, value: string) => {
+                for (const [k, v] of settingRows.entries()) {
+                  if (v[field] === value) settingRows.delete(k);
+                }
+                return { error: null };
+              },
+            };
+          },
+        };
+      }
+
+      throw new Error(`Unexpected table ${table}`);
+    },
+  } as unknown as SupabaseClient;
+
+  const adapter = createSupabaseAuthStorage(mockSupabase);
+  const created = await adapter.createUser({
+    email: 'fallback@codenameamir.ir',
+    username: 'fallback_user',
+    fullName: 'کاربر آزمایشی',
+    phone: '09121112233',
+  });
+  assert.equal(created.username, 'fallback_user');
+
+  const byUsername = await adapter.findUserByUsername('@Fallback_User');
+  assert.ok(byUsername);
+  assert.equal(byUsername.id, created.id);
+  assert.equal(byUsername.username, 'fallback_user');
+
+  const updated = await adapter.updateUser(created.id, (prev) => ({
+    ...prev,
+    username: 'fallback_v2',
+  }));
+  assert.equal(updated?.username, 'fallback_v2');
+
+  const oldLookup = await adapter.findUserByUsername('fallback_user');
+  assert.equal(oldLookup, null);
+  const newLookup = await adapter.findUserByUsername('fallback_v2');
+  assert.equal(newLookup?.id, created.id);
+});

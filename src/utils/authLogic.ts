@@ -10,6 +10,164 @@ export function isValidEmail(raw: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
 }
 
+export const RESERVED_USERNAMES = new Set<string>([
+  'admin',
+  'administrator',
+  'root',
+  'system',
+  'support',
+  'help',
+  'api',
+  'auth',
+  'account',
+  'profile',
+  'user',
+  'users',
+  'u',
+  'catalog',
+  'cart',
+  'checkout',
+  'tracking',
+  'orders',
+  'order',
+  'about',
+  'contact',
+  'terms',
+  'status',
+  'compare',
+  'installments',
+  'amirmobile',
+  'amir_mobile',
+  'amir.mobile',
+  'staff',
+  'moderator',
+  'mod',
+  'official',
+  'verify',
+  'security',
+  'login',
+  'signup',
+  'register',
+  'reset',
+  'null',
+  'undefined',
+  'me',
+  'www',
+  'mail',
+  'noreply',
+]);
+
+export function normalizeUsername(raw: string): string {
+  return toEnglishDigits(String(raw ?? ''))
+    .trim()
+    .replace(/^@+/, '')
+    .toLowerCase();
+}
+
+export interface UsernameValidationResult {
+  valid: boolean;
+  normalized: string;
+  error?: string;
+}
+
+export function validateUsername(raw: string): UsernameValidationResult {
+  const normalized = normalizeUsername(raw);
+  if (!normalized) {
+    return { valid: false, normalized, error: 'لطفاً نام کاربری را وارد کنید.' };
+  }
+  if (normalized.length < 3) {
+    return { valid: false, normalized, error: 'نام کاربری باید حداقل ۳ کاراکتر باشد.' };
+  }
+  if (normalized.length > 24) {
+    return { valid: false, normalized, error: 'نام کاربری نمی‌تواند بیشتر از ۲۴ کاراکتر باشد.' };
+  }
+  if (!/^[a-z]/.test(normalized)) {
+    return {
+      valid: false,
+      normalized,
+      error: 'نام کاربری باید با حروف انگلیسی (a-z) شروع شود.',
+    };
+  }
+  if (!/^[a-z0-9_.]+$/.test(normalized)) {
+    return {
+      valid: false,
+      normalized,
+      error: 'نام کاربری فقط می‌تواند شامل حروف انگلیسی، اعداد، نقطه (.) و خط زیر (_) باشد.',
+    };
+  }
+  if (!/[a-z0-9]$/.test(normalized)) {
+    return {
+      valid: false,
+      normalized,
+      error: 'نام کاربری باید با حرف یا عدد انگلیسی پایان یابد.',
+    };
+  }
+  if (/[._]{2}/.test(normalized)) {
+    return {
+      valid: false,
+      normalized,
+      error: 'استفاده از دو نقطه یا خط زیر پشت‌سرهم مجاز نیست.',
+    };
+  }
+  if (RESERVED_USERNAMES.has(normalized)) {
+    return {
+      valid: false,
+      normalized,
+      error: 'این نام کاربری رزرو شده است و قابل انتخاب نیست.',
+    };
+  }
+  return { valid: true, normalized };
+}
+
+export function isValidUsername(raw: string): boolean {
+  return validateUsername(raw).valid;
+}
+
+export function generateUsernameSuggestions(
+  baseRaw: string,
+  isTaken?: (candidate: string) => boolean
+): string[] {
+  const emailLocal = String(baseRaw || '').includes('@')
+    ? String(baseRaw).split('@')[0]
+    : String(baseRaw || '');
+  let seed = normalizeUsername(emailLocal)
+    .replace(/[^a-z0-9_.]/g, '_')
+    .replace(/[._]{2,}/g, '_')
+    .replace(/^[._0-9]+/, '')
+    .replace(/[._]+$/, '');
+
+  if (seed.length < 3) {
+    seed = seed ? `amir_${seed}` : 'amir_user';
+  }
+  if (seed.length > 18) {
+    seed = seed.slice(0, 18).replace(/[._]+$/, '');
+  }
+
+  const rawCandidates = [
+    seed,
+    `${seed}_ir`,
+    `${seed}98`,
+    `${seed}_shop`,
+    `${seed}2026`,
+    `amir_${seed}`.slice(0, 24),
+    `${seed}_1`,
+    `${seed}_2`,
+    `${seed}_7`,
+  ];
+
+  const out: string[] = [];
+  for (const cand of rawCandidates) {
+    const clean = cand.slice(0, 24).replace(/[._]+$/, '');
+    if (!validateUsername(clean).valid) continue;
+    if (isTaken && isTaken(clean)) continue;
+    if (!out.includes(clean)) {
+      out.push(clean);
+    }
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
 export function normalizeOtpCode(raw: string): string {
   return toEnglishDigits(raw).replace(/[\s\-_]/g, '').trim();
 }
@@ -85,6 +243,7 @@ export function getPasswordStrength(password: string): PasswordStrength {
 
 export interface SignupFormInput {
   fullName: string;
+  username?: string;
   email: string;
   phone: string;
   password: string;
@@ -95,6 +254,12 @@ export function validateSignupForm(data: SignupFormInput): Record<string, string
   const errors: Record<string, string> = {};
   if (data.fullName.trim().length < 3) {
     errors.fullName = 'نام و نام خانوادگی باید حداقل ۳ حرف باشد.';
+  }
+  if (data.username !== undefined && data.username.trim().length > 0) {
+    const uCheck = validateUsername(data.username);
+    if (!uCheck.valid && uCheck.error) {
+      errors.username = uCheck.error;
+    }
   }
   if (!isValidEmail(data.email)) {
     errors.email = 'لطفاً یک آدرس ایمیل معتبر وارد کنید (مثال: name@domain.com).';
@@ -114,6 +279,7 @@ export function validateSignupForm(data: SignupFormInput): Record<string, string
 
 export interface ProfileFormInput {
   fullName: string;
+  username?: string;
   phone: string;
   nationalId?: string;
 }
@@ -122,6 +288,12 @@ export function validateProfileForm(data: ProfileFormInput): Record<string, stri
   const errors: Record<string, string> = {};
   if (data.fullName.trim().length < 3) {
     errors.fullName = 'نام و نام خانوادگی باید حداقل ۳ حرف باشد.';
+  }
+  if (data.username !== undefined && data.username.trim().length > 0) {
+    const uCheck = validateUsername(data.username);
+    if (!uCheck.valid && uCheck.error) {
+      errors.username = uCheck.error;
+    }
   }
   if (data.phone.trim() && !isValidIranMobile(data.phone)) {
     errors.phone = 'شماره موبایل معتبر وارد کنید (مثال: ۰۹۱۲۳۴۵۶۷۸۹).';

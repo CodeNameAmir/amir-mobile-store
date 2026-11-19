@@ -495,6 +495,7 @@ export const Navbar: React.FC = () => {
             <a
               href={buildHref('/account')}
               onClick={(e) => handleLinkClick(e, '/account')}
+              data-testid="navbar-account-link"
               className="inline-flex items-center gap-2 h-10 px-3 md:px-4 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#0b1c30] text-xs md:text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
             >
               {user?.avatarUrl ? (
@@ -507,6 +508,15 @@ export const Navbar: React.FC = () => {
                 <User className="w-4 h-4 text-[#004ac6]" />
               )}
               <span className="hidden sm:inline">{user ? user.fullName : 'حساب کاربری'}</span>
+              {user?.username && (
+                <span
+                  dir="ltr"
+                  data-testid="navbar-username-badge"
+                  className="hidden md:inline-block px-1.5 py-0.5 rounded-md bg-white/80 text-[#004ac6] font-mono text-[11px] font-bold border border-[#dce9ff]"
+                >
+                  @{user.username}
+                </span>
+              )}
             </a>
 
             <a

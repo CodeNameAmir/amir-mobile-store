@@ -18,6 +18,7 @@ import { InstallmentsPage } from './pages/InstallmentsPage';
 import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
 import { OrderTrackingPage } from './pages/OrderTrackingPage';
 import { ProductDetailPage } from './pages/ProductDetailPage';
+import { PublicProfilePage } from './pages/PublicProfilePage';
 import { NotFoundPage, ServerStatusPage } from './pages/StatusPages';
 import { TermsPage } from './pages/TermsPage';
 
@@ -98,6 +99,8 @@ const StoreShell: React.FC = () => {
         return <TermsPage />;
       case 'account':
         return <AccountPage />;
+      case 'public-profile':
+        return <PublicProfilePage username={route.username} />;
       case 'status':
         return <ServerStatusPage />;
       case 'not-found':

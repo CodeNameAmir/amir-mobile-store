@@ -49,6 +49,7 @@ export type AppRoute =
   | { page: 'contact' }
   | { page: 'terms' }
   | { page: 'account' }
+  | { page: 'public-profile'; username: string }
   | { page: 'status' }
   | { page: 'not-found'; path: string };
 
@@ -122,6 +123,14 @@ function parseAppUrl(urlInput: string): {
   if (path === '/contact') return { route: { page: 'contact' } };
   if (path === '/terms') return { route: { page: 'terms' } };
   if (path === '/account') return { route: { page: 'account' } };
+  if (path.startsWith('/u/')) {
+    const rawUsername = decodeURIComponent(path.replace('/u/', '').trim())
+      .replace(/^@+/, '')
+      .toLowerCase();
+    return rawUsername
+      ? { route: { page: 'public-profile', username: rawUsername } }
+      : { route: { page: 'not-found', path } };
+  }
   if (path === '/status') return { route: { page: 'status' } };
 
   return { route: { page: 'not-found', path } };
@@ -229,11 +238,13 @@ interface StoreContextValue {
   updateUserProfile: (payload: {
     fullName: string;
     phone: string;
+    username?: string;
     nationalId?: string;
     birthDate?: string;
     newsletterOptIn?: boolean;
     avatarUrl?: string;
   }) => Promise<DemoUser>;
+  updateUserUsername: (username: string) => Promise<DemoUser>;
   deleteUserAccount: (currentPassword?: string) => Promise<void>;
   addUserAddress: (payload: Omit<UserAddress, 'id'>) => Promise<DemoUser>;
   updateUserAddress: (id: string, payload: Omit<UserAddress, 'id'>) => Promise<DemoUser>;
@@ -559,6 +570,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     } else if (route.page === 'account') {
       title = 'حساب کاربری | فروشگاه موبایل امیر';
+    } else if (route.page === 'public-profile') {
+      title = `پروفایل @${route.username} | فروشگاه موبایل امیر`;
     } else if (route.page === 'cart' || route.page === 'checkout') {
       title = 'سبد خرید و تکمیل سفارش | فروشگاه موبایل امیر';
     }
@@ -1013,6 +1026,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     async (payload: {
       fullName: string;
       phone: string;
+      username?: string;
       nationalId?: string;
       birthDate?: string;
       newsletterOptIn?: boolean;
@@ -1021,6 +1035,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const res = await authApi.updateProfile(payload);
       setAuthenticatedUser(res.user);
       showToast('مشخصات حساب کاربری با موفقیت به‌روزرسانی شد.', 'success');
+      return res.user;
+    },
+    [setAuthenticatedUser, showToast]
+  );
+
+  const updateUserUsername = useCallback(
+    async (username: string) => {
+      const res = await authApi.updateUsername(username);
+      setAuthenticatedUser(res.user);
+      showToast(`نام کاربری شما به @${res.user.username} تغییر یافت.`, 'success');
       return res.user;
     },
     [setAuthenticatedUser, showToast]
@@ -1134,6 +1158,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         loginDemoUser,
         logoutDemoUser,
         updateUserProfile,
+        updateUserUsername,
         deleteUserAccount,
         addUserAddress,
         updateUserAddress,

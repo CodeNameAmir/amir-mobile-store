@@ -65,6 +65,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     markProductViewed,
     stockAlerts,
     toggleStockAlert,
+    user,
     showToast,
   } = useStore();
 
@@ -116,9 +117,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(true);
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [reviewAuthor, setReviewAuthor] = useState('');
+  const [reviewAuthor, setReviewAuthor] = useState(user?.fullName || '');
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState('');
+  const [useReviewUsername, setUseReviewUsername] = useState(true);
+
+  useEffect(() => {
+    if (user?.fullName && !reviewAuthor.trim()) {
+      setReviewAuthor(user.fullName);
+    }
+  }, [user?.fullName]);
 
   // Reset selections and fetch reviews only when switching to a different product ID
   useEffect(() => {
@@ -310,9 +318,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         author: reviewAuthor.trim(),
         rating: reviewRating,
         comment: reviewText.trim(),
+        useUsername: Boolean(user?.username && useReviewUsername),
       });
       setReviews((prev) => [savedReview, ...prev]);
-      setReviewAuthor('');
+      setReviewAuthor(user?.fullName || '');
       setReviewText('');
       showToast('دیدگاه شما با موفقیت ثبت شد.', 'success');
     } catch (err) {
@@ -977,8 +986,19 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                       className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-2"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span className="text-xs font-extrabold text-[#0b1c30]">{rev.author}</span>
+                          {rev.authorUsername && (
+                            <a
+                              href={buildHref(`/u/${rev.authorUsername}`)}
+                              onClick={(e) => handleLinkClick(e, `/u/${rev.authorUsername}`)}
+                              dir="ltr"
+                              data-testid="review-author-username"
+                              className="px-2 py-0.5 rounded-md bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] font-mono text-[11px] font-bold transition-colors"
+                            >
+                              @{rev.authorUsername}
+                            </a>
+                          )}
                           {rev.verified && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold">
                               <CheckCircle2 className="w-3 h-3" />
@@ -1014,6 +1034,23 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     className="w-full h-10 px-3 rounded-xl bg-white text-xs text-[#0b1c30] border border-[#dce9ff] focus:outline-none focus:border-[#004ac6]"
                   />
                 </div>
+                {user?.username && (
+                  <label className="flex items-center gap-2 text-xs text-[#0b1c30] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={useReviewUsername}
+                      onChange={(e) => setUseReviewUsername(e.target.checked)}
+                      className="w-4 h-4 accent-[#004ac6]"
+                    />
+                    <span>
+                      نمایش نام کاربری{' '}
+                      <span dir="ltr" className="font-mono font-bold text-[#004ac6]">
+                        @{user.username}
+                      </span>{' '}
+                      در کنار دیدگاه
+                    </span>
+                  </label>
+                )}
                 <div className="space-y-1.5">
                   <label className="text-xs font-bold text-[#0b1c30] block">امتیاز شما</label>
                   <select

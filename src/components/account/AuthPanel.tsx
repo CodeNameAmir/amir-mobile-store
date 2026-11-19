@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
+  AtSign,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -10,25 +11,30 @@ import {
   RefreshCw,
   ShieldCheck,
   Smartphone,
+  Sparkles,
   UserPlus,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { authApi, type PasswordLoginResponse, type SendOtpResponse } from '../../lib/authApi';
 import type { OtpPurpose } from '../../types/store';
 import {
+  generateUsernameSuggestions,
   getPasswordStrength,
   isValidEmail,
   isValidOtpCode,
   normalizeEmail,
   normalizeOtpCode,
+  normalizeUsername,
   validateSignupForm,
+  validateUsername,
 } from '../../utils/authLogic';
 import { toPersianDigits } from '../../utils/storeLogic';
 
 type AuthTab = 'password-login' | 'otp-login' | 'signup' | 'reset-password';
 
 interface OtpPendingState {
-  email: string;
+  identifier: string;
+  displayTarget: string;
   purpose: OtpPurpose;
   twoFactorToken?: string;
   provider: 'resend' | 'sandbox-preview';
@@ -53,11 +59,21 @@ export const AuthPanel: React.FC = () => {
 
   // Signup fields
   const [signupName, setSignupName] = useState('');
+  const [signupUsername, setSignupUsername] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPhone, setSignupPhone] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
   const [signupConfirmPassword, setSignupConfirmPassword] = useState('');
   const [showSignupPw, setShowSignupPw] = useState(false);
+
+  const [usernameStatus, setUsernameStatus] = useState<{
+    checking: boolean;
+    checkedNormalized: string;
+    valid?: boolean;
+    available?: boolean;
+    error?: string;
+    suggestions?: string[];
+  }>({ checking: false, checkedNormalized: '' });
 
   // Reset password fields
   const [resetEmail, setResetEmail] = useState('');
@@ -76,7 +92,63 @@ export const AuthPanel: React.FC = () => {
       );
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [otpPending?.cooldown, otpPending?.email]);
+  }, [otpPending?.cooldown, otpPending?.identifier]);
+
+  useEffect(() => {
+    if (tab !== 'signup') return;
+    const normalized = normalizeUsername(signupUsername);
+    if (!normalized) {
+      setUsernameStatus({ checking: false, checkedNormalized: '' });
+      return;
+    }
+    const clientCheck = validateUsername(normalized);
+    if (!clientCheck.valid) {
+      setUsernameStatus({
+        checking: false,
+        checkedNormalized: normalized,
+        valid: false,
+        available: false,
+        error: clientCheck.error,
+        suggestions: generateUsernameSuggestions(signupEmail || signupName || normalized),
+      });
+      return;
+    }
+
+    let active = true;
+    setUsernameStatus((prev) => ({ ...prev, checking: true, checkedNormalized: normalized }));
+    const timer = window.setTimeout(() => {
+      authApi
+        .checkUsernameAvailability(normalized, signupEmail || signupName)
+        .then((res) => {
+          if (!active) return;
+          setUsernameStatus({
+            checking: false,
+            checkedNormalized: res.normalized,
+            valid: res.valid,
+            available: res.available,
+            error: res.error,
+            suggestions: res.suggestions,
+          });
+        })
+        .catch(() => {
+          if (!active) return;
+          setUsernameStatus({ checking: false, checkedNormalized: normalized });
+        });
+    }, 320);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [signupEmail, signupName, signupUsername, tab]);
+
+  const quickUsernameSuggestions = useMemo(() => {
+    if (usernameStatus.suggestions && usernameStatus.suggestions.length > 0) {
+      return usernameStatus.suggestions;
+    }
+    if (!signupName.trim() && !signupEmail.trim()) return [];
+    return generateUsernameSuggestions(signupEmail || signupName);
+  }, [signupEmail, signupName, usernameStatus.suggestions]);
 
   const switchTab = (next: AuthTab) => {
     setTab(next);
@@ -88,13 +160,15 @@ export const AuthPanel: React.FC = () => {
   };
 
   const applyOtpResponse = (
-    email: string,
+    identifier: string,
+    displayTarget: string,
     purpose: OtpPurpose,
     res: SendOtpResponse | PasswordLoginResponse,
     twoFactorToken?: string
   ) => {
     setOtpPending({
-      email,
+      identifier,
+      displayTarget,
       purpose,
       twoFactorToken,
       provider: res.provider || 'resend',
@@ -115,25 +189,58 @@ export const AuthPanel: React.FC = () => {
     }
   };
 
+  const validateLoginIdentifier = (raw: string): { valid: boolean; value: string; isEmail: boolean; error?: string } => {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return { valid: false, value: '', isEmail: false, error: 'لطفاً ایمیل یا نام کاربری خود را وارد کنید.' };
+    }
+    if (trimmed.includes('@') && !trimmed.startsWith('@')) {
+      const em = normalizeEmail(trimmed);
+      if (!isValidEmail(em)) {
+        return { valid: false, value: em, isEmail: true, error: 'آدرس ایمیل واردشده معتبر نیست.' };
+      }
+      return { valid: true, value: em, isEmail: true };
+    }
+    const unameCheck = validateUsername(trimmed);
+    if (!unameCheck.valid) {
+      return {
+        valid: false,
+        value: unameCheck.normalized,
+        isEmail: false,
+        error: unameCheck.error || 'نام کاربری یا ایمیل معتبر وارد کنید.',
+      };
+    }
+    return { valid: true, value: unameCheck.normalized, isEmail: false };
+  };
+
   const handleRequestOtpLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setOfferSignupEmail(null);
-    const email = normalizeEmail(loginEmail);
-    if (!isValidEmail(email)) {
-      setFieldErrors({ loginEmail: 'لطفاً یک آدرس ایمیل معتبر وارد کنید.' });
+    const idCheck = validateLoginIdentifier(loginEmail);
+    if (!idCheck.valid) {
+      setFieldErrors({ loginEmail: idCheck.error || 'ایمیل یا نام کاربری معتبر وارد کنید.' });
       return;
     }
     setFieldErrors({});
     setSubmitting(true);
     try {
-      const res = await authApi.sendOtp({ email, purpose: 'login' });
-      applyOtpResponse(email, 'login', res);
+      const res = await authApi.sendOtp({
+        ...(idCheck.isEmail ? { email: idCheck.value } : {}),
+        identifier: idCheck.value,
+        purpose: 'login',
+      });
+      applyOtpResponse(
+        idCheck.value,
+        res.maskedEmail || (idCheck.isEmail ? idCheck.value : `@${idCheck.value}`),
+        'login',
+        res
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'خطا در ارسال کد تایید.';
       setErrorMsg(message);
-      if (message.includes('ثبت نشده است')) {
-        setOfferSignupEmail(email);
+      if (idCheck.isEmail && message.includes('ثبت نشده است')) {
+        setOfferSignupEmail(idCheck.value);
       }
     } finally {
       setSubmitting(false);
@@ -144,10 +251,10 @@ export const AuthPanel: React.FC = () => {
     e.preventDefault();
     setErrorMsg(null);
     setOfferSignupEmail(null);
-    const email = normalizeEmail(loginEmail);
+    const idCheck = validateLoginIdentifier(loginEmail);
     const nextErrors: Record<string, string> = {};
-    if (!isValidEmail(email)) {
-      nextErrors.loginEmail = 'آدرس ایمیل معتبر وارد کنید.';
+    if (!idCheck.valid) {
+      nextErrors.loginEmail = idCheck.error || 'ایمیل یا نام کاربری معتبر وارد کنید.';
     }
     if (!loginPassword) {
       nextErrors.loginPassword = 'رمز عبور را وارد کنید.';
@@ -157,9 +264,19 @@ export const AuthPanel: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const res = await authApi.loginWithPassword({ email, password: loginPassword });
+      const res = await authApi.loginWithPassword({
+        ...(idCheck.isEmail ? { email: idCheck.value } : {}),
+        identifier: idCheck.value,
+        password: loginPassword,
+      });
       if (res.requires2FA && res.twoFactorToken) {
-        applyOtpResponse(res.email || email, 'login-2fa', res, res.twoFactorToken);
+        applyOtpResponse(
+          idCheck.value,
+          res.maskedEmail || res.email || `@${idCheck.value}`,
+          'login-2fa',
+          res,
+          res.twoFactorToken
+        );
         return;
       }
       if (res.user) {
@@ -177,13 +294,22 @@ export const AuthPanel: React.FC = () => {
     e.preventDefault();
     setErrorMsg(null);
     setOfferSignupEmail(null);
+    const normalizedUsername = normalizeUsername(signupUsername);
     const errors = validateSignupForm({
       fullName: signupName,
+      username: normalizedUsername || undefined,
       email: signupEmail,
       phone: signupPhone,
       password: signupPassword,
       confirmPassword: signupConfirmPassword,
     });
+    if (
+      normalizedUsername &&
+      usernameStatus.checkedNormalized === normalizedUsername &&
+      usernameStatus.available === false
+    ) {
+      errors.username = usernameStatus.error || 'این نام کاربری قبلاً انتخاب شده است.';
+    }
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -192,12 +318,13 @@ export const AuthPanel: React.FC = () => {
     try {
       const res = await authApi.sendOtp({
         email,
+        username: normalizedUsername || undefined,
         purpose: 'signup',
         fullName: signupName.trim(),
         phone: signupPhone.trim(),
         password: signupPassword,
       });
-      applyOtpResponse(email, 'signup', res);
+      applyOtpResponse(email, email, 'signup', res);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'خطا در ارسال کد تایید ثبت‌نام.');
     } finally {
@@ -209,16 +336,25 @@ export const AuthPanel: React.FC = () => {
     e.preventDefault();
     setErrorMsg(null);
     setOfferSignupEmail(null);
-    const email = normalizeEmail(resetEmail);
-    if (!isValidEmail(email)) {
-      setFieldErrors({ resetEmail: 'آدرس ایمیل معتبر وارد کنید.' });
+    const idCheck = validateLoginIdentifier(resetEmail);
+    if (!idCheck.valid) {
+      setFieldErrors({ resetEmail: idCheck.error || 'ایمیل یا نام کاربری معتبر وارد کنید.' });
       return;
     }
     setFieldErrors({});
     setSubmitting(true);
     try {
-      const res = await authApi.sendOtp({ email, purpose: 'reset-password' });
-      applyOtpResponse(email, 'reset-password', res);
+      const res = await authApi.sendOtp({
+        ...(idCheck.isEmail ? { email: idCheck.value } : {}),
+        identifier: idCheck.value,
+        purpose: 'reset-password',
+      });
+      applyOtpResponse(
+        idCheck.value,
+        res.maskedEmail || (idCheck.isEmail ? idCheck.value : `@${idCheck.value}`),
+        'reset-password',
+        res
+      );
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'خطا در ارسال کد بازیابی.');
     } finally {
@@ -254,7 +390,10 @@ export const AuthPanel: React.FC = () => {
               code: normalized,
             })
           : await authApi.verifyOtp({
-              email: otpPending.email,
+              ...(otpPending.identifier.includes('@') && !otpPending.identifier.startsWith('@')
+                ? { email: otpPending.identifier }
+                : {}),
+              identifier: otpPending.identifier,
               purpose: otpPending.purpose,
               code: normalized,
               newPassword:
@@ -290,7 +429,8 @@ export const AuthPanel: React.FC = () => {
           twoFactorToken: otpPending.twoFactorToken,
         });
         applyOtpResponse(
-          otpPending.email,
+          otpPending.identifier,
+          otpPending.displayTarget,
           'login-2fa',
           res,
           otpPending.twoFactorToken
@@ -298,18 +438,28 @@ export const AuthPanel: React.FC = () => {
         return;
       }
 
+      const normalizedUsername = normalizeUsername(signupUsername);
+      const isEmailTarget =
+        otpPending.identifier.includes('@') && !otpPending.identifier.startsWith('@');
       const res = await authApi.sendOtp({
-        email: otpPending.email,
+        ...(isEmailTarget ? { email: otpPending.identifier } : {}),
+        identifier: otpPending.identifier,
         purpose: otpPending.purpose,
         ...(otpPending.purpose === 'signup'
           ? {
+              username: normalizedUsername || undefined,
               fullName: signupName.trim(),
               phone: signupPhone.trim(),
               password: signupPassword,
             }
           : {}),
       });
-      applyOtpResponse(otpPending.email, otpPending.purpose, res);
+      applyOtpResponse(
+        otpPending.identifier,
+        res.maskedEmail || otpPending.displayTarget,
+        otpPending.purpose,
+        res
+      );
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'امکان ارسال مجدد وجود ندارد.');
     } finally {
@@ -425,7 +575,7 @@ export const AuthPanel: React.FC = () => {
                         ? 'تایید دومرحله‌ای (2FA): '
                         : 'تایید ایمیل: '}
                       <span dir="ltr" className="text-[#004ac6]">
-                        {otpPending.email}
+                        {otpPending.displayTarget}
                       </span>
                     </span>
                   </div>
@@ -570,19 +720,20 @@ export const AuthPanel: React.FC = () => {
             <form onSubmit={handlePasswordLogin} className="space-y-4" noValidate>
               <div className="space-y-1.5">
                 <label htmlFor="pw-login-email" className="text-xs font-bold text-[#0b1c30] block">
-                  آدرس ایمیل
+                  ایمیل یا نام کاربری
                 </label>
                 <div className="relative">
                   <input
                     id="pw-login-email"
-                    type="email"
+                    type="text"
                     dir="ltr"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="name@example.com"
+                    placeholder="name@example.com یا @username"
+                    data-testid="pw-login-identifier"
                     className="w-full h-11 pr-3.5 pl-10 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
                   />
-                  <Mail className="w-4 h-4 text-[#434655] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <AtSign className="w-4 h-4 text-[#434655] absolute left-3.5 top-1/2 -translate-y-1/2" />
                 </div>
                 {fieldErrors.loginEmail && (
                   <p className="text-[11px] font-bold text-rose-600">{fieldErrors.loginEmail}</p>
@@ -645,16 +796,17 @@ export const AuthPanel: React.FC = () => {
             <form onSubmit={handleRequestOtpLogin} className="space-y-4" noValidate>
               <div className="space-y-1.5">
                 <label htmlFor="otp-login-email" className="text-xs font-bold text-[#0b1c30] block">
-                  آدرس ایمیل ثبت‌شده
+                  ایمیل یا نام کاربری ثبت‌شده
                 </label>
                 <div className="relative">
                   <input
                     id="otp-login-email"
-                    type="email"
+                    type="text"
                     dir="ltr"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="name@example.com"
+                    placeholder="name@example.com یا @username"
+                    data-testid="otp-login-identifier"
                     className="w-full h-11 pr-3.5 pl-10 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
                   />
                   <Mail className="w-4 h-4 text-[#434655] absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -663,7 +815,7 @@ export const AuthPanel: React.FC = () => {
                   <p className="text-[11px] font-bold text-rose-600">{fieldErrors.loginEmail}</p>
                 )}
                 <p className="text-[11px] text-[#434655] leading-5">
-                  کد ۶ رقمی یک‌بارمصرف فقط برای حساب‌های ثبت‌شده ارسال می‌شود.
+                  کد ۶ رقمی یک‌بارمصرف به ایمیل حساب کاربری شما ارسال می‌شود.
                 </p>
               </div>
 
@@ -691,15 +843,16 @@ export const AuthPanel: React.FC = () => {
               </div>
               <div className="space-y-1.5">
                 <label htmlFor="reset-email-input" className="text-xs font-bold text-[#0b1c30] block">
-                  ایمیل ثبت‌شده در حساب کاربری
+                  ایمیل یا نام کاربری ثبت‌شده در حساب کاربری
                 </label>
                 <input
                   id="reset-email-input"
-                  type="email"
+                  type="text"
                   dir="ltr"
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
-                  placeholder="name@example.com"
+                  placeholder="name@example.com یا @username"
+                  data-testid="reset-identifier-input"
                   className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
                 />
                 {fieldErrors.resetEmail && (
@@ -770,6 +923,67 @@ export const AuthPanel: React.FC = () => {
                 />
                 {fieldErrors.email && (
                   <p className="text-[11px] font-bold text-rose-600">{fieldErrors.email}</p>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label htmlFor="signup-username" className="text-xs font-bold text-[#0b1c30] block">
+                    نام کاربری (اختیاری - با حروف انگلیسی)
+                  </label>
+                  {normalizeUsername(signupUsername) && (
+                    <span
+                      data-testid="signup-username-status"
+                      className={`text-[11px] font-bold ${
+                        usernameStatus.checking
+                          ? 'text-[#434655]'
+                          : usernameStatus.available
+                          ? 'text-emerald-700'
+                          : 'text-rose-600'
+                      }`}
+                    >
+                      {usernameStatus.checking
+                        ? 'در حال بررسی...'
+                        : usernameStatus.available
+                        ? 'قابل انتخاب است ✓'
+                        : usernameStatus.error || 'قبلاً انتخاب شده'}
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <input
+                    id="signup-username"
+                    type="text"
+                    dir="ltr"
+                    value={signupUsername}
+                    onChange={(e) => setSignupUsername(e.target.value)}
+                    placeholder="amir_mobile"
+                    data-testid="signup-username-input"
+                    className="w-full h-11 pr-3.5 pl-9 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] font-mono text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                  />
+                  <AtSign className="w-4 h-4 text-[#004ac6] absolute left-3 top-1/2 -translate-y-1/2" />
+                </div>
+                {fieldErrors.username && (
+                  <p className="text-[11px] font-bold text-rose-600">{fieldErrors.username}</p>
+                )}
+                {quickUsernameSuggestions.length > 0 && !usernameStatus.available && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <span className="text-[11px] text-[#434655] inline-flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-[#004ac6]" />
+                      پیشنهادها:
+                    </span>
+                    {quickUsernameSuggestions.slice(0, 3).map((sug) => (
+                      <button
+                        key={sug}
+                        type="button"
+                        dir="ltr"
+                        onClick={() => setSignupUsername(sug)}
+                        className="px-2 py-0.5 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] font-mono text-[11px] font-bold transition-colors"
+                      >
+                        @{sug}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
 

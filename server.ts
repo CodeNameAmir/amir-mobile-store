@@ -31,14 +31,18 @@ import {
 } from './server/emailTemplates.ts';
 import { getResendProviderStatus, sendEmailWithResend } from './server/resendService.ts';
 import {
+  buildUsernameCandidateListServer,
   calculateOrderTotalsServer,
   CATEGORY_ITEMS,
   DEFAULT_DEV_BRANDS,
   evaluateCouponServer,
+  maskEmailServer,
   normalizePhone,
   normalizeRole,
+  normalizeUsernameServer,
   stripPrivateVariantFields,
   toSummaryOrderDTO,
+  validateUsernameServer,
 } from './server/storeData.ts';
 
 const SESSION_COOKIE_NAME = 'amir_session';
@@ -112,11 +116,17 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     if (!existingAdmin) {
       await storage.createUser({
         email: devAdminEmail,
+        username: 'amiradmin',
         fullName: 'مدیر فروشگاه امیر',
         phone: '09120000001',
         passwordHash: hashPassword(devAdminPassword),
         role: 'admin',
       });
+    } else if (!existingAdmin.username) {
+      await storage.updateUser(existingAdmin.id, (prev) => ({
+        ...prev,
+        username: 'amiradmin',
+      }));
     }
   }
 
@@ -282,12 +292,125 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
+  const buildAvailableUsernameSuggestions = async (
+    seed: string,
+    excludeUserId?: string
+  ): Promise<string[]> => {
+    const candidates = buildUsernameCandidateListServer(seed);
+    const availableList: string[] = [];
+    for (const candidate of candidates) {
+      const existing = await authService.findUserByUsername(candidate);
+      if (!existing || (excludeUserId && existing.id === excludeUserId)) {
+        availableList.push(candidate);
+      }
+      if (availableList.length >= 4) break;
+    }
+    return availableList;
+  };
+
+  const resolveUserByEmailOrUsername = async (
+    rawIdentifier: unknown
+  ): Promise<{ user: StoredUserRecord | null; byUsername: boolean; normalized: string }> => {
+    const text = String(rawIdentifier ?? '').trim();
+    if (!text) {
+      return { user: null, byUsername: false, normalized: '' };
+    }
+    const emailCandidate = normalizeEmail(text);
+    if (text.includes('@') && !text.startsWith('@') && isValidEmail(emailCandidate)) {
+      const user = await authService.findUserByEmail(emailCandidate);
+      return { user, byUsername: false, normalized: emailCandidate };
+    }
+    const uname = normalizeUsernameServer(text);
+    const validation = validateUsernameServer(uname);
+    if (!validation.valid) {
+      return { user: null, byUsername: true, normalized: uname };
+    }
+    const user = await authService.findUserByUsername(validation.normalized);
+    return { user, byUsername: true, normalized: validation.normalized };
+  };
+
+  app.get('/api/auth/username-available', async (req, res, next) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      const rawUsername = String(req.query.username ?? '');
+      const seedHint = String(req.query.seed ?? rawUsername);
+      const auth = await getAuthFromRequest(req);
+      const check = validateUsernameServer(rawUsername);
+
+      if (!check.valid) {
+        const suggestions = await buildAvailableUsernameSuggestions(seedHint || 'amir_user', auth?.user.id);
+        res.json({
+          valid: false,
+          available: false,
+          normalized: check.normalized,
+          error: check.error,
+          suggestions,
+        });
+        return;
+      }
+
+      const existing = await authService.findUserByUsername(check.normalized);
+      const isCurrent = Boolean(auth && existing && existing.id === auth.user.id);
+      const available = !existing || isCurrent;
+      const suggestions = available
+        ? []
+        : await buildAvailableUsernameSuggestions(check.normalized, auth?.user.id);
+
+      res.json({
+        valid: true,
+        available,
+        isCurrent,
+        normalized: check.normalized,
+        ...(available
+          ? {}
+          : {
+              error: 'این نام کاربری قبلاً انتخاب شده است.',
+              suggestions,
+            }),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/users/:username', async (req, res, next) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      const check = validateUsernameServer(req.params.username);
+      if (!check.valid) {
+        res.status(400).json({ error: check.error || 'فرمت نام کاربری معتبر نیست.' });
+        return;
+      }
+      const user = await authService.findUserByUsername(check.normalized);
+      if (!user || !user.username) {
+        res.status(404).json({ error: 'کاربری با این نام کاربری یافت نشد.' });
+        return;
+      }
+      res.json({
+        profile: {
+          username: user.username,
+          fullName: user.fullName,
+          avatarUrl: user.avatarUrl,
+          role: user.role,
+          memberSince: user.createdAt,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   const issueAndSendOtpChallenge = async (params: {
     email: string;
     purpose: OtpPurpose;
     recipientName?: string;
     pendingUserId?: string;
-    pendingSignup?: { fullName: string; phone: string; passwordHash?: string };
+    pendingSignup?: {
+      fullName: string;
+      username?: string;
+      phone: string;
+      passwordHash?: string;
+    };
   }): Promise<
     | {
         ok: true;
@@ -368,7 +491,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.post('/api/auth/send-otp', async (req, res, next) => {
     try {
-      const email = normalizeEmail(req.body?.email);
+      const rawIdentifier = String(req.body?.identifier ?? req.body?.email ?? '').trim();
       const purpose = String(req.body?.purpose || '') as OtpPurpose;
 
       if (!['signup', 'login', 'reset-password', 'change-email'].includes(purpose)) {
@@ -376,16 +499,19 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         return;
       }
 
-      if (!isValidEmail(email)) {
-        res.status(400).json({ error: 'آدرس ایمیل واردشده معتبر نیست.' });
-        return;
-      }
-
+      let email = normalizeEmail(req.body?.email ?? rawIdentifier);
+      let lookupByUsername = false;
       let recipientName: string | undefined;
       let pendingUserId: string | undefined;
-      let pendingSignup: { fullName: string; phone: string; passwordHash?: string } | undefined;
+      let pendingSignup:
+        | { fullName: string; username?: string; phone: string; passwordHash?: string }
+        | undefined;
 
       if (purpose === 'signup') {
+        if (!isValidEmail(email)) {
+          res.status(400).json({ error: 'آدرس ایمیل واردشده معتبر نیست.' });
+          return;
+        }
         const existing = await authService.findUserByEmail(email);
         if (existing) {
           res.status(409).json({
@@ -398,6 +524,26 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           .replace(/[\s-]/g, '')
           .trim();
         const password = String(req.body?.password || '');
+        const rawUsername = req.body?.username !== undefined ? String(req.body.username).trim() : '';
+
+        let validUsername: string | undefined;
+        if (rawUsername) {
+          const check = validateUsernameServer(rawUsername);
+          if (!check.valid) {
+            res.status(400).json({ error: check.error || 'نام کاربری معتبر نیست.' });
+            return;
+          }
+          const usernameTaken = await authService.findUserByUsername(check.normalized);
+          if (usernameTaken) {
+            const suggestions = await buildAvailableUsernameSuggestions(check.normalized);
+            res.status(409).json({
+              error: 'این نام کاربری قبلاً انتخاب شده است.',
+              suggestions,
+            });
+            return;
+          }
+          validUsername = check.normalized;
+        }
 
         if (fullName.length < 3) {
           res.status(400).json({ error: 'نام و نام خانوادگی باید حداقل ۳ حرف باشد.' });
@@ -415,18 +561,37 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         recipientName = fullName;
         pendingSignup = {
           fullName,
+          ...(validUsername ? { username: validUsername } : {}),
           phone,
           passwordHash: hashPassword(password),
         };
       } else if (purpose === 'reset-password') {
-        const existing = await authService.findUserByEmail(email);
-        if (!existing) {
-          res.status(404).json({ error: 'حساب کاربری با این ایمیل یافت نشد.' });
+        const resolved = await resolveUserByEmailOrUsername(rawIdentifier);
+        if (!resolved.normalized) {
+          res.status(400).json({ error: 'لطفاً ایمیل یا نام کاربری معتبر وارد کنید.' });
           return;
         }
-        recipientName = existing.fullName;
-        pendingUserId = existing.id;
+        if (!resolved.byUsername && !isValidEmail(resolved.normalized)) {
+          res.status(400).json({ error: 'آدرس ایمیل واردشده معتبر نیست.' });
+          return;
+        }
+        if (!resolved.user) {
+          res.status(404).json({
+            error: resolved.byUsername
+              ? 'حساب کاربری با این نام کاربری یافت نشد.'
+              : 'حساب کاربری با این ایمیل یافت نشد.',
+          });
+          return;
+        }
+        email = resolved.user.email;
+        lookupByUsername = resolved.byUsername;
+        recipientName = resolved.user.fullName;
+        pendingUserId = resolved.user.id;
       } else if (purpose === 'change-email') {
+        if (!isValidEmail(email)) {
+          res.status(400).json({ error: 'آدرس ایمیل واردشده معتبر نیست.' });
+          return;
+        }
         const auth = await getAuthFromRequest(req);
         if (!auth) {
           res.status(401).json({ error: 'برای تغییر ایمیل ابتدا باید وارد حساب کاربری شوید.' });
@@ -444,23 +609,34 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         recipientName = auth.user.fullName;
         pendingUserId = auth.user.id;
       } else if (purpose === 'login') {
-        const existing = await authService.findUserByEmail(email);
-        if (!existing) {
+        const resolved = await resolveUserByEmailOrUsername(rawIdentifier);
+        if (!resolved.normalized) {
+          res.status(400).json({ error: 'لطفاً ایمیل یا نام کاربری معتبر وارد کنید.' });
+          return;
+        }
+        if (!resolved.byUsername && !isValidEmail(resolved.normalized)) {
+          res.status(400).json({ error: 'آدرس ایمیل یا نام کاربری واردشده معتبر نیست.' });
+          return;
+        }
+        if (!resolved.user) {
           res.status(404).json({
-            error:
-              'حساب کاربری با این ایمیل ثبت نشده است. لطفاً ابتدا از بخش «ثبت‌نام جدید» حساب کاربری خود را ایجاد کنید.',
+            error: resolved.byUsername
+              ? 'حساب کاربری با این نام کاربری یافت نشد. لطفاً ایمیل خود را وارد کرده یا ثبت‌نام کنید.'
+              : 'حساب کاربری با این ایمیل ثبت نشده است. لطفاً ابتدا از بخش «ثبت‌نام جدید» حساب کاربری خود را ایجاد کنید.',
           });
           return;
         }
-        if (existing.twoFactorEnabled) {
+        if (resolved.user.twoFactorEnabled) {
           res.status(403).json({
             error:
               'تایید دومرحله‌ای (2FA) برای این حساب فعال است. لطفاً از بخش «ورود با رمز عبور» وارد شوید.',
           });
           return;
         }
-        recipientName = existing.fullName;
-        pendingUserId = existing.id;
+        email = resolved.user.email;
+        lookupByUsername = resolved.byUsername;
+        recipientName = resolved.user.fullName;
+        pendingUserId = resolved.user.id;
       }
 
       const otpResult = await issueAndSendOtpChallenge({
@@ -482,6 +658,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       res.json({
         sent: true,
         provider: otpResult.provider,
+        ...(lookupByUsername ? { maskedEmail: maskEmailServer(email) } : {}),
         ...(otpResult.emailId ? { emailId: otpResult.emailId } : {}),
         ...(otpResult.previewCode ? { previewCode: otpResult.previewCode } : {}),
         cooldownSeconds: otpResult.cooldownSeconds,
@@ -494,7 +671,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.post('/api/auth/verify-otp', async (req, res, next) => {
     try {
-      const email = normalizeEmail(req.body?.email);
+      const rawIdentifier = String(req.body?.identifier ?? req.body?.email ?? '').trim();
       const purpose = String(req.body?.purpose || '') as OtpPurpose;
       const code = toEnglishDigits(String(req.body?.code || ''))
         .replace(/[\s\-_]/g, '')
@@ -505,8 +682,16 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         return;
       }
 
+      let email = normalizeEmail(req.body?.email ?? rawIdentifier);
+      if (purpose === 'login' || purpose === 'reset-password') {
+        const resolved = await resolveUserByEmailOrUsername(rawIdentifier);
+        if (resolved.user) {
+          email = resolved.user.email;
+        }
+      }
+
       if (!isValidEmail(email) || !/^\d{6}$/.test(code)) {
-        res.status(400).json({ error: 'ایمیل یا کد تایید ۶ رقمی معتبر نیست.' });
+        res.status(400).json({ error: 'ایمیل، نام کاربری یا کد تایید ۶ رقمی معتبر نیست.' });
         return;
       }
 
@@ -529,8 +714,20 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           res.status(409).json({ error: 'این ایمیل قبلاً ثبت شده است.' });
           return;
         }
+        if (challenge.pendingSignup.username) {
+          const usernameConflict = await authService.findUserByUsername(challenge.pendingSignup.username);
+          if (usernameConflict) {
+            const suggestions = await buildAvailableUsernameSuggestions(challenge.pendingSignup.username);
+            res.status(409).json({
+              error: 'نام کاربری انتخاب‌شده در این فاصله توسط کاربر دیگری ثبت شده است. لطفاً نام کاربری دیگری انتخاب کنید.',
+              suggestions,
+            });
+            return;
+          }
+        }
         user = await authService.createUserAccount({
           email,
+          username: challenge.pendingSignup.username,
           fullName: challenge.pendingSignup.fullName,
           phone: challenge.pendingSignup.phone,
           passwordHash: challenge.pendingSignup.passwordHash,
@@ -548,7 +745,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         const existing = await authService.findUserByEmail(email);
         if (!existing) {
           res.status(404).json({
-            error: 'حساب کاربری با این ایمیل یافت نشد. لطفاً ابتدا ثبت‌نام کنید.',
+            error: 'حساب کاربری با این مشخصات یافت نشد. لطفاً ابتدا ثبت‌نام کنید.',
           });
           return;
         }
@@ -641,25 +838,31 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.post('/api/auth/login-password', async (req, res, next) => {
     try {
-      const email = normalizeEmail(req.body?.email);
+      const rawIdentifier = String(req.body?.identifier ?? req.body?.email ?? '').trim();
       const password = String(req.body?.password || '');
 
-      if (!isValidEmail(email) || !password) {
-        res.status(400).json({ error: 'ایمیل و رمز عبور را به درستی وارد کنید.' });
+      if (!rawIdentifier || !password) {
+        res.status(400).json({ error: 'ایمیل (یا نام کاربری) و رمز عبور را به درستی وارد کنید.' });
         return;
       }
 
-      const user = await authService.findUserByEmail(email);
+      const resolved = await resolveUserByEmailOrUsername(rawIdentifier);
+      if (!resolved.byUsername && !isValidEmail(resolved.normalized)) {
+        res.status(400).json({ error: 'ایمیل یا نام کاربری و رمز عبور را به درستی وارد کنید.' });
+        return;
+      }
+
+      const user = resolved.user;
       if (!user || !user.passwordHash) {
         res.status(401).json({
           error:
-            'ایمیل یا رمز عبور اشتباه است. اگر با کد ایمیل ثبت‌نام کرده‌اید، از ورود با کد ایمیل استفاده کنید.',
+            'ایمیل / نام کاربری یا رمز عبور اشتباه است. اگر با کد ایمیل ثبت‌نام کرده‌اید، از ورود با کد ایمیل استفاده کنید.',
         });
         return;
       }
 
       if (!verifyPassword(password, user.passwordHash)) {
-        res.status(401).json({ error: 'ایمیل یا رمز عبور اشتباه است.' });
+        res.status(401).json({ error: 'ایمیل / نام کاربری یا رمز عبور اشتباه است.' });
         return;
       }
 
@@ -686,7 +889,8 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           authenticated: false,
           requires2FA: true,
           twoFactorToken,
-          email: user.email,
+          ...(resolved.byUsername ? {} : { email: user.email }),
+          maskedEmail: maskEmailServer(user.email),
           provider: otpResult.provider,
           ...(otpResult.emailId ? { emailId: otpResult.emailId } : {}),
           ...(otpResult.previewCode ? { previewCode: otpResult.previewCode } : {}),
@@ -825,6 +1029,59 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
+  app.patch('/api/auth/username', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const currentUser = req.authUser!;
+      const rawUsername = String(req.body?.username ?? '').trim();
+      const check = validateUsernameServer(rawUsername);
+      if (!check.valid) {
+        res.status(400).json({ error: check.error || 'نام کاربری معتبر نیست.' });
+        return;
+      }
+
+      if (currentUser.username === check.normalized) {
+        res.json({ user: toPublicUser(currentUser) });
+        return;
+      }
+
+      const conflict = await authService.findUserByUsername(check.normalized);
+      if (conflict && conflict.id !== currentUser.id) {
+        const suggestions = await buildAvailableUsernameSuggestions(check.normalized, currentUser.id);
+        res.status(409).json({
+          error: 'این نام کاربری قبلاً توسط کاربر دیگری انتخاب شده است.',
+          suggestions,
+        });
+        return;
+      }
+
+      const updated = await authService.updateUserRecord(currentUser.id, (prev) => ({
+        ...prev,
+        username: check.normalized,
+      }));
+
+      if (!updated) {
+        res.status(404).json({ error: 'حساب کاربری یافت نشد.' });
+        return;
+      }
+
+      const alert = buildSecurityAlertEmailContent({
+        fullName: updated.fullName,
+        actionLabel: `تغییر نام کاربری حساب به @${check.normalized}`,
+      });
+      void dispatchEmail({
+        to: updated.email,
+        subject: alert.subject,
+        html: alert.html,
+        idempotencyKey: `username-change-${updated.id}-${Date.now()}`,
+        tags: [{ name: 'category', value: 'security_alert' }],
+      });
+
+      res.json({ user: toPublicUser(updated) });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.patch('/api/auth/profile', requireAuth, async (req: AuthenticatedRequest, res, next) => {
     try {
       const currentUser = req.authUser!;
@@ -842,6 +1099,32 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         typeof req.body?.newsletterOptIn === 'boolean'
           ? req.body.newsletterOptIn
           : currentUser.newsletterOptIn;
+
+      let nextUsername = currentUser.username;
+      if (req.body?.username !== undefined) {
+        const rawUsername = String(req.body.username ?? '').trim();
+        if (!rawUsername) {
+          nextUsername = undefined;
+        } else {
+          const check = validateUsernameServer(rawUsername);
+          if (!check.valid) {
+            res.status(400).json({ error: check.error || 'نام کاربری معتبر نیست.' });
+            return;
+          }
+          if (check.normalized !== currentUser.username) {
+            const conflict = await authService.findUserByUsername(check.normalized);
+            if (conflict && conflict.id !== currentUser.id) {
+              const suggestions = await buildAvailableUsernameSuggestions(check.normalized, currentUser.id);
+              res.status(409).json({
+                error: 'این نام کاربری قبلاً انتخاب شده است.',
+                suggestions,
+              });
+              return;
+            }
+          }
+          nextUsername = check.normalized;
+        }
+      }
 
       let nextAvatarUrl = currentUser.avatarUrl;
       if (req.body?.avatarUrl !== undefined) {
@@ -873,6 +1156,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
       const updated = await authService.updateUserRecord(currentUser.id, (prev) => ({
         ...prev,
+        username: nextUsername,
         fullName,
         phone,
         avatarUrl: nextAvatarUrl,
@@ -1396,6 +1680,9 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       const author = String(req.body?.author || auth?.user.fullName || '').trim();
       const comment = String(req.body?.comment || '').trim();
       const rating = Math.round(Number(req.body?.rating ?? 5));
+      const useUsername = req.body?.useUsername !== false;
+      const authorUsername =
+        auth?.user.username && useUsername ? auth.user.username : undefined;
 
       if (author.length < 2 || comment.length < 8) {
         res.status(400).json({ error: 'لطفاً نام و متن دیدگاه (حداقل ۸ کاراکتر) را وارد کنید.' });
@@ -1410,6 +1697,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         id: crypto.randomUUID(),
         productId: product.id,
         author,
+        ...(authorUsername ? { authorUsername } : {}),
         dateLabel: 'هم‌اکنون',
         rating,
         comment,

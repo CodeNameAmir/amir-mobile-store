@@ -13,6 +13,7 @@ import type {
   ProductAttributeValue,
   ProductReview,
   ProductVariant,
+  PublicUserProfile,
   ResendServiceStatus,
   StockMovementItem,
   StoreSettings,
@@ -24,7 +25,9 @@ import type {
 } from '../types/store';
 
 export interface SendOtpPayload {
-  email: string;
+  email?: string;
+  identifier?: string;
+  username?: string;
   purpose: OtpPurpose;
   fullName?: string;
   phone?: string;
@@ -34,6 +37,7 @@ export interface SendOtpPayload {
 export interface SendOtpResponse {
   sent: boolean;
   provider: 'resend' | 'sandbox-preview';
+  maskedEmail?: string;
   emailId?: string;
   previewCode?: string;
   cooldownSeconds: number;
@@ -49,11 +53,21 @@ export interface PasswordLoginResponse extends AuthResponse {
   requires2FA?: boolean;
   twoFactorToken?: string;
   email?: string;
+  maskedEmail?: string;
   provider?: 'resend' | 'sandbox-preview';
   emailId?: string;
   previewCode?: string;
   cooldownSeconds?: number;
   warning?: string;
+}
+
+export interface UsernameAvailabilityResponse {
+  valid: boolean;
+  available: boolean;
+  normalized: string;
+  isCurrent?: boolean;
+  error?: string;
+  suggestions?: string[];
 }
 
 export interface AuthStatusResponse extends ResendServiceStatus {
@@ -177,7 +191,8 @@ export const authApi = {
   },
 
   async verifyOtp(payload: {
-    email: string;
+    email?: string;
+    identifier?: string;
     purpose: OtpPurpose;
     code: string;
     newPassword?: string;
@@ -189,13 +204,38 @@ export const authApi = {
   },
 
   async loginWithPassword(payload: {
-    email: string;
+    email?: string;
+    identifier?: string;
     password: string;
   }): Promise<PasswordLoginResponse> {
     return requestJson<PasswordLoginResponse>('/api/auth/login-password', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  },
+
+  async checkUsernameAvailability(
+    username: string,
+    seed?: string
+  ): Promise<UsernameAvailabilityResponse> {
+    const qs = new URLSearchParams({ username });
+    if (seed) qs.set('seed', seed);
+    return requestJson<UsernameAvailabilityResponse>(
+      `/api/auth/username-available?${qs.toString()}`
+    );
+  },
+
+  async updateUsername(username: string): Promise<{ user: DemoUser }> {
+    return requestJson<{ user: DemoUser }>('/api/auth/username', {
+      method: 'PATCH',
+      body: JSON.stringify({ username }),
+    });
+  },
+
+  async getPublicProfile(username: string): Promise<{ profile: PublicUserProfile }> {
+    return requestJson<{ profile: PublicUserProfile }>(
+      `/api/users/${encodeURIComponent(username.replace(/^@+/, '').trim().toLowerCase())}`
+    );
   },
 
   async verifyTwoFactor(payload: { twoFactorToken: string; code: string }): Promise<AuthResponse> {
@@ -232,6 +272,7 @@ export const authApi = {
   async updateProfile(payload: {
     fullName: string;
     phone: string;
+    username?: string;
     nationalId?: string;
     birthDate?: string;
     newsletterOptIn?: boolean;
@@ -508,7 +549,7 @@ export const storeApi = {
 
   async submitProductReview(
     productId: string,
-    payload: { author: string; rating: number; comment: string }
+    payload: { author: string; rating: number; comment: string; useUsername?: boolean }
   ): Promise<ProductReview> {
     const res = await requestJson<{ review: ProductReview }>(
       `/api/products/${encodeURIComponent(productId)}/reviews`,

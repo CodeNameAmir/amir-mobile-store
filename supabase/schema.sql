@@ -693,6 +693,13 @@ create policy "Public can view product attribute values" on public.product_attri
 drop policy if exists "Public can view product images" on public.product_images;
 create policy "Public can view product images" on public.product_images for select using (true);
 
+-- 11. Unique Usernames & Review Attribution
+alter table public.app_users
+  add column if not exists username text;
 
+create unique index if not exists idx_app_users_username_lower
+  on public.app_users (lower(username))
+  where username is not null;
 
-
+alter table public.product_reviews
+  add column if not exists author_username text;

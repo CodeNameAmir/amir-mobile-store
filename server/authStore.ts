@@ -21,6 +21,7 @@ import {
   normalizeOrderStatus,
   normalizePhone,
   normalizeRole,
+  normalizeUsernameServer,
   sanitizeAuditDetails,
   type AdminAuditLogDTO,
   type AdminCustomerDTO,
@@ -121,6 +122,7 @@ export interface StoredOrderRecord {
 
 export interface StoredUserRecord {
   id: string;
+  username?: string;
   email: string;
   fullName: string;
   phone: string;
@@ -141,6 +143,7 @@ export interface StoredUserRecord {
 
 export interface PublicUserDTO {
   id: string;
+  username?: string;
   email: string;
   fullName: string;
   phone: string;
@@ -170,6 +173,7 @@ export interface OtpChallengeRecord {
   pendingUserId?: string;
   pendingSignup?: {
     fullName: string;
+    username?: string;
     phone: string;
     passwordHash?: string;
   };
@@ -188,9 +192,11 @@ export interface AuthStorageAdapter {
   mode: 'supabase' | 'dev-memory';
   checkHealth(): Promise<{ ok: boolean; mode: 'supabase' | 'dev-memory'; detail?: string }>;
   findUserByEmail(email: string): Promise<StoredUserRecord | null>;
+  findUserByUsername(username: string): Promise<StoredUserRecord | null>;
   findUserById(userId: string): Promise<StoredUserRecord | null>;
   createUser(params: {
     email: string;
+    username?: string;
     fullName: string;
     phone: string;
     passwordHash?: string;
@@ -323,6 +329,7 @@ function hashOtpCode(code: string, email: string, secret: string): string {
 export function toPublicUser(user: StoredUserRecord): PublicUserDTO {
   return {
     id: user.id,
+    username: user.username,
     email: user.email,
     fullName: user.fullName,
     phone: user.phone,
@@ -420,9 +427,11 @@ function mapSupabaseUserRow(row: Record<string, unknown>): StoredUserRecord {
   const parsedAddresses = parseJsonValue<unknown>(row.addresses, []);
   const parsedWishlist = parseJsonValue<unknown>(row.wishlist, []);
   const parsedSessions = parseJsonValue<unknown>(row.active_session_ids, []);
+  const rawUsername = typeof row.username === 'string' ? normalizeUsernameServer(row.username) : '';
 
   return {
     id: String(row.id),
+    username: rawUsername || undefined,
     email: String(row.email),
     fullName: String(row.full_name || ''),
     phone: String(row.phone || ''),
@@ -680,6 +689,7 @@ function toAdminCustomer(
 ): AdminCustomerDTO {
   return {
     id: user.id,
+    username: user.username,
     email: user.email,
     fullName: user.fullName,
     phone: user.phone,
@@ -722,34 +732,59 @@ function isUuid(val: string | null | undefined): boolean {
 
 export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorageAdapter {
   const avatarSettingKey = (userId: string) => `user_avatar:${userId}`;
+  const usernameSettingKey = (userId: string) => `user_username:${userId}`;
+  const usernameLookupKey = (username: string) =>
+    `user_username_lookup:${normalizeUsernameServer(username)}`;
 
-  const hydrateAvatarFallback = async (
+  const hydrateUserExtrasFallback = async (
     rawRow: Record<string, unknown>,
     mapped: StoredUserRecord
   ): Promise<StoredUserRecord> => {
-    if (mapped.avatarUrl || 'avatar_url' in rawRow) {
-      return mapped;
-    }
-    try {
-      const { data } = await supabase
-        .from('store_settings')
-        .select('value')
-        .eq('key', avatarSettingKey(mapped.id))
-        .maybeSingle();
-      const val = data?.value as { avatarUrl?: unknown } | string | null | undefined;
-      const storedUrl =
-        typeof val === 'string'
-          ? val.trim()
-          : val && typeof val === 'object' && typeof val.avatarUrl === 'string'
-          ? val.avatarUrl.trim()
-          : '';
-      if (storedUrl) {
-        return { ...mapped, avatarUrl: storedUrl };
+    let next = mapped;
+    if (!next.avatarUrl && !('avatar_url' in rawRow)) {
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', avatarSettingKey(next.id))
+          .maybeSingle();
+        const val = data?.value as { avatarUrl?: unknown } | string | null | undefined;
+        const storedUrl =
+          typeof val === 'string'
+            ? val.trim()
+            : val && typeof val === 'object' && typeof val.avatarUrl === 'string'
+            ? val.avatarUrl.trim()
+            : '';
+        if (storedUrl) {
+          next = { ...next, avatarUrl: storedUrl };
+        }
+      } catch {
+        // Ignore if store_settings is unavailable in mock tests
       }
-    } catch {
-      // Ignore if store_settings is unavailable in mock tests
     }
-    return mapped;
+
+    if (!next.username) {
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', usernameSettingKey(next.id))
+          .maybeSingle();
+        const val = data?.value as { username?: unknown } | string | null | undefined;
+        const storedUsername =
+          typeof val === 'string'
+            ? normalizeUsernameServer(val)
+            : val && typeof val === 'object' && typeof val.username === 'string'
+            ? normalizeUsernameServer(val.username)
+            : '';
+        if (storedUsername) {
+          next = { ...next, username: storedUsername };
+        }
+      } catch {
+        // Ignore if store_settings is unavailable in mock tests
+      }
+    }
+    return next;
   };
 
   const persistAvatarFallback = async (userId: string, avatarUrl?: string): Promise<void> => {
@@ -762,6 +797,37 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         });
       } else {
         await supabase.from('store_settings').delete().eq('key', avatarSettingKey(userId));
+      }
+    } catch {
+      // Ignore if store_settings is unavailable
+    }
+  };
+
+  const persistUsernameFallback = async (
+    userId: string,
+    nextUsername?: string,
+    previousUsername?: string
+  ): Promise<void> => {
+    try {
+      const cleanPrev = previousUsername ? normalizeUsernameServer(previousUsername) : '';
+      const cleanNext = nextUsername ? normalizeUsernameServer(nextUsername) : '';
+      if (cleanPrev && cleanPrev !== cleanNext) {
+        await supabase.from('store_settings').delete().eq('key', usernameLookupKey(cleanPrev));
+      }
+      if (cleanNext) {
+        const updatedAt = new Date().toISOString();
+        await supabase.from('store_settings').upsert({
+          key: usernameSettingKey(userId),
+          value: { username: cleanNext },
+          updated_at: updatedAt,
+        });
+        await supabase.from('store_settings').upsert({
+          key: usernameLookupKey(cleanNext),
+          value: { userId },
+          updated_at: updatedAt,
+        });
+      } else {
+        await supabase.from('store_settings').delete().eq('key', usernameSettingKey(userId));
       }
     } catch {
       // Ignore if store_settings is unavailable
@@ -790,7 +856,57 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (error) throw new Error(`Supabase user lookup failed: ${error.message}`);
       if (!data) return null;
       const row = data as Record<string, unknown>;
-      return hydrateAvatarFallback(row, mapSupabaseUserRow(row));
+      return hydrateUserExtrasFallback(row, mapSupabaseUserRow(row));
+    },
+
+    async findUserByUsername(username: string) {
+      const normalized = normalizeUsernameServer(username);
+      if (!normalized) return null;
+      try {
+        const selector = supabase.from('app_users').select('*') as unknown as {
+          ilike?: (col: string, val: string) => { maybeSingle: () => Promise<{ data: unknown; error: { code?: string; message?: string } | null }> };
+          eq: (col: string, val: string) => { maybeSingle: () => Promise<{ data: unknown; error: { code?: string; message?: string } | null }> };
+        };
+        const { data, error } =
+          typeof selector.ilike === 'function'
+            ? await selector.ilike('username', normalized).maybeSingle()
+            : await selector.eq('username', normalized).maybeSingle();
+        if (!error && data) {
+          const row = data as Record<string, unknown>;
+          return hydrateUserExtrasFallback(row, mapSupabaseUserRow(row));
+        }
+        if (error && !isSchemaColumnMismatch(error)) {
+          throw new Error(`Supabase username lookup failed: ${error.message}`);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('Supabase username lookup failed:')) {
+          throw err;
+        }
+      }
+
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', usernameLookupKey(normalized))
+          .maybeSingle();
+        const val = data?.value as { userId?: unknown } | string | null | undefined;
+        const userId =
+          typeof val === 'string'
+            ? val.trim()
+            : val && typeof val === 'object' && typeof val.userId === 'string'
+            ? val.userId.trim()
+            : '';
+        if (userId) {
+          const found = await this.findUserById(userId);
+          if (found && (!found.username || normalizeUsernameServer(found.username) === normalized)) {
+            return { ...found, username: normalized };
+          }
+        }
+      } catch {
+        // Ignore if store_settings is unavailable
+      }
+      return null;
     },
 
     async findUserById(userId: string) {
@@ -802,12 +918,13 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (error) throw new Error(`Supabase user lookup failed: ${error.message}`);
       if (!data) return null;
       const row = data as Record<string, unknown>;
-      return hydrateAvatarFallback(row, mapSupabaseUserRow(row));
+      return hydrateUserExtrasFallback(row, mapSupabaseUserRow(row));
     },
 
     async createUser(params) {
       const nowIso = new Date().toISOString();
-      const row = {
+      const cleanUsername = params.username ? normalizeUsernameServer(params.username) : undefined;
+      const baseRow: Record<string, unknown> = {
         id: crypto.randomUUID(),
         email: params.email,
         full_name: params.fullName.trim(),
@@ -823,17 +940,37 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         created_at: nowIso,
         last_login_at: nowIso,
       };
-      const { data, error } = await supabase.from('app_users').insert(row).select('*').single();
+      const withUsernameRow = cleanUsername ? { ...baseRow, username: cleanUsername } : baseRow;
+      let usedUsernameFallback = false;
+      let { data, error } = await supabase
+        .from('app_users')
+        .insert(withUsernameRow)
+        .select('*')
+        .single();
+
+      if (error && cleanUsername && isSchemaColumnMismatch(error)) {
+        usedUsernameFallback = true;
+        const fb = await supabase.from('app_users').insert(baseRow).select('*').single();
+        data = fb.data;
+        error = fb.error;
+      }
+
       if (error || !data) {
         throw new Error(`Supabase create user failed: ${error?.message || 'no row returned'}`);
       }
-      return mapSupabaseUserRow(data as Record<string, unknown>);
+      const mapped = mapSupabaseUserRow(data as Record<string, unknown>);
+      if (usedUsernameFallback && cleanUsername) {
+        await persistUsernameFallback(mapped.id, cleanUsername);
+        return { ...mapped, username: cleanUsername };
+      }
+      return mapped;
     },
 
     async updateUser(userId, updater) {
       const current = await this.findUserById(userId);
       if (!current) return null;
       const next = updater(current);
+      const nextUsername = next.username ? normalizeUsernameServer(next.username) : undefined;
 
       const basePayload: Record<string, unknown> = {
         email: next.email,
@@ -853,44 +990,70 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       };
 
       const withAvatar = { ...basePayload, avatar_url: next.avatarUrl ?? null };
+      const withAllExtras = { ...withAvatar, username: nextUsername ?? null };
       let usedAvatarFallback = false;
+      let usedUsernameFallback = false;
+
       let { data, error } = await supabase
         .from('app_users')
-        .update(withAvatar)
+        .update(withAllExtras)
         .eq('id', userId)
         .select('*')
         .single();
 
       if (error && isSchemaColumnMismatch(error)) {
-        usedAvatarFallback = true;
-        const fallback = await supabase
+        usedUsernameFallback = true;
+        const avatarTry = await supabase
           .from('app_users')
-          .update(basePayload)
+          .update(withAvatar)
           .eq('id', userId)
           .select('*')
           .single();
-        data = fallback.data;
-        error = fallback.error;
+        data = avatarTry.data;
+        error = avatarTry.error;
+
+        if (error && isSchemaColumnMismatch(error)) {
+          usedAvatarFallback = true;
+          const baseTry = await supabase
+            .from('app_users')
+            .update(basePayload)
+            .eq('id', userId)
+            .select('*')
+            .single();
+          data = baseTry.data;
+          error = baseTry.error;
+        }
       }
 
       if (error || !data) {
         throw new Error(`Supabase update user failed: ${error?.message || 'no row returned'}`);
       }
 
+      let mapped = mapSupabaseUserRow(data as Record<string, unknown>);
       if (usedAvatarFallback) {
         await persistAvatarFallback(userId, next.avatarUrl);
-        return { ...mapSupabaseUserRow(data as Record<string, unknown>), avatarUrl: next.avatarUrl };
+        mapped = { ...mapped, avatarUrl: next.avatarUrl };
+      }
+      if (usedUsernameFallback || nextUsername !== current.username) {
+        if (usedUsernameFallback) {
+          await persistUsernameFallback(userId, nextUsername, current.username);
+          mapped = { ...mapped, username: nextUsername };
+        } else if (current.username && nextUsername !== current.username) {
+          await persistUsernameFallback(userId, undefined, current.username);
+        }
       }
 
-      return mapSupabaseUserRow(data as Record<string, unknown>);
+      return mapped;
     },
 
     async deleteUser(userId: string) {
+      const existing = await this.findUserById(userId).catch(() => null);
       const { error } = await supabase.from('app_users').delete().eq('id', userId);
       if (error) {
         throw new Error(`Supabase delete user failed: ${error.message}`);
       }
       await persistAvatarFallback(userId, undefined);
+      await persistUsernameFallback(userId, undefined, existing?.username);
       return true;
     },
 
@@ -1455,6 +1618,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         id: String(row.id),
         productId: String(row.product_id || productId),
         author: String(row.author || ''),
+        authorUsername: row.author_username ? normalizeUsernameServer(row.author_username) : undefined,
         dateLabel: formatPersianTimestamp(row.created_at),
         rating: Number(row.rating || 5),
         comment: String(row.comment || ''),
@@ -1465,18 +1629,32 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
     },
 
     async createProductReview(review: ProductReviewDTO) {
-      const { data, error } = await supabase
+      const baseInsert = {
+        product_id: review.productId,
+        author: review.author,
+        rating: review.rating,
+        comment: review.comment,
+        verified: review.verified,
+        is_approved: review.isApproved,
+      };
+      const extInsert = review.authorUsername
+        ? { ...baseInsert, author_username: normalizeUsernameServer(review.authorUsername) }
+        : baseInsert;
+
+      let { data, error } = await supabase
         .from('product_reviews')
-        .insert({
-          product_id: review.productId,
-          author: review.author,
-          rating: review.rating,
-          comment: review.comment,
-          verified: review.verified,
-          is_approved: review.isApproved,
-        })
+        .insert(extInsert)
         .select('*')
         .single();
+      if (error && review.authorUsername && isSchemaColumnMismatch(error)) {
+        const fb = await supabase
+          .from('product_reviews')
+          .insert(baseInsert)
+          .select('*')
+          .single();
+        data = fb.data;
+        error = fb.error;
+      }
       if (error || !data) {
         throw new Error(`Supabase create review failed: ${error?.message || 'no row returned'}`);
       }
@@ -1484,6 +1662,9 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         id: String(data.id),
         productId: String(data.product_id),
         author: String(data.author),
+        authorUsername: data.author_username
+          ? normalizeUsernameServer(data.author_username)
+          : review.authorUsername,
         dateLabel: 'هم‌اکنون',
         rating: Number(data.rating),
         comment: String(data.comment),
@@ -1551,15 +1732,23 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       );
       const statsMap = buildCustomerStatsMap(ordersMapped);
 
-      let customers = (usersRes.data || [])
-        .map((row) => mapSupabaseUserRow(row as Record<string, unknown>))
-        .map((u) => toAdminCustomer(u, statsMap.get(u.id)));
+      let customers = (
+        await Promise.all(
+          (usersRes.data || []).map((row) =>
+            hydrateUserExtrasFallback(
+              row as Record<string, unknown>,
+              mapSupabaseUserRow(row as Record<string, unknown>)
+            )
+          )
+        )
+      ).map((u) => toAdminCustomer(u, statsMap.get(u.id)));
 
       if (params.search && params.search.trim()) {
-        const q = params.search.trim().toLowerCase();
+        const q = params.search.trim().toLowerCase().replace(/^@+/, '');
         customers = customers.filter(
           (c) =>
             c.email.toLowerCase().includes(q) ||
+            (c.username && c.username.toLowerCase().includes(q)) ||
             c.fullName.toLowerCase().includes(q) ||
             normalizePhone(c.phone).includes(normalizePhone(q))
         );
@@ -2551,6 +2740,22 @@ export function createMemoryAuthStorage(options?: {
       return null;
     },
 
+    async findUserByUsername(username: string) {
+      const normalized = normalizeUsernameServer(username);
+      if (!normalized) return null;
+      for (const user of users.values()) {
+        if (user.username && normalizeUsernameServer(user.username) === normalized) {
+          return {
+            ...user,
+            addresses: [...user.addresses],
+            wishlist: [...user.wishlist],
+            activeSessionIds: [...user.activeSessionIds],
+          };
+        }
+      }
+      return null;
+    },
+
     async findUserById(userId: string) {
       const user = users.get(userId);
       return user
@@ -2564,9 +2769,18 @@ export function createMemoryAuthStorage(options?: {
     },
 
     async createUser(params) {
+      const cleanUsername = params.username ? normalizeUsernameServer(params.username) : undefined;
+      if (cleanUsername) {
+        for (const existing of users.values()) {
+          if (existing.username && normalizeUsernameServer(existing.username) === cleanUsername) {
+            throw new Error('این نام کاربری قبلاً استفاده شده است.');
+          }
+        }
+      }
       const nowIso = new Date().toISOString();
       const record: StoredUserRecord = {
         id: crypto.randomUUID(),
+        username: cleanUsername,
         email: params.email,
         fullName: params.fullName.trim(),
         phone: params.phone.trim(),
@@ -2594,6 +2808,15 @@ export function createMemoryAuthStorage(options?: {
         wishlist: [...existing.wishlist],
         activeSessionIds: [...existing.activeSessionIds],
       });
+      const cleanUsername = updated.username ? normalizeUsernameServer(updated.username) : undefined;
+      if (cleanUsername) {
+        for (const other of users.values()) {
+          if (other.id !== userId && other.username && normalizeUsernameServer(other.username) === cleanUsername) {
+            throw new Error('این نام کاربری قبلاً استفاده شده است.');
+          }
+        }
+      }
+      updated.username = cleanUsername;
       users.set(userId, updated);
       return {
         ...updated,
@@ -2873,10 +3096,11 @@ export function createMemoryAuthStorage(options?: {
       const statsMap = buildCustomerStatsMap(orders.map((o) => ({ ...o.order, userId: o.userId })));
       let list = [...users.values()].map((u) => toAdminCustomer(u, statsMap.get(u.id)));
       if (params.search && params.search.trim()) {
-        const q = params.search.trim().toLowerCase();
+        const q = params.search.trim().toLowerCase().replace(/^@+/, '');
         list = list.filter(
           (c) =>
             c.email.toLowerCase().includes(q) ||
+            (c.username && c.username.toLowerCase().includes(q)) ||
             c.fullName.toLowerCase().includes(q) ||
             normalizePhone(c.phone).includes(normalizePhone(q))
         );
@@ -3388,12 +3612,17 @@ export class AuthService {
     return this.storage.findUserByEmail(email);
   }
 
+  findUserByUsername(username: string) {
+    return this.storage.findUserByUsername(username);
+  }
+
   findUserById(userId: string) {
     return this.storage.findUserById(userId);
   }
 
   createUserAccount(params: {
     email: string;
+    username?: string;
     fullName: string;
     phone: string;
     passwordHash?: string;
@@ -3428,6 +3657,7 @@ export class AuthService {
     pendingUserId?: string;
     pendingSignup?: {
       fullName: string;
+      username?: string;
       phone: string;
       passwordHash?: string;
     };

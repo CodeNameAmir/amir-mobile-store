@@ -1,16 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  generateUsernameSuggestions,
   getPasswordStrength,
   isValidEmail,
   isValidIranMobile,
   isValidNationalId,
   isValidOtpCode,
+  isValidUsername,
   normalizeEmail,
   normalizeOtpCode,
+  normalizeUsername,
+  RESERVED_USERNAMES,
   validateAddressForm,
   validateProfileForm,
   validateSignupForm,
+  validateUsername,
 } from './authLogic';
 
 test('normalizeEmail and isValidEmail handle whitespace, casing, and Persian digits', () => {
@@ -112,4 +117,39 @@ test('validateProfileForm and validateAddressForm enforce required constraints',
     postalCode: '۱۹۸۸۲۳۳۱۴۵',
   });
   assert.deepEqual(goodAddress, {});
+});
+
+test('username normalization, validation, reserved names, and suggestion generator', () => {
+  assert.equal(normalizeUsername('  @Amir.Mobile۱۲  '), 'amir.mobile12');
+  assert.equal(isValidUsername('amir_mobile.98'), true);
+  assert.equal(isValidUsername('ab'), false);
+  assert.equal(isValidUsername('1amir'), false);
+  assert.equal(isValidUsername('amir..mobile'), false);
+  assert.equal(isValidUsername('amir_'), false);
+  assert.equal(validateUsername('admin').valid, false);
+  assert.ok(RESERVED_USERNAMES.has('admin'));
+  assert.ok(RESERVED_USERNAMES.has('support'));
+
+  const suggestions = generateUsernameSuggestions('Amir.K@example.ir');
+  assert.ok(suggestions.length >= 2);
+  for (const sug of suggestions) {
+    assert.equal(isValidUsername(sug), true);
+  }
+
+  const badSignup = validateSignupForm({
+    fullName: 'امیرمحمد سلیمی',
+    username: '1bad',
+    email: 'amir@example.ir',
+    phone: '09123456789',
+    password: 'AmirMobile2026',
+    confirmPassword: 'AmirMobile2026',
+  });
+  assert.ok(badSignup.username);
+
+  const badProf = validateProfileForm({
+    fullName: 'امیرمحمد سلیمی',
+    phone: '09123456789',
+    username: 'root',
+  });
+  assert.ok(badProf.username);
 });

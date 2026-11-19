@@ -340,6 +340,7 @@ export type UserRole = 'customer' | 'admin';
 
 export interface DemoUser {
   id?: string;
+  username?: string;
   fullName: string;
   phone: string;
   email: string;
@@ -357,6 +358,14 @@ export interface DemoUser {
   lastLoginAt?: string;
 }
 
+export interface PublicUserProfile {
+  username: string;
+  fullName: string;
+  avatarUrl?: string;
+  role: UserRole;
+  memberSince: string;
+}
+
 export type OtpPurpose = 'signup' | 'login' | 'login-2fa' | 'reset-password' | 'change-email';
 
 export interface ResendServiceStatus {
@@ -368,6 +377,7 @@ export interface ResendServiceStatus {
 export interface ProductReview {
   id: string;
   author: string;
+  authorUsername?: string;
   dateLabel: string;
   rating: number;
   comment: string;
