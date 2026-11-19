@@ -1,4 +1,5 @@
 import type {
+  AttributeDefinition,
   BrandItem,
   CategoryItem,
   CouponRule,
@@ -9,11 +10,17 @@ import type {
   OrderSummary,
   OtpPurpose,
   Product,
+  ProductAttributeValue,
   ProductReview,
+  ProductVariant,
   ResendServiceStatus,
+  StockMovementItem,
   StoreSettings,
   SupportTicket,
   UserAddress,
+  WarehouseItem,
+  WarehouseStockItem,
+  WarrantyItem,
 } from '../types/store';
 
 export interface SendOtpPayload {
@@ -549,6 +556,17 @@ export const storeApi = {
     const res = await requestJson<{ brands: BrandItem[] }>('/api/brands');
     return Array.isArray(res.brands) ? res.brands : [];
   },
+
+  async getWarranties(): Promise<WarrantyItem[]> {
+    const res = await requestJson<{ warranties: WarrantyItem[] }>('/api/warranties');
+    return Array.isArray(res.warranties) ? res.warranties : [];
+  },
+
+  async getAttributes(category?: string): Promise<AttributeDefinition[]> {
+    const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+    const res = await requestJson<{ attributes: AttributeDefinition[] }>(`/api/attributes${qs}`);
+    return Array.isArray(res.attributes) ? res.attributes : [];
+  },
 };
 
 export interface AdminStatsResponse {
@@ -645,5 +663,108 @@ export const adminApi = {
         body: JSON.stringify(payload),
       }
     );
+  },
+
+  async listWarranties(): Promise<WarrantyItem[]> {
+    const res = await requestJson<{ warranties: WarrantyItem[] }>('/api/admin/warranties');
+    return Array.isArray(res.warranties) ? res.warranties : [];
+  },
+
+  async saveWarranty(
+    payload: Partial<WarrantyItem> & { providerName: string; durationMonths: number; coverageFa: string }
+  ): Promise<{ warranty: WarrantyItem }> {
+    return requestJson<{ warranty: WarrantyItem }>('/api/admin/warranties', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async listAttributes(category?: string): Promise<AttributeDefinition[]> {
+    const qs = category ? `?category=${encodeURIComponent(category)}` : '';
+    const res = await requestJson<{ attributes: AttributeDefinition[] }>(`/api/admin/attributes${qs}`);
+    return Array.isArray(res.attributes) ? res.attributes : [];
+  },
+
+  async setProductAttributes(
+    productId: string,
+    values: Array<{
+      attributeCode?: string;
+      attributeId?: string;
+      valueText?: string | null;
+      valueNumber?: number | null;
+      valueBoolean?: boolean | null;
+    }>
+  ): Promise<{ productId: string; attributeValues: ProductAttributeValue[] }> {
+    return requestJson<{ productId: string; attributeValues: ProductAttributeValue[] }>(
+      `/api/admin/products/${encodeURIComponent(productId)}/attributes`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ values }),
+      }
+    );
+  },
+
+  async listProductVariants(productId: string): Promise<ProductVariant[]> {
+    const res = await requestJson<{ variants: ProductVariant[] }>(
+      `/api/admin/products/${encodeURIComponent(productId)}/variants`
+    );
+    return Array.isArray(res.variants) ? res.variants : [];
+  },
+
+  async createProductVariant(
+    productId: string,
+    payload: Partial<ProductVariant> & {
+      sku: string;
+      colorNameFa: string;
+      priceToman: number;
+      costPriceToman?: number | null;
+    }
+  ): Promise<{ variant: ProductVariant }> {
+    return requestJson<{ variant: ProductVariant }>(
+      `/api/admin/products/${encodeURIComponent(productId)}/variants`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+  },
+
+  async listWarehouses(): Promise<WarehouseItem[]> {
+    const res = await requestJson<{ warehouses: WarehouseItem[] }>('/api/admin/warehouses');
+    return Array.isArray(res.warehouses) ? res.warehouses : [];
+  },
+
+  async listWarehouseStock(params?: {
+    warehouseId?: string;
+    variantId?: string;
+    productId?: string;
+    lowStockOnly?: boolean;
+  }): Promise<WarehouseStockItem[]> {
+    const qs = new URLSearchParams();
+    if (params?.warehouseId) qs.set('warehouseId', params.warehouseId);
+    if (params?.variantId) qs.set('variantId', params.variantId);
+    if (params?.productId) qs.set('productId', params.productId);
+    if (params?.lowStockOnly) qs.set('lowStockOnly', 'true');
+    const suffix = qs.toString();
+    const res = await requestJson<{ stock: WarehouseStockItem[] }>(
+      suffix ? `/api/admin/warehouse-stock?${suffix}` : '/api/admin/warehouse-stock'
+    );
+    return Array.isArray(res.stock) ? res.stock : [];
+  },
+
+  async recordStockMovement(payload: {
+    warehouseId: string;
+    variantId: string;
+    movementType: StockMovementItem['movementType'];
+    quantityChange: number;
+    referenceType?: string;
+    referenceId?: string;
+    idempotencyKey?: string;
+    noteFa?: string;
+  }): Promise<{ movement: StockMovementItem; stock: WarehouseStockItem; deduplicated: boolean }> {
+    return requestJson('/api/admin/stock-movements', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
   },
 };

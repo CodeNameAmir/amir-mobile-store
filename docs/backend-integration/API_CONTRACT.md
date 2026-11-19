@@ -70,17 +70,19 @@ Admin Panel Origin: `https://admin-panel-ams.codenameamir.ir`
 | Method | Path | Access | Description |
 | --- | --- | --- | --- |
 | `GET` | `/api/categories` | Public | Active nested category metadata (`id`, `slug`, `label`, `subtitle`, `parentId`, `isActive`, `image`, `seoTitle`, `seoDescription`, `sortOrder`) |
-| `GET` | `/api/brands` | Public | Active brand directory (`id`, `name`, `labelFa`, `isActive`) |
+| `GET` | `/api/brands` | Public | Active brand directory (`id`, `name`, `labelFa`, `slug`, `logoUrl`, `websiteUrl`, `isFeatured`, `isActive`) |
+| `GET` | `/api/warranties` | Public | Active warranty providers (`id`, `providerName`, `durationMonths`, `coverageFa`, `termsUrl`) |
+| `GET` | `/api/attributes` | Public | Technical attribute definitions (`?category=<slug>` filters by category mappings) |
 | `GET` | `/api/store/config` | Public | Active coupon rules (`coupons`) and `store_settings` (`settings`) |
 | `GET` | `/api/products` | Public | Catalog with query filters: `category`, `q`, `brand`, `inStock`, `discounted`, `express`, `minPrice`, `maxPrice`, `sort` |
-| `GET` | `/api/products/:slug` | Public | Product detail (including `images[]`, `customSpecs[]`, `priceUpdatedAt`) + approved reviews `{ product, reviews }` |
+| `GET` | `/api/products/:slug` | Public | Product detail (including `images[]`, `customSpecs[]`, `variants[]` without `costPriceToman`, `attributeValues[]`, `priceUpdatedAt`) + approved reviews `{ product, reviews }` |
 | `POST` | `/api/coupons/validate` | Public | Body `{ code, subtotal }` -> `{ valid, code, discountAmount, message }` |
 | `GET` | `/api/products/:id/reviews` | Public | Approved reviews `{ reviews }` |
 | `POST` | `/api/products/:id/reviews` | Public (verified badge if logged in) | Body `{ author, rating, comment }` -> `201 { review }` |
 | `POST` | `/api/support-tickets` | Public | Body `{ fullName, phone, department, orderCode?, message }` -> `201 { ticket, syncedToDatabase }` |
 | `POST` | `/api/newsletter` | Public | Body `{ contact }` -> `201 { ok, alreadySubscribed }` |
 | `GET` | `/api/orders/mine` | Auth | Returns logged-in user's own orders `{ orders }` |
-| `POST` | `/api/orders` | Public (Guest or Auth) | Server computes prices, coupons, shipping from DB; validates stock (`409` if insufficient); forces `status: 'preparing'`; decrements stock; returns `201 { order, syncedToDatabase, trackingToken }` |
+| `POST` | `/api/orders` | Public (Guest or Auth) | Server computes prices, coupons, shipping from DB (supports optional `variantId`/`sku` per item); validates stock (`409` if insufficient); forces `status: 'preparing'`; decrements product & warehouse stock and records `order_sale` in `stock_movements`; returns `201 { order, syncedToDatabase, trackingToken }` |
 | `POST` | `/api/orders/:code/verify` | Public | Body `{ phone }`. For guest orders, validates phone match -> returns `{ order, trackingToken }`. For registered-user orders (when caller isn't owner/admin), returns `403 { requiresLogin: true }` |
 | `GET` | `/api/orders/:code` | Owner / Admin / Guest Token | Returns full `{ order, authorized: true, requiresVerification: false }` only for owner, admin, or valid `X-Order-Tracking-Token` / `?token=` / `?phone=`. Otherwise returns `{ order: null, authorized: false, requiresVerification: true, isGuestOrder, summary }` without PII |
 | `POST` | `/api/orders/notify` | Owner / Admin (`requireAuth`) | Sends email order confirmation |
@@ -125,16 +127,50 @@ All endpoints below are consumed by the dedicated Admin Panel (`https://admin-pa
 - **`GET /api/admin/orders/:code`** — Returns `{ order }`.
 - **`PATCH /api/admin/orders/:code/status`** — Body `{ status: 'paid'|'preparing'|'shipped'|'delivered'|'cancelled', adminNote?: string }`. Updates both order tracking and invoice views. Logs audit `order.status_update`. Returns `{ order }`.
 
-### 4.6 Customers & Audit Logs
+### 4.6 Customers, Roles & Audit Logs
 - **`GET /api/admin/customers`** / **`GET /api/admin/customers/:id`**
+- **`GET /api/admin/roles`** — Lists system RBAC roles from `public.auth_roles`.
 - **`GET /api/admin/audit-logs`** — Optional `?limit=50&offset=0` (max `200`).
+
+### 4.7 V3 Enterprise Catalog, Variants, Warranties, Attributes & Multi-Warehouse Inventory
+All routes require authenticated admin (`amir_session`, `role = 'admin'`). Sensitive fields (`costPriceToman`, `shelfLocation`, ledger movements) are **only** returned on `/api/admin/*` routes and never exposed on public storefront endpoints.
+
+- **Warranties**:
+  - `GET /api/admin/warranties` -> `{ warranties }` (includes inactive)
+  - `POST /api/admin/warranties` -> `201 { warranty }`
+  - `PATCH /api/admin/warranties/:id` -> `200 { warranty }`
+  - `DELETE /api/admin/warranties/:id` -> `200 { ok: true, id }`
+- **Structured Technical Attributes**:
+  - `GET /api/admin/attributes` -> `{ attributes }`
+  - `POST /api/admin/attributes` -> `201 { attribute }`
+  - `DELETE /api/admin/attributes/:id` -> `200 { ok: true, id }`
+  - `PUT /api/admin/products/:id/attributes` — Replaces structured EAV attribute values for a product (`{ values: Array<{ attributeId, valueText?, valueNumber?, valueBoolean? }> }`) -> `200 { attributeValues }`
+- **Product Variants (SKU / Part Number / SIM / Cost Price)**:
+  - `GET /api/admin/products/:id/variants` -> `{ variants }` (includes `costPriceToman` and aggregated `availableStock`)
+  - `POST /api/admin/products/:id/variants` -> `201 { variant }`
+  - `PATCH /api/admin/variants/:variantId` -> `200 { variant }`
+  - `DELETE /api/admin/variants/:variantId` -> `200 { ok: true, id }`
+- **Warehouses & Immutable Stock Movement Ledger**:
+  - `GET /api/admin/warehouses` -> `{ warehouses }`
+  - `POST /api/admin/warehouses` / `PATCH /api/admin/warehouses/:id` -> `{ warehouse }`
+  - `GET /api/admin/warehouse-stock` — Optional `?warehouseId=...&variantId=...` -> `{ stock }`
+  - `GET /api/admin/stock-movements` — Optional `?warehouseId=...&variantId=...&limit=100` -> `{ movements }`
+  - `POST /api/admin/stock-movements` — Body `{ warehouseId, variantId, movementType, quantityChange, referenceType?, referenceId?, noteFa?, idempotencyKey?, shelfLocation?, minStockAlert? }`:
+    - Applies atomic delta to `warehouse_stock`, recalculates parent product stock, and appends an immutable ledger row (`201 { movement, stock, deduplicated: false }`).
+    - Duplicate `idempotencyKey` safely returns `200 { movement, stock, deduplicated: true }` without double-applying.
+    - Negative resulting quantity or quantity below `reservedQty` fails with `409 Conflict`.
 
 ---
 
-## 5. Database Migration (Supabase PostgreSQL)
-Run `docs/backend-integration/SUPABASE_MIGRATION_V2.sql` in your Supabase SQL Editor to add:
-- `public.app_users.avatar_url`
-- `public.categories` (nested categories + image + SEO + sort_order)
-- `public.brands` (custom brands including Huawei)
-- `public.products.images`, `public.products.custom_specs`, `public.products.price_updated_at`
-- `public.orders.admin_note`
+## 5. Database Migrations (Supabase PostgreSQL)
+Run the idempotent migrations in your Supabase SQL Editor in order:
+
+1. **`docs/backend-integration/SUPABASE_MIGRATION_V2.sql`** — Adds `app_users.avatar_url`, nested `categories`, `brands`, `products.images` / `custom_specs` / `price_updated_at`, and `orders.admin_note`.
+2. **`docs/backend-integration/SUPABASE_MIGRATION_V3.sql`** — Adds enterprise RBAC & commerce tables while preserving existing `TEXT`/`UUID` IDs:
+   - `public.auth_roles`, `public.auth_user_roles`, `public.admin_audit_logs`
+   - `public.warranties`
+   - `public.attribute_definitions`, `public.category_attributes`, `public.product_attribute_values`
+   - `public.product_images`, `public.product_variants` (SKU, barcode, part number, SIM type, warranty FK, `cost_price_toman`)
+   - `public.warehouses`, `public.warehouse_stock`, `public.stock_movements` (immutable ledger with `idempotency_key`), `public.order_items`, and `public.v_variant_available_stock` view
+   - Extended columns on `categories` (`title_en`, `icon_name`), `brands` (`slug`, `logo_url`, `website_url`, `is_featured`), `products` (`model_name`, `description_fa`, `is_published`, `is_featured`), and `app_users` (`updated_at`).
+

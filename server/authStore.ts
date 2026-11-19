@@ -2,13 +2,22 @@ import crypto from 'node:crypto';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { resolveSessionSecret, resolveSupabaseAdminConfig } from './config.ts';
 import {
+  applyStockMovementDelta,
+  DEFAULT_DEV_ATTRIBUTES,
   DEFAULT_DEV_BRANDS,
   DEFAULT_DEV_CATEGORIES,
   DEFAULT_DEV_COUPONS,
+  DEFAULT_DEV_PRODUCT_ATTRIBUTES,
   DEFAULT_DEV_PRODUCTS,
   DEFAULT_DEV_REVIEWS,
+  DEFAULT_DEV_ROLES,
   DEFAULT_DEV_SETTINGS,
+  DEFAULT_DEV_VARIANTS,
+  DEFAULT_DEV_WAREHOUSE_STOCK,
+  DEFAULT_DEV_WAREHOUSES,
+  DEFAULT_DEV_WARRANTIES,
   filterAndSortProducts,
+  formatAttributeDisplayValue,
   normalizeOrderStatus,
   normalizePhone,
   normalizeRole,
@@ -16,22 +25,41 @@ import {
   type AdminAuditLogDTO,
   type AdminCustomerDTO,
   type AdminStatsDTO,
+  type AttributeDefinitionDTO,
+  type AuthRoleDTO,
   type BrandDTO,
   type CategoryDTO,
   type CouponRuleDTO,
   type CustomSpecItemDTO,
   type OrderStatus,
+  type ProductAttributeValueDTO,
   type ProductCategory,
   type ProductColorDTO,
   type ProductDTO,
   type ProductQueryParams,
   type ProductReviewDTO,
   type ProductSpecsDTO,
+  type ProductVariantDTO,
+  type StockMovementDTO,
+  type StockMovementInput,
+  type StockMovementType,
   type StorageVariantDTO,
   type StoreSettingsDTO,
   type SupportTicketDTO,
   type UserRole,
+  type WarehouseDTO,
+  type WarehouseStockDTO,
+  type WarrantyDTO,
 } from './storeData.ts';
+
+export class StockMovementError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = 'StockMovementError';
+    this.statusCode = statusCode;
+  }
+}
 
 export type OtpPurpose = 'signup' | 'login' | 'login-2fa' | 'reset-password' | 'change-email';
 
@@ -49,6 +77,10 @@ export interface StoredAddress {
 export interface StoredOrderItem {
   key: string;
   productId: string;
+  variantId?: string;
+  sku?: string;
+  partNumber?: string;
+  simType?: string;
   slug: string;
   nameFa: string;
   brand: string;
@@ -225,6 +257,47 @@ export interface AuthStorageAdapter {
     offset?: number;
   }): Promise<{ logs: AdminAuditLogDTO[]; total: number }>;
   getDashboardStats(): Promise<AdminStatsDTO>;
+  listRoles(): Promise<AuthRoleDTO[]>;
+  listWarranties(includeInactive?: boolean): Promise<WarrantyDTO[]>;
+  upsertWarranty(warranty: WarrantyDTO): Promise<WarrantyDTO>;
+  deleteWarranty(id: string): Promise<boolean>;
+  listAttributes(categoryId?: string): Promise<AttributeDefinitionDTO[]>;
+  upsertAttribute(attr: AttributeDefinitionDTO): Promise<AttributeDefinitionDTO>;
+  deleteAttribute(idOrCode: string): Promise<boolean>;
+  listProductAttributes(productId: string): Promise<ProductAttributeValueDTO[]>;
+  setProductAttributes(
+    productId: string,
+    values: Array<{
+      attributeCode?: string;
+      attributeId?: string;
+      valueText?: string | null;
+      valueNumber?: number | null;
+      valueBoolean?: boolean | null;
+    }>
+  ): Promise<ProductAttributeValueDTO[]>;
+  listProductVariants(productId: string, includeUnpublished?: boolean): Promise<ProductVariantDTO[]>;
+  findVariantByIdOrSku(idOrSku: string): Promise<ProductVariantDTO | null>;
+  upsertProductVariant(variant: ProductVariantDTO): Promise<ProductVariantDTO>;
+  deleteProductVariant(variantId: string): Promise<boolean>;
+  listWarehouses(includeInactive?: boolean): Promise<WarehouseDTO[]>;
+  upsertWarehouse(warehouse: WarehouseDTO): Promise<WarehouseDTO>;
+  listWarehouseStock(filters?: {
+    warehouseId?: string;
+    variantId?: string;
+    productId?: string;
+    lowStockOnly?: boolean;
+  }): Promise<WarehouseStockDTO[]>;
+  recordStockMovement(input: StockMovementInput): Promise<{
+    movement: StockMovementDTO;
+    stock: WarehouseStockDTO;
+    deduplicated: boolean;
+  }>;
+  listStockMovements(filters?: {
+    warehouseId?: string;
+    variantId?: string;
+    movementType?: string;
+    limit?: number;
+  }): Promise<StockMovementDTO[]>;
 }
 
 export function hashPassword(password: string): string {
@@ -447,6 +520,8 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
     slug: String(row.slug || row.id),
     nameFa: String(row.name_fa || ''),
     nameEn: String(row.name_en || ''),
+    modelName: row.model_name ? String(row.model_name) : undefined,
+    descriptionFa: row.description_fa ? String(row.description_fa) : undefined,
     brand: String(row.brand || 'Apple').trim(),
     category: String(row.category || 'phones').trim().toLowerCase() as ProductCategory,
     price: Number(row.price || 0),
@@ -462,6 +537,7 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
     stockCount,
     expressDelivery: row.express_delivery !== false && String(row.express_delivery) !== 'false',
     warranty: String(row.warranty || '۱۸ ماهه امیر سرویس + کد رجیستری همتا'),
+    warrantyId: row.warranty_id ? String(row.warranty_id) : undefined,
     badgeText:
       typeof row.badge_text === 'string' && row.badge_text.trim() ? row.badge_text : undefined,
     rating: Number.isFinite(ratingNum) ? ratingNum : 4.8,
@@ -491,6 +567,7 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
     },
     customSpecs: customSpecs.length > 0 ? customSpecs : undefined,
     priceUpdatedAt,
+    isPublished: row.is_published !== false,
     isFeaturedDeal: parseBooleanFlag(row.is_featured_deal, false),
     isPopular: parseBooleanFlag(row.is_popular, false),
     salesRank: Number(row.sales_rank ?? 100),
@@ -627,6 +704,20 @@ function isSchemaColumnMismatch(err: { code?: string; message?: string } | null 
     err.code === '23502' ||
     /column/i.test(err.message || '')
   );
+}
+
+function isMissingRelationError(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false;
+  return (
+    err.code === '42P01' ||
+    err.code === 'PGRST205' ||
+    /does not exist|Could not find the table|relation/i.test(err.message || '')
+  );
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(val: string | null | undefined): boolean {
+  return Boolean(val && UUID_RE.test(val.trim()));
 }
 
 export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorageAdapter {
@@ -876,6 +967,30 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (error || !data) {
         throw new Error(`Supabase create order failed: ${error?.message || 'no row returned'}`);
       }
+      // Best-effort normalized V3 order_items sync (never fails if V3 migration hasn't run yet)
+      try {
+        const orderId = String((data as Record<string, unknown>).id || '');
+        if (orderId && order.items.length > 0) {
+          const rows = order.items.map((item) => ({
+            order_id: orderId,
+            product_id: item.productId,
+            variant_id: isUuid(item.variantId) ? item.variantId : null,
+            sku: item.sku || null,
+            part_number: item.partNumber || null,
+            product_title_fa: item.nameFa,
+            color_name_fa: item.colorName,
+            storage: item.storageLabel,
+            warranty_title: item.warranty,
+            quantity: item.qty,
+            unit_price_toman: item.unitPrice,
+            original_unit_price_toman: item.originalUnitPrice,
+            line_total_toman: item.unitPrice * item.qty,
+          }));
+          await supabase.from('order_items').insert(rows);
+        }
+      } catch {
+        // Ignore if order_items table is not migrated yet
+      }
       return mapSupabaseOrderRow(data as Record<string, unknown>);
     },
 
@@ -1079,7 +1194,10 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
             id: String(row.id || row.slug),
             slug: String(row.slug || row.id),
             label: String(row.label || ''),
+            titleEn: row.title_en ? String(row.title_en) : undefined,
             subtitle: String(row.subtitle || ''),
+            descriptionFa: row.description_fa ? String(row.description_fa) : undefined,
+            iconName: row.icon_name ? String(row.icon_name) : undefined,
             parentId: row.parent_id ? String(row.parent_id) : null,
             isActive: row.is_active !== false,
             image: String(row.image || ''),
@@ -1112,28 +1230,39 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
 
     async upsertCategory(category: CategoryDTO) {
       try {
-        const { data, error } = await supabase
-          .from('categories')
-          .upsert({
-            id: category.id,
-            slug: category.slug,
-            label: category.label,
-            subtitle: category.subtitle,
-            parent_id: category.parentId || null,
-            is_active: category.isActive,
-            image: category.image,
-            seo_title: category.seoTitle,
-            seo_description: category.seoDescription,
-            sort_order: category.sortOrder,
-          })
-          .select('*')
-          .single();
+        const basePayload: Record<string, unknown> = {
+          id: category.id,
+          slug: category.slug,
+          label: category.label,
+          subtitle: category.subtitle,
+          parent_id: category.parentId || null,
+          is_active: category.isActive,
+          image: category.image,
+          seo_title: category.seoTitle,
+          seo_description: category.seoDescription,
+          sort_order: category.sortOrder,
+        };
+        const extPayload: Record<string, unknown> = {
+          ...basePayload,
+          title_en: category.titleEn || null,
+          description_fa: category.descriptionFa || null,
+          icon_name: category.iconName || 'Folder',
+        };
+        let { data, error } = await supabase.from('categories').upsert(extPayload).select('*').single();
+        if (error && isSchemaColumnMismatch(error)) {
+          const fb = await supabase.from('categories').upsert(basePayload).select('*').single();
+          data = fb.data;
+          error = fb.error;
+        }
         if (!error && data) {
           return {
             id: String(data.id),
             slug: String(data.slug),
             label: String(data.label),
+            titleEn: data.title_en ? String(data.title_en) : undefined,
             subtitle: String(data.subtitle || ''),
+            descriptionFa: data.description_fa ? String(data.description_fa) : undefined,
+            iconName: data.icon_name ? String(data.icon_name) : undefined,
             parentId: data.parent_id ? String(data.parent_id) : null,
             isActive: data.is_active !== false,
             image: String(data.image || ''),
@@ -1186,6 +1315,10 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
             id: String(row.id || row.name),
             name: String(row.name || ''),
             labelFa: row.label_fa ? String(row.label_fa) : undefined,
+            slug: row.slug ? String(row.slug) : String(row.id || '').toLowerCase(),
+            logoUrl: row.logo_url ? String(row.logo_url) : undefined,
+            websiteUrl: row.website_url ? String(row.website_url) : undefined,
+            isFeatured: Boolean(row.is_featured),
             isActive: row.is_active !== false,
           }));
         }
@@ -1209,21 +1342,34 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
 
     async upsertBrand(brand: BrandDTO) {
       try {
-        const { data, error } = await supabase
-          .from('brands')
-          .upsert({
-            id: brand.id,
-            name: brand.name,
-            label_fa: brand.labelFa ?? '',
-            is_active: brand.isActive,
-          })
-          .select('*')
-          .single();
+        const basePayload: Record<string, unknown> = {
+          id: brand.id,
+          name: brand.name,
+          label_fa: brand.labelFa ?? '',
+          is_active: brand.isActive,
+        };
+        const extPayload: Record<string, unknown> = {
+          ...basePayload,
+          slug: brand.slug || brand.id.toLowerCase(),
+          logo_url: brand.logoUrl || null,
+          website_url: brand.websiteUrl || null,
+          is_featured: Boolean(brand.isFeatured),
+        };
+        let { data, error } = await supabase.from('brands').upsert(extPayload).select('*').single();
+        if (error && isSchemaColumnMismatch(error)) {
+          const fb = await supabase.from('brands').upsert(basePayload).select('*').single();
+          data = fb.data;
+          error = fb.error;
+        }
         if (!error && data) {
           return {
             id: String(data.id),
             name: String(data.name),
             labelFa: data.label_fa ? String(data.label_fa) : undefined,
+            slug: data.slug ? String(data.slug) : undefined,
+            logoUrl: data.logo_url ? String(data.logo_url) : undefined,
+            websiteUrl: data.website_url ? String(data.website_url) : undefined,
+            isFeatured: Boolean(data.is_featured),
             isActive: data.is_active !== false,
           };
         }
@@ -1601,6 +1747,729 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         })),
       };
     },
+
+    async listRoles() {
+      try {
+        const { data, error } = await supabase
+          .from('auth_roles')
+          .select('*')
+          .order('created_at', { ascending: true });
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return data.map((r: Record<string, unknown>) => ({
+            id: String(r.id),
+            name: String(r.name),
+            titleFa: String(r.title_fa || r.name),
+            description: r.description ? String(r.description) : undefined,
+            isSystem: r.is_system !== false,
+            createdAt: r.created_at ? String(r.created_at) : undefined,
+          }));
+        }
+      } catch {
+        // Fallback below
+      }
+      return DEFAULT_DEV_ROLES.map((r) => ({ ...r }));
+    },
+
+    async listWarranties(includeInactive = false) {
+      try {
+        const q = supabase.from('warranties').select('*').order('duration_months', { ascending: false });
+        const { data, error } = includeInactive ? await q : await q.eq('is_active', true);
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return data.map((r: Record<string, unknown>) => ({
+            id: String(r.id),
+            providerName: String(r.provider_name || ''),
+            durationMonths: Number(r.duration_months ?? 18),
+            coverageFa: String(r.coverage_fa || ''),
+            termsUrl: r.terms_url ? String(r.terms_url) : null,
+            isActive: r.is_active !== false,
+          }));
+        }
+      } catch {
+        // Fallback below
+      }
+      return DEFAULT_DEV_WARRANTIES.filter((w) => includeInactive || w.isActive).map((w) => ({ ...w }));
+    },
+
+    async upsertWarranty(warranty: WarrantyDTO) {
+      const payload: Record<string, unknown> = {
+        provider_name: warranty.providerName,
+        duration_months: warranty.durationMonths,
+        coverage_fa: warranty.coverageFa,
+        terms_url: warranty.termsUrl ?? null,
+        is_active: warranty.isActive,
+      };
+      if (isUuid(warranty.id)) {
+        payload.id = warranty.id;
+      }
+      const { data, error } = await supabase
+        .from('warranties')
+        .upsert(payload, { onConflict: isUuid(warranty.id) ? 'id' : 'provider_name' })
+        .select('*')
+        .single();
+      if (error) {
+        if (isMissingRelationError(error)) {
+          return { ...warranty, id: warranty.id || crypto.randomUUID() };
+        }
+        throw new Error(`Supabase upsert warranty failed: ${error.message}`);
+      }
+      return {
+        id: String(data.id),
+        providerName: String(data.provider_name),
+        durationMonths: Number(data.duration_months ?? 18),
+        coverageFa: String(data.coverage_fa || ''),
+        termsUrl: data.terms_url ? String(data.terms_url) : null,
+        isActive: data.is_active !== false,
+      };
+    },
+
+    async deleteWarranty(id: string) {
+      const { error } = await supabase.from('warranties').delete().eq('id', id);
+      if (error) {
+        if (isMissingRelationError(error)) return false;
+        throw new Error(`Supabase delete warranty failed: ${error.message}`);
+      }
+      return true;
+    },
+
+    async listAttributes(categoryId?: string) {
+      try {
+        const [attrRes, catAttrRes] = await Promise.all([
+          supabase.from('attribute_definitions').select('*').order('sort_order', { ascending: true }),
+          supabase.from('category_attributes').select('category_id, attribute_id'),
+        ]);
+        if (!attrRes.error && Array.isArray(attrRes.data) && attrRes.data.length > 0) {
+          const catMap = new Map<string, string[]>();
+          if (!catAttrRes.error && Array.isArray(catAttrRes.data)) {
+            for (const row of catAttrRes.data as Array<{ category_id?: unknown; attribute_id?: unknown }>) {
+              const aid = String(row.attribute_id || '');
+              const cid = String(row.category_id || '');
+              if (aid && cid) {
+                const arr = catMap.get(aid) || [];
+                arr.push(cid);
+                catMap.set(aid, arr);
+              }
+            }
+          }
+          let mapped: AttributeDefinitionDTO[] = attrRes.data.map((r: Record<string, unknown>) => ({
+            id: String(r.id),
+            code: String(r.code),
+            nameFa: String(r.name_fa || ''),
+            nameEn: String(r.name_en || ''),
+            dataType: (r.data_type as AttributeDefinitionDTO['dataType']) || 'text',
+            unit: r.unit ? String(r.unit) : null,
+            isFilterable: r.is_filterable !== false,
+            sortOrder: Number(r.sort_order ?? 0),
+            categoryIds: catMap.get(String(r.id)) || [],
+          }));
+          if (categoryId && categoryId.trim()) {
+            const cleanCat = categoryId.trim().toLowerCase();
+            mapped = mapped.filter(
+              (a) => !a.categoryIds || a.categoryIds.length === 0 || a.categoryIds.some((c) => c.toLowerCase() === cleanCat)
+            );
+          }
+          return mapped;
+        }
+      } catch {
+        // Fallback below
+      }
+      const fallback = DEFAULT_DEV_ATTRIBUTES.map((a) => ({
+        ...a,
+        categoryIds: a.categoryIds ? [...a.categoryIds] : [],
+      }));
+      if (categoryId && categoryId.trim()) {
+        const cleanCat = categoryId.trim().toLowerCase();
+        return fallback.filter((a) => a.categoryIds?.some((c) => c.toLowerCase() === cleanCat));
+      }
+      return fallback;
+    },
+
+    async upsertAttribute(attr: AttributeDefinitionDTO) {
+      const payload: Record<string, unknown> = {
+        code: attr.code,
+        name_fa: attr.nameFa,
+        name_en: attr.nameEn,
+        data_type: attr.dataType,
+        unit: attr.unit ?? null,
+        is_filterable: attr.isFilterable,
+        sort_order: attr.sortOrder,
+      };
+      if (isUuid(attr.id)) {
+        payload.id = attr.id;
+      }
+      const { data, error } = await supabase
+        .from('attribute_definitions')
+        .upsert(payload, { onConflict: isUuid(attr.id) ? 'id' : 'code' })
+        .select('*')
+        .single();
+      if (error) {
+        if (isMissingRelationError(error)) return { ...attr, id: attr.id || crypto.randomUUID() };
+        throw new Error(`Supabase upsert attribute failed: ${error.message}`);
+      }
+      const savedId = String(data.id);
+      if (Array.isArray(attr.categoryIds)) {
+        await supabase.from('category_attributes').delete().eq('attribute_id', savedId);
+        if (attr.categoryIds.length > 0) {
+          await supabase.from('category_attributes').insert(
+            attr.categoryIds.map((cid) => ({ category_id: cid, attribute_id: savedId, is_required: false }))
+          );
+        }
+      }
+      return {
+        id: savedId,
+        code: String(data.code),
+        nameFa: String(data.name_fa),
+        nameEn: String(data.name_en),
+        dataType: (data.data_type as AttributeDefinitionDTO['dataType']) || 'text',
+        unit: data.unit ? String(data.unit) : null,
+        isFilterable: data.is_filterable !== false,
+        sortOrder: Number(data.sort_order ?? 0),
+        categoryIds: attr.categoryIds || [],
+      };
+    },
+
+    async deleteAttribute(idOrCode: string) {
+      const clean = idOrCode.trim();
+      const q = isUuid(clean)
+        ? supabase.from('attribute_definitions').delete().eq('id', clean)
+        : supabase.from('attribute_definitions').delete().eq('code', clean);
+      const { error } = await q;
+      if (error) {
+        if (isMissingRelationError(error)) return false;
+        throw new Error(`Supabase delete attribute failed: ${error.message}`);
+      }
+      return true;
+    },
+
+    async listProductAttributes(productId: string) {
+      try {
+        const [valsRes, defs] = await Promise.all([
+          supabase.from('product_attribute_values').select('*').eq('product_id', productId),
+          this.listAttributes(),
+        ]);
+        if (!valsRes.error && Array.isArray(valsRes.data) && valsRes.data.length > 0) {
+          const defById = new Map(defs.map((d) => [d.id, d]));
+          const mapped: ProductAttributeValueDTO[] = [];
+          for (const row of valsRes.data as Array<Record<string, unknown>>) {
+            const def = defById.get(String(row.attribute_id || ''));
+            if (!def) continue;
+            const valueText = row.value_text !== null && row.value_text !== undefined ? String(row.value_text) : null;
+            const valueNumber =
+              row.value_number !== null && row.value_number !== undefined ? Number(row.value_number) : null;
+            const valueBoolean =
+              typeof row.value_boolean === 'boolean' ? row.value_boolean : null;
+            mapped.push({
+              id: String(row.id),
+              productId,
+              attributeId: def.id,
+              code: def.code,
+              nameFa: def.nameFa,
+              nameEn: def.nameEn,
+              dataType: def.dataType,
+              unit: def.unit,
+              valueText,
+              valueNumber,
+              valueBoolean,
+              displayValue: formatAttributeDisplayValue(def, { valueText, valueNumber, valueBoolean }),
+            });
+          }
+          mapped.sort((a, b) => {
+            const da = defById.get(a.attributeId)?.sortOrder ?? 99;
+            const db = defById.get(b.attributeId)?.sortOrder ?? 99;
+            return da - db;
+          });
+          return mapped;
+        }
+      } catch {
+        // Fallback to seeded attributes if table missing or empty
+      }
+      const seeded = DEFAULT_DEV_PRODUCT_ATTRIBUTES[productId] || [];
+      if (seeded.length === 0) return [];
+      const defsByCode = new Map(DEFAULT_DEV_ATTRIBUTES.map((d) => [d.code, d]));
+      return seeded
+        .map((entry) => {
+          const def = defsByCode.get(entry.code);
+          if (!def) return null;
+          return {
+            productId,
+            attributeId: def.id,
+            code: def.code,
+            nameFa: def.nameFa,
+            nameEn: def.nameEn,
+            dataType: def.dataType,
+            unit: def.unit,
+            valueText: entry.valueText ?? null,
+            valueNumber: entry.valueNumber ?? null,
+            valueBoolean: entry.valueBoolean ?? null,
+            displayValue: formatAttributeDisplayValue(def, entry),
+          } as ProductAttributeValueDTO;
+        })
+        .filter((x): x is ProductAttributeValueDTO => Boolean(x));
+    },
+
+    async setProductAttributes(productId, values) {
+      const defs = await this.listAttributes();
+      const byId = new Map(defs.map((d) => [d.id, d]));
+      const byCode = new Map(defs.map((d) => [d.code.toLowerCase(), d]));
+      const rows: Array<Record<string, unknown>> = [];
+      for (const item of values) {
+        const def =
+          (item.attributeId ? byId.get(item.attributeId) : undefined) ||
+          (item.attributeCode ? byCode.get(item.attributeCode.trim().toLowerCase()) : undefined);
+        if (!def) continue;
+        rows.push({
+          product_id: productId,
+          attribute_id: def.id,
+          value_text: item.valueText ?? null,
+          value_number:
+            typeof item.valueNumber === 'number' && Number.isFinite(item.valueNumber) ? item.valueNumber : null,
+          value_boolean: typeof item.valueBoolean === 'boolean' ? item.valueBoolean : null,
+        });
+      }
+      const delRes = await supabase.from('product_attribute_values').delete().eq('product_id', productId);
+      if (delRes.error && !isMissingRelationError(delRes.error)) {
+        throw new Error(`Supabase clear product attributes failed: ${delRes.error.message}`);
+      }
+      if (rows.length > 0) {
+        const insRes = await supabase.from('product_attribute_values').insert(rows);
+        if (insRes.error && !isMissingRelationError(insRes.error)) {
+          throw new Error(`Supabase insert product attributes failed: ${insRes.error.message}`);
+        }
+      }
+      return this.listProductAttributes(productId);
+    },
+
+    async listProductVariants(productId: string, includeUnpublished = false) {
+      try {
+        const q = supabase
+          .from('product_variants')
+          .select('*')
+          .eq('product_id', productId)
+          .order('price_toman', { ascending: true });
+        const { data, error } = includeUnpublished ? await q : await q.eq('is_published', true);
+        if (!error && Array.isArray(data) && data.length > 0) {
+          const [warranties, stockRows] = await Promise.all([
+            this.listWarranties(true),
+            supabase
+              .from('warehouse_stock')
+              .select('variant_id, quantity_on_hand, reserved_qty')
+              .in(
+                'variant_id',
+                data.map((r: Record<string, unknown>) => String(r.id))
+              ),
+          ]);
+          const wMap = new Map(warranties.map((w) => [w.id, w]));
+          const stockMap = new Map<string, number>();
+          if (!stockRows.error && Array.isArray(stockRows.data)) {
+            for (const s of stockRows.data as Array<Record<string, unknown>>) {
+              const vid = String(s.variant_id || '');
+              const avail = Math.max(0, Number(s.quantity_on_hand ?? 0) - Number(s.reserved_qty ?? 0));
+              stockMap.set(vid, (stockMap.get(vid) || 0) + avail);
+            }
+          }
+          return data.map((row: Record<string, unknown>) => {
+            const wid = row.warranty_id ? String(row.warranty_id) : null;
+            const w = wid ? wMap.get(wid) : undefined;
+            const id = String(row.id);
+            return {
+              id,
+              productId: String(row.product_id),
+              warrantyId: wid,
+              warrantyName: w?.providerName,
+              warrantyDurationMonths: w?.durationMonths,
+              warrantyCoverageFa: w?.coverageFa,
+              sku: String(row.sku),
+              barcode: row.barcode ? String(row.barcode) : null,
+              partNumber: row.part_number ? String(row.part_number) : null,
+              colorNameFa: String(row.color_name_fa || ''),
+              colorNameEn: row.color_name_en ? String(row.color_name_en) : null,
+              colorHex: String(row.color_hex || '#1e293b'),
+              storage: row.storage ? String(row.storage) : null,
+              ram: row.ram ? String(row.ram) : null,
+              simType: row.sim_type ? String(row.sim_type) : null,
+              priceToman: Number(row.price_toman || 0),
+              originalPriceToman:
+                row.original_price_toman !== null && row.original_price_toman !== undefined
+                  ? Number(row.original_price_toman)
+                  : null,
+              costPriceToman:
+                row.cost_price_toman !== null && row.cost_price_toman !== undefined
+                  ? Number(row.cost_price_toman)
+                  : null,
+              availableStock: stockMap.has(id) ? stockMap.get(id) : undefined,
+              isPublished: row.is_published !== false,
+              createdAt: row.created_at ? String(row.created_at) : undefined,
+              updatedAt: row.updated_at ? String(row.updated_at) : undefined,
+            };
+          });
+        }
+      } catch {
+        // Fallback below
+      }
+      return DEFAULT_DEV_VARIANTS.filter(
+        (v) => v.productId === productId && (includeUnpublished || v.isPublished)
+      ).map((v) => ({ ...v }));
+    },
+
+    async findVariantByIdOrSku(idOrSku: string) {
+      const clean = idOrSku.trim();
+      try {
+        const q = isUuid(clean)
+          ? supabase.from('product_variants').select('*').eq('id', clean).maybeSingle()
+          : supabase.from('product_variants').select('*').ilike('sku', clean).maybeSingle();
+        const { data, error } = await q;
+        if (!error && data) {
+          const list = await this.listProductVariants(String(data.product_id), true);
+          return list.find((v) => v.id === String(data.id)) || null;
+        }
+      } catch {
+        // Fallback below
+      }
+      const match = DEFAULT_DEV_VARIANTS.find(
+        (v) => v.id === clean || v.sku.toLowerCase() === clean.toLowerCase()
+      );
+      return match ? { ...match } : null;
+    },
+
+    async upsertProductVariant(variant: ProductVariantDTO) {
+      const payload: Record<string, unknown> = {
+        product_id: variant.productId,
+        warranty_id: isUuid(variant.warrantyId) ? variant.warrantyId : null,
+        sku: variant.sku.trim().toUpperCase(),
+        barcode: variant.barcode ?? null,
+        part_number: variant.partNumber ?? null,
+        color_name_fa: variant.colorNameFa,
+        color_name_en: variant.colorNameEn ?? null,
+        color_hex: variant.colorHex || '#1e293b',
+        storage: variant.storage ?? null,
+        ram: variant.ram ?? null,
+        sim_type: variant.simType ?? null,
+        price_toman: Math.round(variant.priceToman),
+        original_price_toman: variant.originalPriceToman ? Math.round(variant.originalPriceToman) : null,
+        cost_price_toman: variant.costPriceToman ? Math.round(variant.costPriceToman) : null,
+        is_published: variant.isPublished !== false,
+        updated_at: new Date().toISOString(),
+      };
+      if (isUuid(variant.id)) {
+        payload.id = variant.id;
+      }
+      const { data, error } = await supabase
+        .from('product_variants')
+        .upsert(payload, { onConflict: isUuid(variant.id) ? 'id' : 'sku' })
+        .select('*')
+        .single();
+      if (error) {
+        if (isMissingRelationError(error)) {
+          return { ...variant, id: variant.id || crypto.randomUUID() };
+        }
+        throw new Error(`Supabase upsert variant failed: ${error.message}`);
+      }
+      const list = await this.listProductVariants(String(data.product_id), true);
+      return list.find((v) => v.id === String(data.id)) || { ...variant, id: String(data.id) };
+    },
+
+    async deleteProductVariant(variantId: string) {
+      const { error } = await supabase.from('product_variants').delete().eq('id', variantId);
+      if (error) {
+        if (isMissingRelationError(error)) return false;
+        throw new Error(`Supabase delete variant failed: ${error.message}`);
+      }
+      return true;
+    },
+
+    async listWarehouses(includeInactive = false) {
+      try {
+        const q = supabase.from('warehouses').select('*').order('created_at', { ascending: true });
+        const { data, error } = includeInactive ? await q : await q.eq('is_active', true);
+        if (!error && Array.isArray(data) && data.length > 0) {
+          return data.map((r: Record<string, unknown>) => ({
+            id: String(r.id),
+            code: String(r.code),
+            nameFa: String(r.name_fa || ''),
+            city: String(r.city || 'تهران'),
+            addressFa: r.address_fa ? String(r.address_fa) : null,
+            isActive: r.is_active !== false,
+            createdAt: r.created_at ? String(r.created_at) : undefined,
+          }));
+        }
+      } catch {
+        // Fallback below
+      }
+      return DEFAULT_DEV_WAREHOUSES.filter((w) => includeInactive || w.isActive).map((w) => ({ ...w }));
+    },
+
+    async upsertWarehouse(warehouse: WarehouseDTO) {
+      const payload: Record<string, unknown> = {
+        code: warehouse.code.trim().toUpperCase(),
+        name_fa: warehouse.nameFa,
+        city: warehouse.city,
+        address_fa: warehouse.addressFa ?? null,
+        is_active: warehouse.isActive,
+      };
+      if (isUuid(warehouse.id)) {
+        payload.id = warehouse.id;
+      }
+      const { data, error } = await supabase
+        .from('warehouses')
+        .upsert(payload, { onConflict: isUuid(warehouse.id) ? 'id' : 'code' })
+        .select('*')
+        .single();
+      if (error) {
+        if (isMissingRelationError(error)) {
+          return { ...warehouse, id: warehouse.id || crypto.randomUUID() };
+        }
+        throw new Error(`Supabase upsert warehouse failed: ${error.message}`);
+      }
+      return {
+        id: String(data.id),
+        code: String(data.code),
+        nameFa: String(data.name_fa),
+        city: String(data.city),
+        addressFa: data.address_fa ? String(data.address_fa) : null,
+        isActive: data.is_active !== false,
+        createdAt: data.created_at ? String(data.created_at) : undefined,
+      };
+    },
+
+    async listWarehouseStock(filters = {}) {
+      try {
+        let q = supabase.from('warehouse_stock').select('*');
+        if (filters.warehouseId) q = q.eq('warehouse_id', filters.warehouseId);
+        if (filters.variantId) q = q.eq('variant_id', filters.variantId);
+        const { data, error } = await q;
+        if (!error && Array.isArray(data)) {
+          const [warehouses, variantsRes] = await Promise.all([
+            this.listWarehouses(true),
+            supabase.from('product_variants').select('id, product_id, sku'),
+          ]);
+          const whMap = new Map(warehouses.map((w) => [w.id, w]));
+          const varMap = new Map<string, { productId: string; sku: string }>();
+          if (!variantsRes.error && Array.isArray(variantsRes.data)) {
+            for (const v of variantsRes.data as Array<Record<string, unknown>>) {
+              varMap.set(String(v.id), { productId: String(v.product_id), sku: String(v.sku) });
+            }
+          }
+          let mapped: WarehouseStockDTO[] = data.map((row: Record<string, unknown>) => {
+            const wh = whMap.get(String(row.warehouse_id));
+            const vr = varMap.get(String(row.variant_id));
+            const onHand = Number(row.quantity_on_hand ?? 0);
+            const reserved = Number(row.reserved_qty ?? 0);
+            const available = Math.max(0, onHand - reserved);
+            const minAlert = Number(row.min_stock_alert ?? 3);
+            return {
+              id: String(row.id),
+              warehouseId: String(row.warehouse_id),
+              warehouseCode: wh?.code,
+              warehouseNameFa: wh?.nameFa,
+              variantId: String(row.variant_id),
+              productId: vr?.productId,
+              sku: vr?.sku,
+              shelfLocation: row.shelf_location ? String(row.shelf_location) : null,
+              quantityOnHand: onHand,
+              reservedQty: reserved,
+              availableQty: available,
+              minStockAlert: minAlert,
+              isLowStock: available <= minAlert,
+              updatedAt: row.updated_at ? String(row.updated_at) : undefined,
+            };
+          });
+          if (filters.productId) {
+            mapped = mapped.filter((s) => s.productId === filters.productId);
+          }
+          if (filters.lowStockOnly) {
+            mapped = mapped.filter((s) => s.isLowStock);
+          }
+          return mapped;
+        }
+      } catch {
+        // Fallback below
+      }
+      return [];
+    },
+
+    async recordStockMovement(input: StockMovementInput) {
+      if (input.idempotencyKey && input.idempotencyKey.trim()) {
+        const { data: existingMov } = await supabase
+          .from('stock_movements')
+          .select('*')
+          .eq('idempotency_key', input.idempotencyKey.trim())
+          .maybeSingle();
+        if (existingMov) {
+          const stocks = await this.listWarehouseStock({
+            warehouseId: String(existingMov.warehouse_id),
+            variantId: String(existingMov.variant_id),
+          });
+          const stock = stocks[0] || {
+            id: '',
+            warehouseId: String(existingMov.warehouse_id),
+            variantId: String(existingMov.variant_id),
+            quantityOnHand: Number(existingMov.balance_after ?? 0),
+            reservedQty: 0,
+            availableQty: Number(existingMov.balance_after ?? 0),
+            minStockAlert: 3,
+            isLowStock: false,
+          };
+          return {
+            movement: {
+              id: String(existingMov.id),
+              warehouseId: String(existingMov.warehouse_id),
+              variantId: String(existingMov.variant_id),
+              movementType: existingMov.movement_type as StockMovementType,
+              quantityChange: Number(existingMov.quantity_change),
+              balanceAfter: Number(existingMov.balance_after),
+              referenceType: existingMov.reference_type ? String(existingMov.reference_type) : null,
+              referenceId: existingMov.reference_id ? String(existingMov.reference_id) : null,
+              idempotencyKey: existingMov.idempotency_key ? String(existingMov.idempotency_key) : null,
+              noteFa: existingMov.note_fa ? String(existingMov.note_fa) : null,
+              createdBy: existingMov.created_by ? String(existingMov.created_by) : null,
+              createdAt: String(existingMov.created_at),
+            },
+            stock,
+            deduplicated: true,
+          };
+        }
+      }
+
+      const { data: existingStock, error: fetchErr } = await supabase
+        .from('warehouse_stock')
+        .select('*')
+        .eq('warehouse_id', input.warehouseId)
+        .eq('variant_id', input.variantId)
+        .maybeSingle();
+      if (fetchErr) {
+        throw new Error(`Supabase stock lookup failed: ${fetchErr.message}`);
+      }
+
+      const currentOnHand = existingStock ? Number(existingStock.quantity_on_hand ?? 0) : 0;
+      const reservedQty = existingStock ? Number(existingStock.reserved_qty ?? 0) : 0;
+      const calc = applyStockMovementDelta(currentOnHand, reservedQty, input.quantityChange);
+      if (!calc.ok) {
+        throw new StockMovementError(calc.error, calc.statusCode);
+      }
+
+      const { data: savedStock, error: upsertErr } = await supabase
+        .from('warehouse_stock')
+        .upsert(
+          {
+            ...(existingStock?.id ? { id: existingStock.id } : {}),
+            warehouse_id: input.warehouseId,
+            variant_id: input.variantId,
+            shelf_location:
+              input.shelfLocation !== undefined
+                ? input.shelfLocation
+                : existingStock?.shelf_location ?? null,
+            quantity_on_hand: calc.balanceAfter,
+            reserved_qty: reservedQty,
+            min_stock_alert:
+              typeof input.minStockAlert === 'number'
+                ? input.minStockAlert
+                : Number(existingStock?.min_stock_alert ?? 3),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'warehouse_id,variant_id' }
+        )
+        .select('*')
+        .single();
+      if (upsertErr || !savedStock) {
+        throw new Error(`Supabase warehouse_stock update failed: ${upsertErr?.message || 'no row'}`);
+      }
+
+      const { data: savedMov, error: movErr } = await supabase
+        .from('stock_movements')
+        .insert({
+          warehouse_id: input.warehouseId,
+          variant_id: input.variantId,
+          movement_type: input.movementType,
+          quantity_change: Math.trunc(input.quantityChange),
+          balance_after: calc.balanceAfter,
+          reference_type: input.referenceType ?? null,
+          reference_id: input.referenceId ?? null,
+          idempotency_key: input.idempotencyKey?.trim() || null,
+          note_fa: input.noteFa ?? null,
+          created_by: isUuid(input.createdBy) ? input.createdBy : null,
+        })
+        .select('*')
+        .single();
+      if (movErr || !savedMov) {
+        throw new Error(`Supabase stock_movements insert failed: ${movErr?.message || 'no row'}`);
+      }
+
+      // Sync aggregate stock back to parent products.stock_count
+      try {
+        const variant = await this.findVariantByIdOrSku(input.variantId);
+        if (variant) {
+          const allStocks = await this.listWarehouseStock({ productId: variant.productId });
+          const totalAvail = allStocks.reduce((acc, s) => acc + s.availableQty, 0);
+          await this.updateProductInventory(variant.productId, totalAvail, totalAvail > 0);
+        }
+      } catch {
+        // Non-fatal sync
+      }
+
+      const onHand = Number(savedStock.quantity_on_hand ?? 0);
+      const resQty = Number(savedStock.reserved_qty ?? 0);
+      const avail = Math.max(0, onHand - resQty);
+      const minAlert = Number(savedStock.min_stock_alert ?? 3);
+
+      return {
+        movement: {
+          id: String(savedMov.id),
+          warehouseId: String(savedMov.warehouse_id),
+          variantId: String(savedMov.variant_id),
+          movementType: savedMov.movement_type as StockMovementType,
+          quantityChange: Number(savedMov.quantity_change),
+          balanceAfter: Number(savedMov.balance_after),
+          referenceType: savedMov.reference_type ? String(savedMov.reference_type) : null,
+          referenceId: savedMov.reference_id ? String(savedMov.reference_id) : null,
+          idempotencyKey: savedMov.idempotency_key ? String(savedMov.idempotency_key) : null,
+          noteFa: savedMov.note_fa ? String(savedMov.note_fa) : null,
+          createdBy: savedMov.created_by ? String(savedMov.created_by) : null,
+          createdAt: String(savedMov.created_at),
+        },
+        stock: {
+          id: String(savedStock.id),
+          warehouseId: String(savedStock.warehouse_id),
+          variantId: String(savedStock.variant_id),
+          shelfLocation: savedStock.shelf_location ? String(savedStock.shelf_location) : null,
+          quantityOnHand: onHand,
+          reservedQty: resQty,
+          availableQty: avail,
+          minStockAlert: minAlert,
+          isLowStock: avail <= minAlert,
+          updatedAt: savedStock.updated_at ? String(savedStock.updated_at) : undefined,
+        },
+        deduplicated: false,
+      };
+    },
+
+    async listStockMovements(filters = {}) {
+      try {
+        let q = supabase.from('stock_movements').select('*').order('created_at', { ascending: false });
+        if (filters.warehouseId) q = q.eq('warehouse_id', filters.warehouseId);
+        if (filters.variantId) q = q.eq('variant_id', filters.variantId);
+        if (filters.movementType) q = q.eq('movement_type', filters.movementType);
+        q = q.limit(Math.min(200, Math.max(1, Number(filters.limit || 50))));
+        const { data, error } = await q;
+        if (!error && Array.isArray(data)) {
+          return data.map((r: Record<string, unknown>) => ({
+            id: String(r.id),
+            warehouseId: String(r.warehouse_id),
+            variantId: String(r.variant_id),
+            movementType: r.movement_type as StockMovementType,
+            quantityChange: Number(r.quantity_change),
+            balanceAfter: Number(r.balance_after),
+            referenceType: r.reference_type ? String(r.reference_type) : null,
+            referenceId: r.reference_id ? String(r.reference_id) : null,
+            idempotencyKey: r.idempotency_key ? String(r.idempotency_key) : null,
+            noteFa: r.note_fa ? String(r.note_fa) : null,
+            createdBy: r.created_by ? String(r.created_by) : null,
+            createdAt: String(r.created_at),
+          }));
+        }
+      } catch {
+        // Fallback below
+      }
+      return [];
+    },
   };
 }
 
@@ -1626,6 +2495,36 @@ export function createMemoryAuthStorage(options?: {
   const tickets: SupportTicketDTO[] = [];
   const newsletter = new Set<string>();
   const auditLogs: AdminAuditLogDTO[] = [];
+  const roles: AuthRoleDTO[] = DEFAULT_DEV_ROLES.map((r) => ({ ...r }));
+  const warranties: WarrantyDTO[] = DEFAULT_DEV_WARRANTIES.map((w) => ({ ...w }));
+  const attributes: AttributeDefinitionDTO[] = DEFAULT_DEV_ATTRIBUTES.map((a) => ({
+    ...a,
+    categoryIds: a.categoryIds ? [...a.categoryIds] : [],
+  }));
+  const productAttributes = new Map<
+    string,
+    Array<{ attributeId: string; valueText?: string | null; valueNumber?: number | null; valueBoolean?: boolean | null }>
+  >();
+  for (const [prodId, entries] of Object.entries(DEFAULT_DEV_PRODUCT_ATTRIBUTES)) {
+    const mapped = entries
+      .map((entry) => {
+        const def = attributes.find((a) => a.code === entry.code);
+        return def
+          ? {
+              attributeId: def.id,
+              valueText: entry.valueText ?? null,
+              valueNumber: entry.valueNumber ?? null,
+              valueBoolean: entry.valueBoolean ?? null,
+            }
+          : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => Boolean(x));
+    productAttributes.set(prodId, mapped);
+  }
+  const variants: ProductVariantDTO[] = DEFAULT_DEV_VARIANTS.map((v) => ({ ...v }));
+  const warehouses: WarehouseDTO[] = DEFAULT_DEV_WAREHOUSES.map((w) => ({ ...w }));
+  const warehouseStocks: WarehouseStockDTO[] = DEFAULT_DEV_WAREHOUSE_STOCK.map((s) => ({ ...s }));
+  const stockMovements: StockMovementDTO[] = [];
 
   return {
     mode: 'dev-memory',
@@ -2086,6 +2985,370 @@ export function createMemoryAuthStorage(options?: {
           createdAt: entry.order.createdAt,
         })),
       };
+    },
+
+    async listRoles() {
+      return roles.map((r) => ({ ...r }));
+    },
+
+    async listWarranties(includeInactive = false) {
+      return warranties.filter((w) => includeInactive || w.isActive).map((w) => ({ ...w }));
+    },
+
+    async upsertWarranty(warranty: WarrantyDTO) {
+      const id = warranty.id || crypto.randomUUID();
+      const idx = warranties.findIndex(
+        (w) => w.id === id || w.providerName.toLowerCase() === warranty.providerName.toLowerCase()
+      );
+      const copy: WarrantyDTO = { ...warranty, id };
+      if (idx >= 0) {
+        warranties[idx] = { ...copy, id: warranties[idx].id };
+        return { ...warranties[idx] };
+      }
+      warranties.push(copy);
+      return { ...copy };
+    },
+
+    async deleteWarranty(id: string) {
+      const idx = warranties.findIndex((w) => w.id === id);
+      if (idx < 0) return false;
+      warranties.splice(idx, 1);
+      return true;
+    },
+
+    async listAttributes(categoryId?: string) {
+      const sorted = attributes
+        .map((a) => ({ ...a, categoryIds: a.categoryIds ? [...a.categoryIds] : [] }))
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      if (categoryId && categoryId.trim()) {
+        const clean = categoryId.trim().toLowerCase();
+        return sorted.filter(
+          (a) => !a.categoryIds || a.categoryIds.length === 0 || a.categoryIds.some((c) => c.toLowerCase() === clean)
+        );
+      }
+      return sorted;
+    },
+
+    async upsertAttribute(attr: AttributeDefinitionDTO) {
+      const id = attr.id || crypto.randomUUID();
+      const idx = attributes.findIndex(
+        (a) => a.id === id || a.code.toLowerCase() === attr.code.toLowerCase()
+      );
+      const copy: AttributeDefinitionDTO = {
+        ...attr,
+        id,
+        categoryIds: attr.categoryIds ? [...attr.categoryIds] : [],
+      };
+      if (idx >= 0) {
+        attributes[idx] = { ...copy, id: attributes[idx].id };
+        return { ...attributes[idx] };
+      }
+      attributes.push(copy);
+      return { ...copy };
+    },
+
+    async deleteAttribute(idOrCode: string) {
+      const clean = idOrCode.trim().toLowerCase();
+      const idx = attributes.findIndex(
+        (a) => a.id.toLowerCase() === clean || a.code.toLowerCase() === clean
+      );
+      if (idx < 0) return false;
+      const removed = attributes[idx];
+      attributes.splice(idx, 1);
+      for (const [pid, list] of productAttributes.entries()) {
+        productAttributes.set(
+          pid,
+          list.filter((item) => item.attributeId !== removed.id)
+        );
+      }
+      return true;
+    },
+
+    async listProductAttributes(productId: string) {
+      const entries = productAttributes.get(productId) || [];
+      const defMap = new Map(attributes.map((a) => [a.id, a]));
+      const out: ProductAttributeValueDTO[] = [];
+      for (const entry of entries) {
+        const def = defMap.get(entry.attributeId);
+        if (!def) continue;
+        out.push({
+          productId,
+          attributeId: def.id,
+          code: def.code,
+          nameFa: def.nameFa,
+          nameEn: def.nameEn,
+          dataType: def.dataType,
+          unit: def.unit,
+          valueText: entry.valueText ?? null,
+          valueNumber: entry.valueNumber ?? null,
+          valueBoolean: entry.valueBoolean ?? null,
+          displayValue: formatAttributeDisplayValue(def, entry),
+        });
+      }
+      out.sort((a, b) => {
+        const da = defMap.get(a.attributeId)?.sortOrder ?? 99;
+        const db = defMap.get(b.attributeId)?.sortOrder ?? 99;
+        return da - db;
+      });
+      return out;
+    },
+
+    async setProductAttributes(productId, values) {
+      const next: Array<{
+        attributeId: string;
+        valueText?: string | null;
+        valueNumber?: number | null;
+        valueBoolean?: boolean | null;
+      }> = [];
+      for (const item of values) {
+        const def =
+          (item.attributeId ? attributes.find((a) => a.id === item.attributeId) : undefined) ||
+          (item.attributeCode
+            ? attributes.find((a) => a.code.toLowerCase() === item.attributeCode!.trim().toLowerCase())
+            : undefined);
+        if (!def) continue;
+        next.push({
+          attributeId: def.id,
+          valueText: item.valueText ?? null,
+          valueNumber:
+            typeof item.valueNumber === 'number' && Number.isFinite(item.valueNumber) ? item.valueNumber : null,
+          valueBoolean: typeof item.valueBoolean === 'boolean' ? item.valueBoolean : null,
+        });
+      }
+      productAttributes.set(productId, next);
+      return this.listProductAttributes(productId);
+    },
+
+    async listProductVariants(productId: string, includeUnpublished = false) {
+      return variants
+        .filter((v) => v.productId === productId && (includeUnpublished || v.isPublished))
+        .map((v) => {
+          const w = v.warrantyId ? warranties.find((item) => item.id === v.warrantyId) : undefined;
+          const matchingStocks = warehouseStocks.filter((s) => s.variantId === v.id);
+          const availableStock =
+            matchingStocks.length > 0
+              ? matchingStocks.reduce((acc, s) => acc + s.availableQty, 0)
+              : v.availableStock;
+          return {
+            ...v,
+            warrantyName: w?.providerName ?? v.warrantyName,
+            warrantyDurationMonths: w?.durationMonths ?? v.warrantyDurationMonths,
+            warrantyCoverageFa: w?.coverageFa ?? v.warrantyCoverageFa,
+            availableStock,
+          };
+        })
+        .sort((a, b) => a.priceToman - b.priceToman);
+    },
+
+    async findVariantByIdOrSku(idOrSku: string) {
+      const clean = idOrSku.trim().toLowerCase();
+      const match = variants.find((v) => v.id.toLowerCase() === clean || v.sku.toLowerCase() === clean);
+      if (!match) return null;
+      const list = await this.listProductVariants(match.productId, true);
+      return list.find((v) => v.id === match.id) || null;
+    },
+
+    async upsertProductVariant(variant: ProductVariantDTO) {
+      const id = variant.id || crypto.randomUUID();
+      const skuUpper = variant.sku.trim().toUpperCase();
+      const idx = variants.findIndex((v) => v.id === id || v.sku.toUpperCase() === skuUpper);
+      const w = variant.warrantyId ? warranties.find((item) => item.id === variant.warrantyId) : undefined;
+      const copy: ProductVariantDTO = {
+        ...variant,
+        id: idx >= 0 ? variants[idx].id : id,
+        sku: skuUpper,
+        warrantyName: w?.providerName ?? variant.warrantyName,
+        warrantyDurationMonths: w?.durationMonths ?? variant.warrantyDurationMonths,
+        warrantyCoverageFa: w?.coverageFa ?? variant.warrantyCoverageFa,
+        updatedAt: new Date().toISOString(),
+      };
+      if (idx >= 0) {
+        variants[idx] = copy;
+      } else {
+        copy.createdAt = new Date().toISOString();
+        variants.push(copy);
+      }
+      return (await this.findVariantByIdOrSku(copy.id)) || { ...copy };
+    },
+
+    async deleteProductVariant(variantId: string) {
+      const idx = variants.findIndex((v) => v.id === variantId);
+      if (idx < 0) return false;
+      variants.splice(idx, 1);
+      for (let i = warehouseStocks.length - 1; i >= 0; i -= 1) {
+        if (warehouseStocks[i].variantId === variantId) {
+          warehouseStocks.splice(i, 1);
+        }
+      }
+      return true;
+    },
+
+    async listWarehouses(includeInactive = false) {
+      return warehouses.filter((w) => includeInactive || w.isActive).map((w) => ({ ...w }));
+    },
+
+    async upsertWarehouse(warehouse: WarehouseDTO) {
+      const id = warehouse.id || crypto.randomUUID();
+      const codeUpper = warehouse.code.trim().toUpperCase();
+      const idx = warehouses.findIndex((w) => w.id === id || w.code.toUpperCase() === codeUpper);
+      const copy: WarehouseDTO = {
+        ...warehouse,
+        id: idx >= 0 ? warehouses[idx].id : id,
+        code: codeUpper,
+      };
+      if (idx >= 0) {
+        warehouses[idx] = copy;
+      } else {
+        copy.createdAt = new Date().toISOString();
+        warehouses.push(copy);
+      }
+      return { ...copy };
+    },
+
+    async listWarehouseStock(filters = {}) {
+      let list = warehouseStocks.map((s) => {
+        const wh = warehouses.find((w) => w.id === s.warehouseId);
+        const vr = variants.find((v) => v.id === s.variantId);
+        const availableQty = Math.max(0, s.quantityOnHand - s.reservedQty);
+        return {
+          ...s,
+          warehouseCode: wh?.code ?? s.warehouseCode,
+          warehouseNameFa: wh?.nameFa ?? s.warehouseNameFa,
+          productId: vr?.productId ?? s.productId,
+          sku: vr?.sku ?? s.sku,
+          availableQty,
+          isLowStock: availableQty <= s.minStockAlert,
+        };
+      });
+      if (filters.warehouseId) list = list.filter((s) => s.warehouseId === filters.warehouseId);
+      if (filters.variantId) list = list.filter((s) => s.variantId === filters.variantId);
+      if (filters.productId) list = list.filter((s) => s.productId === filters.productId);
+      if (filters.lowStockOnly) list = list.filter((s) => s.isLowStock);
+      return list;
+    },
+
+    async recordStockMovement(input: StockMovementInput) {
+      const idempKey = input.idempotencyKey?.trim() || null;
+      if (idempKey) {
+        const existingMov = stockMovements.find((m) => m.idempotencyKey === idempKey);
+        if (existingMov) {
+          const matchingStock = (
+            await this.listWarehouseStock({
+              warehouseId: existingMov.warehouseId,
+              variantId: existingMov.variantId,
+            })
+          )[0];
+          return {
+            movement: { ...existingMov },
+            stock: matchingStock || {
+              id: '',
+              warehouseId: existingMov.warehouseId,
+              variantId: existingMov.variantId,
+              quantityOnHand: existingMov.balanceAfter,
+              reservedQty: 0,
+              availableQty: existingMov.balanceAfter,
+              minStockAlert: 3,
+              isLowStock: false,
+            },
+            deduplicated: true,
+          };
+        }
+      }
+
+      const wh = warehouses.find((w) => w.id === input.warehouseId || w.code === input.warehouseId);
+      if (!wh) {
+        throw new StockMovementError('انبار مورد نظر یافت نشد.', 404);
+      }
+      const vr = variants.find((v) => v.id === input.variantId || v.sku === input.variantId);
+      if (!vr) {
+        throw new StockMovementError('تنوع کالا (SKU) مورد نظر یافت نشد.', 404);
+      }
+
+      const idx = warehouseStocks.findIndex(
+        (s) => s.warehouseId === wh.id && s.variantId === vr.id
+      );
+      const currentOnHand = idx >= 0 ? warehouseStocks[idx].quantityOnHand : 0;
+      const reservedQty = idx >= 0 ? warehouseStocks[idx].reservedQty : 0;
+
+      const calc = applyStockMovementDelta(currentOnHand, reservedQty, input.quantityChange);
+      if (!calc.ok) {
+        throw new StockMovementError(calc.error, calc.statusCode);
+      }
+
+      const minAlert =
+        typeof input.minStockAlert === 'number'
+          ? Math.max(0, Math.floor(input.minStockAlert))
+          : idx >= 0
+          ? warehouseStocks[idx].minStockAlert
+          : 3;
+      const availableQty = Math.max(0, calc.balanceAfter - reservedQty);
+      const nowIso = new Date().toISOString();
+
+      const updatedStock: WarehouseStockDTO = {
+        id: idx >= 0 ? warehouseStocks[idx].id : crypto.randomUUID(),
+        warehouseId: wh.id,
+        warehouseCode: wh.code,
+        warehouseNameFa: wh.nameFa,
+        variantId: vr.id,
+        productId: vr.productId,
+        sku: vr.sku,
+        shelfLocation:
+          input.shelfLocation !== undefined
+            ? input.shelfLocation
+            : idx >= 0
+            ? warehouseStocks[idx].shelfLocation ?? null
+            : null,
+        quantityOnHand: calc.balanceAfter,
+        reservedQty,
+        availableQty,
+        minStockAlert: minAlert,
+        isLowStock: availableQty <= minAlert,
+        updatedAt: nowIso,
+      };
+      if (idx >= 0) {
+        warehouseStocks[idx] = updatedStock;
+      } else {
+        warehouseStocks.push(updatedStock);
+      }
+
+      const movement: StockMovementDTO = {
+        id: crypto.randomUUID(),
+        warehouseId: wh.id,
+        variantId: vr.id,
+        movementType: input.movementType,
+        quantityChange: Math.trunc(input.quantityChange),
+        balanceAfter: calc.balanceAfter,
+        referenceType: input.referenceType ?? null,
+        referenceId: input.referenceId ?? null,
+        idempotencyKey: idempKey,
+        noteFa: input.noteFa ?? null,
+        createdBy: input.createdBy ?? null,
+        createdAt: nowIso,
+      };
+      stockMovements.unshift(movement);
+
+      // Sync parent product stock_count across all variants/warehouses
+      const prodVariants = variants.filter((v) => v.productId === vr.productId);
+      const prodVarIds = new Set(prodVariants.map((v) => v.id));
+      const totalProdAvail = warehouseStocks
+        .filter((s) => prodVarIds.has(s.variantId))
+        .reduce((acc, s) => acc + Math.max(0, s.quantityOnHand - s.reservedQty), 0);
+      await this.updateProductInventory(vr.productId, totalProdAvail, totalProdAvail > 0);
+
+      return {
+        movement: { ...movement },
+        stock: { ...updatedStock },
+        deduplicated: false,
+      };
+    },
+
+    async listStockMovements(filters = {}) {
+      let list = [...stockMovements];
+      if (filters.warehouseId) list = list.filter((m) => m.warehouseId === filters.warehouseId);
+      if (filters.variantId) list = list.filter((m) => m.variantId === filters.variantId);
+      if (filters.movementType) list = list.filter((m) => m.movementType === filters.movementType);
+      const limit = Math.min(200, Math.max(1, Number(filters.limit || 50)));
+      return list.slice(0, limit).map((m) => ({ ...m }));
     },
   };
 }

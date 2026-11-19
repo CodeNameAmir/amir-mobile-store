@@ -47,7 +47,10 @@ export interface CategoryItem {
   id: string;
   slug: string;
   label: string;
+  titleEn?: string;
   subtitle: string;
+  descriptionFa?: string;
+  iconName?: string;
   parentId: string | null;
   isActive: boolean;
   image: string;
@@ -60,7 +63,117 @@ export interface BrandItem {
   id: string;
   name: string;
   labelFa?: string;
+  slug?: string;
+  logoUrl?: string;
+  websiteUrl?: string;
+  isFeatured?: boolean;
   isActive: boolean;
+}
+
+export interface WarrantyItem {
+  id: string;
+  providerName: string;
+  durationMonths: number;
+  coverageFa: string;
+  termsUrl?: string | null;
+  isActive: boolean;
+}
+
+export interface AttributeDefinition {
+  id: string;
+  code: string;
+  nameFa: string;
+  nameEn: string;
+  dataType: 'text' | 'number' | 'boolean' | 'select';
+  unit?: string | null;
+  isFilterable: boolean;
+  sortOrder: number;
+  categoryIds?: string[];
+}
+
+export interface ProductAttributeValue {
+  id?: string;
+  productId: string;
+  attributeId: string;
+  code: string;
+  nameFa: string;
+  nameEn: string;
+  dataType: 'text' | 'number' | 'boolean' | 'select';
+  unit?: string | null;
+  valueText?: string | null;
+  valueNumber?: number | null;
+  valueBoolean?: boolean | null;
+  displayValue: string;
+}
+
+export interface ProductVariant {
+  id: string;
+  productId: string;
+  warrantyId?: string | null;
+  warrantyName?: string;
+  warrantyDurationMonths?: number;
+  warrantyCoverageFa?: string;
+  sku: string;
+  barcode?: string | null;
+  partNumber?: string | null;
+  colorId?: string;
+  colorNameFa: string;
+  colorNameEn?: string | null;
+  colorHex: string;
+  storage?: string | null;
+  ram?: string | null;
+  simType?: string | null;
+  priceToman: number;
+  originalPriceToman?: number | null;
+  availableStock?: number;
+  isPublished: boolean;
+}
+
+export interface WarehouseItem {
+  id: string;
+  code: string;
+  nameFa: string;
+  city: string;
+  addressFa?: string | null;
+  isActive: boolean;
+}
+
+export interface WarehouseStockItem {
+  id: string;
+  warehouseId: string;
+  warehouseCode?: string;
+  warehouseNameFa?: string;
+  variantId: string;
+  productId?: string;
+  sku?: string;
+  shelfLocation?: string | null;
+  quantityOnHand: number;
+  reservedQty: number;
+  availableQty: number;
+  minStockAlert: number;
+  isLowStock: boolean;
+  updatedAt?: string;
+}
+
+export interface StockMovementItem {
+  id: string;
+  warehouseId: string;
+  variantId: string;
+  movementType:
+    | 'opening_balance'
+    | 'purchase_inflow'
+    | 'order_sale'
+    | 'customer_return'
+    | 'transfer_out'
+    | 'transfer_in'
+    | 'inventory_adjustment';
+  quantityChange: number;
+  balanceAfter: number;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  idempotencyKey?: string | null;
+  noteFa?: string | null;
+  createdAt: string;
 }
 
 export interface Product {
@@ -68,6 +181,8 @@ export interface Product {
   slug: string;
   nameFa: string;
   nameEn: string;
+  modelName?: string;
+  descriptionFa?: string;
   brand: BrandId;
   category: string;
   price: number;
@@ -77,6 +192,7 @@ export interface Product {
   stockCount: number;
   expressDelivery: boolean;
   warranty: string;
+  warrantyId?: string | null;
   badgeText?: string;
   rating: number;
   reviewCount: number;
@@ -88,7 +204,10 @@ export interface Product {
   storageOptions: StorageVariant[];
   specs: ProductSpecs;
   customSpecs?: CustomSpecItem[];
+  variants?: ProductVariant[];
+  attributeValues?: ProductAttributeValue[];
   priceUpdatedAt?: string;
+  isPublished?: boolean;
   isFeaturedDeal?: boolean;
   isPopular?: boolean;
   salesRank: number;
@@ -100,6 +219,10 @@ export interface Product {
 export interface CartItem {
   key: string;
   productId: string;
+  variantId?: string;
+  sku?: string;
+  partNumber?: string;
+  simType?: string;
   slug: string;
   nameFa: string;
   brand: BrandId;

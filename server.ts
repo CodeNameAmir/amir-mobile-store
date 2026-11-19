@@ -37,6 +37,7 @@ import {
   evaluateCouponServer,
   normalizePhone,
   normalizeRole,
+  stripPrivateVariantFields,
   toSummaryOrderDTO,
 } from './server/storeData.ts';
 
@@ -1309,6 +1310,27 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
+  app.get('/api/warranties', async (_req, res, next) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      const warranties = await storage.listWarranties(false);
+      res.json({ warranties });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/attributes', async (req, res, next) => {
+    try {
+      res.setHeader('Cache-Control', 'no-store');
+      const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+      const attributes = await storage.listAttributes(category);
+      res.json({ attributes });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.get('/api/products/:slug', async (req, res, next) => {
     try {
       res.setHeader('Cache-Control', 'no-store');
@@ -1318,8 +1340,17 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         res.status(404).json({ error: 'محصول مورد نظر یافت نشد.' });
         return;
       }
-      const reviews = await storage.listProductReviews(product.id);
-      res.json({ product, reviews });
+      const [reviews, rawVariants, attributeValues] = await Promise.all([
+        storage.listProductReviews(product.id),
+        storage.listProductVariants(product.id, false).catch(() => []),
+        storage.listProductAttributes(product.id).catch(() => []),
+      ]);
+      const enrichedProduct = {
+        ...product,
+        variants: rawVariants.map(stripPrivateVariantFields),
+        attributeValues,
+      };
+      res.json({ product: enrichedProduct, reviews });
     } catch (err) {
       next(err);
     }
@@ -1479,9 +1510,29 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         storage.getStoreSettings(),
       ]);
 
+      // Enrich referenced products with live published variants when variantId/sku is supplied
+      const referencedIds = new Set<string>(
+        items
+          .map((item: { productId?: unknown; slug?: unknown }) => [
+            String(item?.productId || '').trim(),
+            String(item?.slug || '').trim(),
+          ])
+          .flat()
+          .filter(Boolean)
+      );
+      const productsWithVariants = await Promise.all(
+        catalogProducts.map(async (prod) => {
+          if (!referencedIds.has(prod.id) && !referencedIds.has(prod.slug)) {
+            return prod;
+          }
+          const variants = await storage.listProductVariants(prod.id, false).catch(() => []);
+          return variants.length > 0 ? { ...prod, variants } : prod;
+        })
+      );
+
       const totals = calculateOrderTotalsServer({
         items,
-        products: catalogProducts,
+        products: productsWithVariants,
         couponCode: body.couponCode ? String(body.couponCode) : null,
         couponRules: activeCoupons,
         freeShippingThreshold: storeSettings.freeShippingThreshold,
@@ -1530,6 +1581,28 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       const saved = await authService.createOrder(auth?.user.id ?? null, orderPayload);
 
       for (const dec of totals.stockDecrements) {
+        if (dec.variantId) {
+          const variantStocks = await storage
+            .listWarehouseStock({ variantId: dec.variantId })
+            .catch(() => []);
+          const bestStock = variantStocks
+            .slice()
+            .sort((a, b) => b.availableQty - a.availableQty)[0];
+          if (bestStock && bestStock.availableQty >= dec.qty) {
+            await storage.recordStockMovement({
+              warehouseId: bestStock.warehouseId,
+              variantId: dec.variantId,
+              movementType: 'order_sale',
+              quantityChange: -dec.qty,
+              referenceType: 'order',
+              referenceId: saved.orderCode,
+              idempotencyKey: `order-sale:${saved.orderCode}:${dec.variantId}`,
+              noteFa: `کسر موجودی بابت سفارش ${saved.orderCode}`,
+              createdBy: auth?.user.id ?? null,
+            });
+            continue;
+          }
+        }
         await storage.decrementProductStock(dec.productId, dec.qty);
       }
 

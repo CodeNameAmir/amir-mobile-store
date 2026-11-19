@@ -1,14 +1,25 @@
 import express, { type Request, type Response } from 'express';
-import type { AuthStorageAdapter, StoredUserRecord } from './authStore.ts';
-import { toPublicUser } from './authStore.ts';
+import {
+  StockMovementError,
+  toPublicUser,
+  type AuthStorageAdapter,
+  type StoredUserRecord,
+} from './authStore.ts';
 import {
   normalizeOrderStatus,
   sanitizeAuditDetails,
+  VALID_STOCK_MOVEMENT_TYPES,
+  type AttributeDataType,
+  type AttributeDefinitionDTO,
   type BrandDTO,
   type CategoryDTO,
   type CustomSpecItemDTO,
   type ProductCategory,
   type ProductDTO,
+  type ProductVariantDTO,
+  type StockMovementType,
+  type WarehouseDTO,
+  type WarrantyDTO,
 } from './storeData.ts';
 
 export interface AdminAuthenticatedRequest extends Request {
@@ -64,7 +75,11 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
         res.status(404).json({ error: 'محصول یافت نشد.' });
         return;
       }
-      res.json({ product });
+      const [variants, attributeValues] = await Promise.all([
+        storage.listProductVariants(product.id, true).catch(() => []),
+        storage.listProductAttributes(product.id).catch(() => []),
+      ]);
+      res.json({ product: { ...product, variants, attributeValues } });
     } catch (err) {
       next(err);
     }
@@ -564,7 +579,10 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
         id,
         slug,
         label,
+        titleEn: body.titleEn ? String(body.titleEn).trim() : undefined,
         subtitle: String(body.subtitle || '').trim(),
+        descriptionFa: body.descriptionFa ? String(body.descriptionFa).trim() : undefined,
+        iconName: body.iconName ? String(body.iconName).trim() : undefined,
         parentId,
         isActive: body.isActive !== false,
         image: String(body.image || '').trim(),
@@ -640,6 +658,10 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
         id,
         name,
         labelFa: labelFa || undefined,
+        slug: req.body?.slug ? slugifyProductInput(String(req.body.slug)) : id,
+        logoUrl: req.body?.logoUrl ? String(req.body.logoUrl).trim() : undefined,
+        websiteUrl: req.body?.websiteUrl ? String(req.body.websiteUrl).trim() : undefined,
+        isFeatured: Boolean(req.body?.isFeatured),
         isActive: req.body?.isActive !== false,
       };
       const saved = await storage.upsertBrand(brand);
@@ -668,6 +690,468 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
       }
       res.json({ ok: true, id: targetId });
     } catch (err) {
+      next(err);
+    }
+  });
+
+  // ============================================================================
+  // V3 Enterprise Schema Admin APIs: Roles, Warranties, Attributes, Variants, Warehouses & Stock Ledger
+  // ============================================================================
+  router.get('/roles', async (_req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const roles = await storage.listRoles();
+      res.json({ roles });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Warranties
+  router.get('/warranties', async (_req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const warranties = await storage.listWarranties(true);
+      res.json({ warranties });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  const handleSaveWarranty = async (
+    req: AdminAuthenticatedRequest,
+    res: Response,
+    next: express.NextFunction
+  ) => {
+    try {
+      const body = req.body || {};
+      const paramId = req.params.id ? String(req.params.id).trim() : '';
+      const existing = paramId
+        ? (await storage.listWarranties(true)).find((w) => w.id === paramId) || null
+        : null;
+      if (paramId && !existing) {
+        res.status(404).json({ error: 'گارانتی مورد نظر یافت نشد.' });
+        return;
+      }
+      const providerName = String(
+        body.providerName ?? body.provider_name ?? existing?.providerName ?? ''
+      ).trim();
+      const durationMonths = Math.max(
+        1,
+        Math.floor(
+          Number(body.durationMonths ?? body.duration_months ?? existing?.durationMonths ?? 18)
+        )
+      );
+      const coverageFa = String(
+        body.coverageFa ?? body.coverage_fa ?? existing?.coverageFa ?? ''
+      ).trim();
+      if (providerName.length < 2 || coverageFa.length < 4) {
+        res.status(400).json({ error: 'نام شرکت گارانتی و شرح پوشش گارانتی الزامی است.' });
+        return;
+      }
+      const payload: WarrantyDTO = {
+        id: paramId || String(body.id || '').trim(),
+        providerName,
+        durationMonths,
+        coverageFa,
+        termsUrl:
+          body.termsUrl !== undefined
+            ? body.termsUrl
+              ? String(body.termsUrl).trim()
+              : null
+            : existing?.termsUrl ?? null,
+        isActive:
+          typeof body.isActive === 'boolean' ? body.isActive : existing ? existing.isActive : true,
+      };
+      const saved = await storage.upsertWarranty(payload);
+      const admin = req.authUser!;
+      await storage.createAuditLog({
+        adminUserId: admin.id,
+        adminEmail: admin.email,
+        action: paramId ? 'warranty.update' : 'warranty.create',
+        entityType: 'warranty',
+        entityId: saved.id,
+        details: sanitizeAuditDetails({ providerName: saved.providerName, durationMonths: saved.durationMonths }),
+      });
+      res.status(paramId ? 200 : 201).json({ warranty: saved });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  router.post('/warranties', handleSaveWarranty);
+  router.patch('/warranties/:id', handleSaveWarranty);
+
+  router.delete('/warranties/:id', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const id = String(req.params.id || '').trim();
+      const deleted = await storage.deleteWarranty(id);
+      if (!deleted) {
+        res.status(404).json({ error: 'گارانتی مورد نظر یافت نشد.' });
+        return;
+      }
+      res.json({ ok: true, id });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Technical Attributes (EAV)
+  router.get('/attributes', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const category = typeof req.query.category === 'string' ? req.query.category : undefined;
+      const attributes = await storage.listAttributes(category);
+      res.json({ attributes });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/attributes', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const body = req.body || {};
+      const code = slugifyProductInput(String(body.code || '')).replace(/-/g, '_');
+      const nameFa = String(body.nameFa || body.name_fa || '').trim();
+      const nameEn = String(body.nameEn || body.name_en || code).trim();
+      const dataTypeRaw = String(body.dataType || body.data_type || 'text').trim().toLowerCase();
+      const dataType: AttributeDataType = ['text', 'number', 'boolean', 'select'].includes(dataTypeRaw)
+        ? (dataTypeRaw as AttributeDataType)
+        : 'text';
+      if (code.length < 2 || nameFa.length < 2) {
+        res.status(400).json({ error: 'کد ویژگی و عنوان فارسی معتبر الزامی است.' });
+        return;
+      }
+      const payload: AttributeDefinitionDTO = {
+        id: String(body.id || '').trim(),
+        code,
+        nameFa,
+        nameEn,
+        dataType,
+        unit: body.unit ? String(body.unit).trim() : null,
+        isFilterable: body.isFilterable !== false,
+        sortOrder: Number.isFinite(Number(body.sortOrder)) ? Math.floor(Number(body.sortOrder)) : 50,
+        categoryIds: Array.isArray(body.categoryIds)
+          ? body.categoryIds.map((c: unknown) => String(c || '').trim()).filter(Boolean)
+          : undefined,
+      };
+      const saved = await storage.upsertAttribute(payload);
+      res.status(201).json({ attribute: saved });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/attributes/:id', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const target = String(req.params.id || '').trim();
+      const deleted = await storage.deleteAttribute(target);
+      if (!deleted) {
+        res.status(404).json({ error: 'ویژگی فنی یافت نشد.' });
+        return;
+      }
+      res.json({ ok: true, id: target });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.put('/products/:id/attributes', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const product = await storage.findProductByIdOrSlug(String(req.params.id || ''));
+      if (!product) {
+        res.status(404).json({ error: 'محصول یافت نشد.' });
+        return;
+      }
+      const rawValues = Array.isArray(req.body?.values) ? req.body.values : null;
+      if (!rawValues) {
+        res.status(400).json({ error: 'فیلد values باید به صورت آرایه ارسال شود.' });
+        return;
+      }
+      const saved = await storage.setProductAttributes(product.id, rawValues);
+      res.json({ productId: product.id, attributeValues: saved });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Product Variants (SKU / Part Number / Color / Storage / Cost Price)
+  router.get('/products/:id/variants', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const product = await storage.findProductByIdOrSlug(String(req.params.id || ''));
+      if (!product) {
+        res.status(404).json({ error: 'محصول یافت نشد.' });
+        return;
+      }
+      const variants = await storage.listProductVariants(product.id, true);
+      res.json({ productId: product.id, variants });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/products/:id/variants', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const product = await storage.findProductByIdOrSlug(String(req.params.id || ''));
+      if (!product) {
+        res.status(404).json({ error: 'محصول یافت نشد.' });
+        return;
+      }
+      const body = req.body || {};
+      const sku = String(body.sku || '').trim().toUpperCase();
+      const colorNameFa = String(body.colorNameFa || body.color_name_fa || '').trim();
+      const priceToman = Number(body.priceToman ?? body.price_toman);
+      if (sku.length < 3 || colorNameFa.length < 2 || !Number.isFinite(priceToman) || priceToman <= 0) {
+        res.status(400).json({ error: 'کد SKU، نام رنگ فارسی و قیمت معتبر (مثبت) الزامی است.' });
+        return;
+      }
+      const payload: ProductVariantDTO = {
+        id: String(body.id || '').trim(),
+        productId: product.id,
+        warrantyId: body.warrantyId ? String(body.warrantyId).trim() : null,
+        sku,
+        barcode: body.barcode ? String(body.barcode).trim() : null,
+        partNumber: body.partNumber ? String(body.partNumber).trim() : null,
+        colorId: body.colorId ? String(body.colorId).trim() : undefined,
+        colorNameFa,
+        colorNameEn: body.colorNameEn ? String(body.colorNameEn).trim() : null,
+        colorHex: String(body.colorHex || '#1e293b').trim(),
+        storage: body.storage ? String(body.storage).trim() : null,
+        ram: body.ram ? String(body.ram).trim() : null,
+        simType: body.simType ? String(body.simType).trim() : null,
+        priceToman: Math.round(priceToman),
+        originalPriceToman:
+          body.originalPriceToman !== undefined && Number(body.originalPriceToman) > 0
+            ? Math.round(Number(body.originalPriceToman))
+            : null,
+        costPriceToman:
+          body.costPriceToman !== undefined && Number(body.costPriceToman) >= 0
+            ? Math.round(Number(body.costPriceToman))
+            : null,
+        isPublished: body.isPublished !== false,
+      };
+      const saved = await storage.upsertProductVariant(payload);
+      const admin = req.authUser!;
+      await storage.createAuditLog({
+        adminUserId: admin.id,
+        adminEmail: admin.email,
+        action: 'variant.upsert',
+        entityType: 'product_variant',
+        entityId: saved.id,
+        details: sanitizeAuditDetails({ productId: product.id, sku: saved.sku, priceToman: saved.priceToman }),
+      });
+      res.status(201).json({ variant: saved });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.patch('/variants/:variantId', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const existing = await storage.findVariantByIdOrSku(String(req.params.variantId || ''));
+      if (!existing) {
+        res.status(404).json({ error: 'تنوع کالا یافت نشد.' });
+        return;
+      }
+      const body = req.body || {};
+      const nextPrice =
+        body.priceToman !== undefined ? Number(body.priceToman) : existing.priceToman;
+      if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+        res.status(400).json({ error: 'قیمت تنوع باید عدد مثبت باشد.' });
+        return;
+      }
+      const merged: ProductVariantDTO = {
+        ...existing,
+        warrantyId: body.warrantyId !== undefined ? (body.warrantyId ? String(body.warrantyId) : null) : existing.warrantyId,
+        sku: body.sku ? String(body.sku).trim().toUpperCase() : existing.sku,
+        barcode: body.barcode !== undefined ? (body.barcode ? String(body.barcode).trim() : null) : existing.barcode,
+        partNumber: body.partNumber !== undefined ? (body.partNumber ? String(body.partNumber).trim() : null) : existing.partNumber,
+        colorNameFa: body.colorNameFa ? String(body.colorNameFa).trim() : existing.colorNameFa,
+        colorNameEn: body.colorNameEn !== undefined ? (body.colorNameEn ? String(body.colorNameEn).trim() : null) : existing.colorNameEn,
+        colorHex: body.colorHex ? String(body.colorHex).trim() : existing.colorHex,
+        storage: body.storage !== undefined ? (body.storage ? String(body.storage).trim() : null) : existing.storage,
+        ram: body.ram !== undefined ? (body.ram ? String(body.ram).trim() : null) : existing.ram,
+        simType: body.simType !== undefined ? (body.simType ? String(body.simType).trim() : null) : existing.simType,
+        priceToman: Math.round(nextPrice),
+        originalPriceToman:
+          body.originalPriceToman !== undefined
+            ? Number(body.originalPriceToman) > 0
+              ? Math.round(Number(body.originalPriceToman))
+              : null
+            : existing.originalPriceToman,
+        costPriceToman:
+          body.costPriceToman !== undefined
+            ? Number(body.costPriceToman) >= 0
+              ? Math.round(Number(body.costPriceToman))
+              : null
+            : existing.costPriceToman,
+        isPublished: typeof body.isPublished === 'boolean' ? body.isPublished : existing.isPublished,
+      };
+      const saved = await storage.upsertProductVariant(merged);
+      res.json({ variant: saved });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/variants/:variantId', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const id = String(req.params.variantId || '').trim();
+      const deleted = await storage.deleteProductVariant(id);
+      if (!deleted) {
+        res.status(404).json({ error: 'تنوع کالا یافت نشد.' });
+        return;
+      }
+      res.json({ ok: true, id });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Multi-Warehouse & Stock Ledger
+  router.get('/warehouses', async (_req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const warehouses = await storage.listWarehouses(true);
+      res.json({ warehouses });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  const handleSaveWarehouse = async (
+    req: AdminAuthenticatedRequest,
+    res: Response,
+    next: express.NextFunction
+  ) => {
+    try {
+      const body = req.body || {};
+      const paramId = req.params.id ? String(req.params.id).trim() : '';
+      const existing = paramId
+        ? (await storage.listWarehouses(true)).find((w) => w.id === paramId) || null
+        : null;
+      if (paramId && !existing) {
+        res.status(404).json({ error: 'انبار مورد نظر یافت نشد.' });
+        return;
+      }
+      const code = String(body.code ?? existing?.code ?? '').trim().toUpperCase();
+      const nameFa = String(body.nameFa ?? body.name_fa ?? existing?.nameFa ?? '').trim();
+      const city = String(body.city ?? existing?.city ?? '').trim();
+      if (code.length < 2 || nameFa.length < 2 || city.length < 2) {
+        res.status(400).json({ error: 'کد انبار، نام انبار و شهر الزامی است.' });
+        return;
+      }
+      const payload: WarehouseDTO = {
+        id: paramId || String(body.id || '').trim(),
+        code,
+        nameFa,
+        city,
+        addressFa:
+          body.addressFa !== undefined
+            ? body.addressFa
+              ? String(body.addressFa).trim()
+              : null
+            : existing?.addressFa ?? null,
+        isActive:
+          typeof body.isActive === 'boolean' ? body.isActive : existing ? existing.isActive : true,
+      };
+      const saved = await storage.upsertWarehouse(payload);
+      res.status(paramId ? 200 : 201).json({ warehouse: saved });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  router.post('/warehouses', handleSaveWarehouse);
+  router.patch('/warehouses/:id', handleSaveWarehouse);
+
+  router.get('/warehouse-stock', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const stock = await storage.listWarehouseStock({
+        warehouseId: typeof req.query.warehouseId === 'string' ? req.query.warehouseId : undefined,
+        variantId: typeof req.query.variantId === 'string' ? req.query.variantId : undefined,
+        productId: typeof req.query.productId === 'string' ? req.query.productId : undefined,
+        lowStockOnly: req.query.lowStockOnly === 'true',
+      });
+      res.json({ stock, total: stock.length });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.get('/stock-movements', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const movements = await storage.listStockMovements({
+        warehouseId: typeof req.query.warehouseId === 'string' ? req.query.warehouseId : undefined,
+        variantId: typeof req.query.variantId === 'string' ? req.query.variantId : undefined,
+        movementType: typeof req.query.movementType === 'string' ? req.query.movementType : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : 50,
+      });
+      res.json({ movements, total: movements.length });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/stock-movements', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const body = req.body || {};
+      const warehouseId = String(body.warehouseId || body.warehouse_id || '').trim();
+      const variantId = String(body.variantId || body.variant_id || '').trim();
+      const movementTypeRaw = String(body.movementType || body.movement_type || '').trim();
+      const quantityChange = Math.trunc(Number(body.quantityChange ?? body.quantity_change));
+
+      if (!warehouseId || !variantId) {
+        res.status(400).json({ error: 'شناسه انبار (warehouseId) و تنوع کالا (variantId) الزامی است.' });
+        return;
+      }
+      if (!VALID_STOCK_MOVEMENT_TYPES.includes(movementTypeRaw as StockMovementType)) {
+        res.status(400).json({ error: 'نوع تراکنش انبار (movementType) معتبر نیست.' });
+        return;
+      }
+      if (!Number.isFinite(quantityChange) || quantityChange === 0) {
+        res.status(400).json({ error: 'مقدار تغییر موجودی (quantityChange) باید عدد صحیح غیرصفر باشد.' });
+        return;
+      }
+
+      const admin = req.authUser!;
+      const result = await storage.recordStockMovement({
+        warehouseId,
+        variantId,
+        movementType: movementTypeRaw as StockMovementType,
+        quantityChange,
+        referenceType: body.referenceType ? String(body.referenceType).trim() : null,
+        referenceId: body.referenceId ? String(body.referenceId).trim() : null,
+        idempotencyKey: body.idempotencyKey ? String(body.idempotencyKey).trim() : null,
+        noteFa: body.noteFa ? String(body.noteFa).trim() : null,
+        createdBy: admin.id,
+        shelfLocation: body.shelfLocation !== undefined ? String(body.shelfLocation).trim() : undefined,
+        minStockAlert:
+          body.minStockAlert !== undefined && Number.isFinite(Number(body.minStockAlert))
+            ? Number(body.minStockAlert)
+            : undefined,
+      });
+
+      if (!result.deduplicated) {
+        await storage.createAuditLog({
+          adminUserId: admin.id,
+          adminEmail: admin.email,
+          action: 'inventory.stock_movement',
+          entityType: 'warehouse_stock',
+          entityId: result.stock.id || variantId,
+          details: sanitizeAuditDetails({
+            warehouseId,
+            variantId,
+            movementType: movementTypeRaw,
+            quantityChange,
+            balanceAfter: result.movement.balanceAfter,
+            idempotencyKey: result.movement.idempotencyKey,
+          }),
+        });
+      }
+
+      res.status(result.deduplicated ? 200 : 201).json(result);
+    } catch (err) {
+      if (err instanceof StockMovementError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
       next(err);
     }
   });

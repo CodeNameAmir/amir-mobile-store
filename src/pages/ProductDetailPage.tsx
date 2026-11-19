@@ -207,10 +207,34 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   }
 
   const activeColor = product.colors.find((c) => c.id === selectedColorId) ?? product.colors[0];
-  const { price: variantPrice, originalPrice: variantOriginal } = getVariantPrice(
-    product,
-    selectedStorage
-  );
+
+  const activeVariant = (() => {
+    if (!product.variants || product.variants.length === 0) return null;
+    const colorHexLow = (activeColor?.hex || '').toLowerCase();
+    const colorName = activeColor?.name || '';
+    const exact = product.variants.find(
+      (v) =>
+        (!v.storage || v.storage === selectedStorage) &&
+        (v.colorId === activeColor?.id ||
+          v.colorNameFa === colorName ||
+          v.colorHex.toLowerCase() === colorHexLow)
+    );
+    if (exact) return exact;
+    return product.variants.find((v) => v.storage === selectedStorage) || null;
+  })();
+
+  const fallbackPricing = getVariantPrice(product, selectedStorage);
+  const variantPrice = activeVariant ? activeVariant.priceToman : fallbackPricing.price;
+  const variantOriginal = activeVariant
+    ? activeVariant.originalPriceToman ?? activeVariant.priceToman
+    : fallbackPricing.originalPrice;
+  const effectiveStockCount =
+    typeof activeVariant?.availableStock === 'number'
+      ? activeVariant.availableStock
+      : product.stockCount;
+  const effectiveInStock = product.inStock && effectiveStockCount > 0;
+  const baseWarranty = activeVariant?.warrantyName || product.warranty;
+
   const carePlusPrice = calculateCareInsurancePrice(variantPrice, product.category);
   const effectiveUnitPrice =
     includeCarePlus && carePlusPrice > 0 ? variantPrice + carePlusPrice : variantPrice;
@@ -218,8 +242,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     includeCarePlus && carePlusPrice > 0 ? variantOriginal + carePlusPrice : variantOriginal;
   const effectiveWarranty =
     includeCarePlus && carePlusPrice > 0
-      ? `${product.warranty} + بیمه حوادث و شکستگی Amir Care+`
-      : product.warranty;
+      ? `${baseWarranty} + بیمه حوادث و شکستگی Amir Care+`
+      : baseWarranty;
 
   const installmentPreview = calculateInstallmentPlan(effectiveUnitPrice, 30, 12);
 
@@ -256,12 +280,17 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
   const handleAddToCart = (goToCart = false) => {
     addToCart(product, {
+      variantId: activeVariant?.id,
+      sku: activeVariant?.sku,
+      partNumber: activeVariant?.partNumber || undefined,
+      simType: activeVariant?.simType || undefined,
       colorName: activeColor?.name ?? product.colorLabel,
       colorHex: activeColor?.hex ?? '#1e293b',
       storageLabel: selectedStorage,
       warranty: effectiveWarranty,
       unitPrice: effectiveUnitPrice,
       originalUnitPrice: effectiveOriginalPrice,
+      stockCount: effectiveStockCount,
       qty,
     });
     if (goToCart) {
@@ -534,6 +563,43 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
             </div>
           </div>
 
+          {/* Active Variant (SKU / Part Number / SIM) Metadata */}
+          {activeVariant && (
+            <div
+              data-testid="pdp-variant-meta"
+              className="rounded-2xl bg-[#f8f9ff] border border-[#dce9ff] p-3.5 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs"
+            >
+              <div className="space-y-0.5">
+                <p className="text-[11px] text-[#434655] font-semibold">کد تنوع (SKU)</p>
+                <p
+                  data-testid="pdp-variant-sku"
+                  dir="ltr"
+                  className="font-mono font-extrabold text-[#0b1c30] text-[11px] text-right truncate"
+                >
+                  {activeVariant.sku}
+                </p>
+              </div>
+              {activeVariant.partNumber && (
+                <div className="space-y-0.5">
+                  <p className="text-[11px] text-[#434655] font-semibold">پارت‌نامبر / ریجن</p>
+                  <p
+                    data-testid="pdp-variant-part"
+                    dir="ltr"
+                    className="font-extrabold text-[#004ac6] text-right"
+                  >
+                    {activeVariant.partNumber}
+                  </p>
+                </div>
+              )}
+              {activeVariant.simType && (
+                <div className="space-y-0.5 col-span-2 sm:col-span-1">
+                  <p className="text-[11px] text-[#434655] font-semibold">پشتیبانی سیم‌کارت</p>
+                  <p className="font-extrabold text-[#0b1c30]">{activeVariant.simType}</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* 4 Hardware Highlights */}
           <div className="grid grid-cols-2 gap-3 pt-2">
             <div className="p-3 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-1">
@@ -584,13 +650,20 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               </div>
               <div className="flex items-start gap-2 text-xs text-[#0b1c30] bg-white p-3 rounded-xl border border-[#e5eeff]">
                 <ShieldCheck className="w-4 h-4 text-[#004ac6] shrink-0 mt-0.5" />
-                <span className="font-semibold leading-5">{product.warranty}</span>
+                <div className="space-y-1">
+                  <span className="font-semibold leading-5 block">{baseWarranty}</span>
+                  {activeVariant?.warrantyCoverageFa && (
+                    <span className="text-[11px] text-[#434655] leading-5 block">
+                      {activeVariant.warrantyCoverageFa}
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
             {liveStockChecking ? (
               <ProductBuyBoxSkeleton />
-            ) : product.inStock ? (
+            ) : effectiveInStock ? (
               <>
                 <div className="space-y-1">
                   {effectiveOriginalPrice > effectiveUnitPrice && (
@@ -611,7 +684,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     <span className="text-xs font-bold text-[#434655]">تومان</span>
                   </p>
                   <p className="text-[11px] font-bold text-emerald-700">
-                    ● موجود در انبار امیر ({toPersianDigits(product.stockCount)} عدد آماده ارسال)
+                    ● موجود در انبار امیر ({toPersianDigits(effectiveStockCount)} عدد آماده ارسال)
                   </p>
                   <p
                     data-testid="pdp-price-updated-at"
@@ -667,7 +740,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     </span>
                     <button
                       type="button"
-                      onClick={() => setQty((q) => Math.min(product.stockCount || 5, q + 1))}
+                      onClick={() => setQty((q) => Math.min(effectiveStockCount || 5, q + 1))}
                       aria-label="افزایش تعداد"
                       className="w-8 h-8 rounded-lg bg-[#eff4ff] text-[#004ac6] flex items-center justify-center hover:bg-[#dce9ff]"
                     >
@@ -824,6 +897,28 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   </div>
                 ))}
               </div>
+
+              {product.attributeValues && product.attributeValues.length > 0 && (
+                <div
+                  className="space-y-3 border-t border-[#eff4ff] pt-5"
+                  data-testid="pdp-structured-attributes"
+                >
+                  <h3 className="text-sm font-black text-[#0b1c30]">جدول ویژگی‌های فنی استاندارد</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs sm:text-sm">
+                    {product.attributeValues.map((attr) => (
+                      <div
+                        key={attr.attributeId || attr.code}
+                        className="p-4 rounded-xl bg-[#f8f9ff] border border-[#e5eeff] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                      >
+                        <span className="font-bold text-[#434655]">{attr.nameFa}</span>
+                        <span className="font-extrabold text-[#0b1c30] tabular-nums-fa">
+                          {attr.displayValue}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {product.customSpecs && product.customSpecs.length > 0 && (
                 <div className="space-y-3 border-t border-[#eff4ff] pt-5" data-testid="pdp-custom-specs">

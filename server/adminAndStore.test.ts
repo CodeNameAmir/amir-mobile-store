@@ -11,9 +11,13 @@ import {
 } from './authStore.ts';
 import { parseCorsOrigins, resolveCorsConfig } from './config.ts';
 import {
+  applyStockMovementDelta,
   calculateOrderTotalsServer,
   DEFAULT_DEV_PRODUCTS,
+  DEFAULT_DEV_VARIANTS,
+  formatAttributeDisplayValue,
   sanitizeAuditDetails,
+  stripPrivateVariantFields,
 } from './storeData.ts';
 
 const TEST_SECRET = '0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -1098,5 +1102,457 @@ test('Supabase storage persists avatarUrl via store_settings fallback when app_u
   const afterClear = await adapter.findUserById('user-avatar-1');
   assert.equal(afterClear?.avatarUrl, undefined);
 });
+
+test('V3 pure logic: stock movement delta validation, variant privacy stripping, attribute formatting, and variant-aware checkout totals', () => {
+  // 1. Stock movement delta checks
+  const zeroDelta = applyStockMovementDelta(10, 0, 0);
+  assert.equal(zeroDelta.ok, false);
+  if (!zeroDelta.ok) assert.equal(zeroDelta.statusCode, 400);
+
+  const negativeStock = applyStockMovementDelta(2, 0, -5);
+  assert.equal(negativeStock.ok, false);
+  if (!negativeStock.ok) assert.equal(negativeStock.statusCode, 409);
+
+  const belowReserved = applyStockMovementDelta(5, 3, -3);
+  assert.equal(belowReserved.ok, false);
+  if (!belowReserved.ok) assert.equal(belowReserved.statusCode, 409);
+
+  const validInflow = applyStockMovementDelta(4, 1, 6);
+  assert.equal(validInflow.ok, true);
+  if (validInflow.ok) assert.equal(validInflow.balanceAfter, 10);
+
+  const validOutflow = applyStockMovementDelta(5, 2, -3);
+  assert.equal(validOutflow.ok, true);
+  if (validOutflow.ok) assert.equal(validOutflow.balanceAfter, 2);
+
+  // 2. Strip private costPriceToman before exposing variant publicly
+  const sampleVariant = DEFAULT_DEV_VARIANTS[0];
+  assert.ok(sampleVariant.costPriceToman && sampleVariant.costPriceToman > 0);
+  const publicVariant = stripPrivateVariantFields(sampleVariant);
+  assert.equal('costPriceToman' in publicVariant, false);
+  assert.equal(publicVariant.sku, sampleVariant.sku);
+  assert.equal(publicVariant.partNumber, sampleVariant.partNumber);
+
+  // 3. Attribute display formatting
+  assert.equal(
+    formatAttributeDisplayValue({ dataType: 'number', unit: 'Hz' }, { valueNumber: 120 }),
+    '۱۲۰ Hz'
+  );
+  assert.equal(
+    formatAttributeDisplayValue({ dataType: 'boolean' }, { valueBoolean: true }),
+    'دارد'
+  );
+  assert.equal(
+    formatAttributeDisplayValue({ dataType: 'text' }, { valueText: 'Apple A18 Pro' }),
+    'Apple A18 Pro'
+  );
+
+  // 4. Variant-aware order totals resolution
+  const variant512 = DEFAULT_DEV_VARIANTS.find((v) => v.id === 'var-16pm-desert-512');
+  assert.ok(variant512);
+  const productWithVariants = DEFAULT_DEV_PRODUCTS.map((p) =>
+    p.id === 'iphone-16-pro-max'
+      ? {
+          ...p,
+          variants: DEFAULT_DEV_VARIANTS.filter((v) => v.productId === 'iphone-16-pro-max').map(
+            (v) => ({ ...v, availableStock: 3 })
+          ),
+        }
+      : p
+  );
+
+  const computed = calculateOrderTotalsServer({
+    items: [
+      {
+        productId: 'iphone-16-pro-max',
+        variantId: variant512.id,
+        qty: 2,
+      },
+    ],
+    products: productWithVariants,
+  });
+  assert.equal(computed.ok, true);
+  if (computed.ok) {
+    assert.equal(computed.items[0].unitPrice, variant512.priceToman);
+    assert.equal(computed.items[0].sku, variant512.sku);
+    assert.equal(computed.items[0].partNumber, variant512.partNumber);
+    assert.equal(computed.items[0].simType, variant512.simType);
+    assert.equal(computed.stockDecrements[0].variantId, variant512.id);
+    assert.equal(computed.subtotal, variant512.priceToman * 2);
+  }
+
+  const exceededVariantStock = calculateOrderTotalsServer({
+    items: [
+      {
+        productId: 'iphone-16-pro-max',
+        sku: variant512.sku,
+        qty: 4,
+      },
+    ],
+    products: productWithVariants,
+  });
+  assert.equal(exceededVariantStock.ok, false);
+  if (!exceededVariantStock.ok) assert.equal(exceededVariantStock.statusCode, 409);
+});
+
+test('V3 HTTP Integration: public warranties/attributes/variants privacy, RBAC admin CRUD, idempotent stock ledger, and variant checkout stock deduction', async () => {
+  const storage = createMemoryAuthStorage();
+  const adminPassword = 'V3AdminPassword2026!';
+  await storage.createUser({
+    email: 'v3-admin@codenameamir.ir',
+    fullName: 'مدیر انبار و کاتالوگ',
+    phone: '09123334455',
+    passwordHash: hashPassword(adminPassword),
+    role: 'admin',
+  });
+  await storage.createUser({
+    email: 'v3-customer@codenameamir.ir',
+    fullName: 'مشتری تست V3',
+    phone: '09126667788',
+    passwordHash: hashPassword('V3CustomerPass2026!'),
+    role: 'customer',
+  });
+
+  const app = await createServerApp({
+    env: {
+      NODE_ENV: 'production',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      CORS_ORIGIN: `${STOREFRONT_ORIGIN},${ADMIN_ORIGIN}`,
+    },
+    storage,
+    disableVite: true,
+    sendEmail: async () => ({ sent: true, provider: 'resend', emailId: 'mock_v3' }),
+  });
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const createSession = () => {
+    const jar = createCookieJar();
+    return async (
+      path: string,
+      init: RequestInit = {},
+      origin: string | null = STOREFRONT_ORIGIN
+    ) => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Proto': 'https',
+        ...(init.headers as Record<string, string> | undefined),
+      };
+      if (origin) headers.Origin = origin;
+      const cookieHeader = jar.header();
+      if (cookieHeader) headers.Cookie = cookieHeader;
+
+      const res = await fetch(`${baseUrl}${path}`, { ...init, headers });
+      jar.capture(res);
+      const body = await res.json().catch(() => null);
+      return { res, body };
+    };
+  };
+
+  const guest = createSession();
+  const customer = createSession();
+  const admin = createSession();
+
+  try {
+    // 1. Public warranties, attributes, and enriched PDP (no costPriceToman leak!)
+    const warrantiesRes = await guest('/api/warranties', { method: 'GET' });
+    assert.equal(warrantiesRes.res.status, 200);
+    assert.ok(Array.isArray(warrantiesRes.body.warranties) && warrantiesRes.body.warranties.length >= 4);
+
+    const attrsRes = await guest('/api/attributes?category=phones', { method: 'GET' });
+    assert.equal(attrsRes.res.status, 200);
+    assert.ok(Array.isArray(attrsRes.body.attributes) && attrsRes.body.attributes.length >= 5);
+
+    const pdpRes = await guest('/api/products/iphone-16-pro-max', { method: 'GET' });
+    assert.equal(pdpRes.res.status, 200);
+    assert.ok(Array.isArray(pdpRes.body.product.variants) && pdpRes.body.product.variants.length >= 2);
+    assert.ok(Array.isArray(pdpRes.body.product.attributeValues) && pdpRes.body.product.attributeValues.length >= 5);
+    for (const v of pdpRes.body.product.variants) {
+      assert.equal(v.costPriceToman, undefined, 'costPriceToman must never be exposed on public PDP');
+      assert.ok(v.sku);
+      assert.ok(v.partNumber);
+    }
+
+    // 2. RBAC enforcement on V3 admin endpoints
+    for (const protectedPath of [
+      '/api/admin/roles',
+      '/api/admin/warranties',
+      '/api/admin/attributes',
+      '/api/admin/warehouses',
+      '/api/admin/warehouse-stock',
+      '/api/admin/stock-movements',
+    ]) {
+      const unauth = await guest(protectedPath, { method: 'GET' }, ADMIN_ORIGIN);
+      assert.equal(unauth.res.status, 401, `Expected 401 on ${protectedPath}`);
+    }
+
+    const custLogin = await customer('/api/auth/login-password', {
+      method: 'POST',
+      body: JSON.stringify({ email: 'v3-customer@codenameamir.ir', password: 'V3CustomerPass2026!' }),
+    });
+    assert.equal(custLogin.res.status, 200);
+
+    const custWh = await customer('/api/admin/warehouses', { method: 'GET' }, ADMIN_ORIGIN);
+    assert.equal(custWh.res.status, 403);
+    const custMove = await customer('/api/admin/stock-movements', { method: 'GET' }, ADMIN_ORIGIN);
+    assert.equal(custMove.res.status, 403);
+
+    // 3. Admin login & V3 management endpoints
+    const adminLogin = await admin(
+      '/api/auth/login-password',
+      {
+        method: 'POST',
+        body: JSON.stringify({ email: 'v3-admin@codenameamir.ir', password: adminPassword }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(adminLogin.res.status, 200);
+
+    const rolesRes = await admin('/api/admin/roles', { method: 'GET' }, ADMIN_ORIGIN);
+    assert.equal(rolesRes.res.status, 200);
+    assert.ok(rolesRes.body.roles.some((r: { name: string }) => r.name === 'warehouse_manager'));
+
+    // Warranty CRUD
+    const newWarranty = await admin(
+      '/api/admin/warranties',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          providerName: 'گارانتی تست الماس',
+          durationMonths: 24,
+          coverageFa: 'پوشش ۲۴ ماهه سخت‌افزار و نرم‌افزار',
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(newWarranty.res.status, 201);
+    const createdWarrantyId = newWarranty.body.warranty.id as string;
+
+    const patchWarranty = await admin(
+      `/api/admin/warranties/${createdWarrantyId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ durationMonths: 36 }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(patchWarranty.res.status, 200);
+    assert.equal(patchWarranty.body.warranty.durationMonths, 36);
+
+    // Attribute create & product attribute assignment
+    const newAttr = await admin(
+      '/api/admin/attributes',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          code: 'usb_port',
+          nameFa: 'درگاه اتصال',
+          nameEn: 'USB Port',
+          dataType: 'text',
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(newAttr.res.status, 201);
+    const createdAttrId = newAttr.body.attribute.id as string;
+
+    const setAttrs = await admin(
+      '/api/admin/products/iphone-16-pro-max/attributes',
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          values: [
+            { attributeId: 'attr-chipset', valueText: 'Apple A18 Pro (3nm)' },
+            { attributeId: createdAttrId, valueText: 'USB-C 3.2 Gen 2' },
+          ],
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(setAttrs.res.status, 200);
+    assert.equal(setAttrs.body.attributeValues.length, 2);
+
+    // Admin variant create (costPriceToman visible to admin, hidden on public PDP)
+    const createVariant = await admin(
+      '/api/admin/products/iphone-16-pro-max/variants',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          sku: 'APL-16PM-1TB-WHT-ZAA',
+          colorNameFa: 'تیتانیوم سفید',
+          colorHex: '#f1f5f9',
+          storage: '۱ ترابایت',
+          ram: '۸ گیگابایت',
+          partNumber: 'ZA/A',
+          simType: 'دو سیم‌کارت فیزیکی (CH/ZA)',
+          warrantyId: createdWarrantyId,
+          priceToman: 124_000_000,
+          costPriceToman: 112_000_000,
+          isPublished: true,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(createVariant.res.status, 201);
+    assert.equal(createVariant.body.variant.costPriceToman, 112_000_000);
+    const createdVariantId = createVariant.body.variant.id as string;
+
+    const adminProdDetail = await admin('/api/admin/products/iphone-16-pro-max', { method: 'GET' }, ADMIN_ORIGIN);
+    assert.equal(adminProdDetail.res.status, 200);
+    const adminCreatedVar = adminProdDetail.body.product.variants.find(
+      (v: { id: string }) => v.id === createdVariantId
+    );
+    assert.equal(adminCreatedVar.costPriceToman, 112_000_000);
+
+    // Public PDP sees the new variant but without costPriceToman
+    const publicPdpAfter = await guest('/api/products/iphone-16-pro-max', { method: 'GET' });
+    const pubCreatedVar = publicPdpAfter.body.product.variants.find(
+      (v: { id: string }) => v.id === createdVariantId
+    );
+    assert.ok(pubCreatedVar);
+    assert.equal(pubCreatedVar.costPriceToman, undefined);
+
+    // 4. Warehouses & idempotent Stock Movement Ledger
+    const whRes = await admin('/api/admin/warehouses', { method: 'GET' }, ADMIN_ORIGIN);
+    assert.equal(whRes.res.status, 200);
+    assert.ok(whRes.body.warehouses.some((w: { code: string }) => w.code === 'WH-THR-CENTRAL'));
+
+    const inflow1 = await admin(
+      '/api/admin/stock-movements',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          warehouseId: 'wh-thr-central',
+          variantId: createdVariantId,
+          movementType: 'purchase_inflow',
+          quantityChange: 5,
+          referenceType: 'purchase_order',
+          referenceId: 'PO-2026-001',
+          noteFa: 'ورود محموله اولیه ۱ ترابایت',
+          idempotencyKey: 'po-2026-001-1tb',
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(inflow1.res.status, 201);
+    assert.equal(inflow1.body.deduplicated, false);
+    assert.equal(inflow1.body.stock.quantityOnHand, 5);
+    assert.equal(inflow1.body.movement.balanceAfter, 5);
+
+    // Duplicate idempotencyKey -> 200 deduplicated without double-applying!
+    const inflowDup = await admin(
+      '/api/admin/stock-movements',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          warehouseId: 'wh-thr-central',
+          variantId: createdVariantId,
+          movementType: 'purchase_inflow',
+          quantityChange: 5,
+          idempotencyKey: 'po-2026-001-1tb',
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(inflowDup.res.status, 200);
+    assert.equal(inflowDup.body.deduplicated, true);
+    assert.equal(inflowDup.body.stock.quantityOnHand, 5);
+
+    // Excessive outflow -> 409 Conflict without mutating stock
+    const badOutflow = await admin(
+      '/api/admin/stock-movements',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          warehouseId: 'wh-thr-central',
+          variantId: createdVariantId,
+          movementType: 'inventory_adjustment',
+          quantityChange: -999,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(badOutflow.res.status, 409);
+
+    const stockCheck = await admin(
+      `/api/admin/warehouse-stock?variantId=${createdVariantId}`,
+      { method: 'GET' },
+      ADMIN_ORIGIN
+    );
+    assert.equal(stockCheck.res.status, 200);
+    assert.equal(stockCheck.body.stock[0].quantityOnHand, 5);
+
+    // 5. Checkout integration with variantId deducts warehouse_stock & writes order_sale movement
+    const stockBeforeOrder = await admin(
+      '/api/admin/warehouse-stock?warehouseId=wh-thr-central&variantId=var-16pm-desert-256',
+      { method: 'GET' },
+      ADMIN_ORIGIN
+    );
+    assert.equal(stockBeforeOrder.res.status, 200);
+    const qtyBefore = stockBeforeOrder.body.stock[0].quantityOnHand as number;
+
+    const variantOrder = await guest('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        customerName: 'خریدار نسخه ZA/A',
+        customerPhone: '09128889900',
+        city: 'تهران',
+        shippingAddress: 'خیابان ولیعصر، نبش پارک ساعی، پلاک ۱۲',
+        postalCode: '1511912345',
+        deliverySlot: 'express',
+        items: [
+          {
+            productId: 'iphone-16-pro-max',
+            variantId: 'var-16pm-desert-256',
+            qty: 1,
+          },
+        ],
+      }),
+    });
+    assert.equal(variantOrder.res.status, 201);
+    assert.equal(variantOrder.body.order.items[0].sku, 'APL-16PM-256-DSRT-ZAA');
+    assert.equal(variantOrder.body.order.items[0].partNumber, 'ZA/A');
+    const orderCode = variantOrder.body.order.orderCode as string;
+
+    const stockAfterOrder = await admin(
+      '/api/admin/warehouse-stock?warehouseId=wh-thr-central&variantId=var-16pm-desert-256',
+      { method: 'GET' },
+      ADMIN_ORIGIN
+    );
+    assert.equal(stockAfterOrder.body.stock[0].quantityOnHand, qtyBefore - 1);
+
+    const movementsAfter = await admin(
+      '/api/admin/stock-movements?variantId=var-16pm-desert-256',
+      { method: 'GET' },
+      ADMIN_ORIGIN
+    );
+    assert.equal(movementsAfter.res.status, 200);
+    assert.ok(
+      movementsAfter.body.movements.some(
+        (m: { movementType: string; referenceId?: string; quantityChange: number }) =>
+          m.movementType === 'order_sale' &&
+          m.referenceId === orderCode &&
+          m.quantityChange === -1
+      )
+    );
+
+    // Cleanup delete checks
+    const delVar = await admin(`/api/admin/variants/${createdVariantId}`, { method: 'DELETE' }, ADMIN_ORIGIN);
+    assert.equal(delVar.res.status, 200);
+    const delAttr = await admin(`/api/admin/attributes/${createdAttrId}`, { method: 'DELETE' }, ADMIN_ORIGIN);
+    assert.equal(delAttr.res.status, 200);
+    const delWar = await admin(`/api/admin/warranties/${createdWarrantyId}`, { method: 'DELETE' }, ADMIN_ORIGIN);
+    assert.equal(delWar.res.status, 200);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve()))
+    );
+  }
+});
+
 
 

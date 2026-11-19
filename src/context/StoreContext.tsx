@@ -179,7 +179,23 @@ interface StoreContextValue {
   resetFilters: () => void;
   cart: CartItem[];
   cartSummary: CartSummary;
-  addToCart: (product: Product, opts?: { colorName?: string; colorHex?: string; storageLabel?: string; warranty?: string; unitPrice?: number; originalUnitPrice?: number; qty?: number }) => void;
+  addToCart: (
+    product: Product,
+    opts?: {
+      variantId?: string;
+      sku?: string;
+      partNumber?: string;
+      simType?: string;
+      colorName?: string;
+      colorHex?: string;
+      storageLabel?: string;
+      warranty?: string;
+      unitPrice?: number;
+      originalUnitPrice?: number;
+      stockCount?: number;
+      qty?: number;
+    }
+  ) => void;
   updateCartQty: (key: string, delta: number) => void;
   removeCartItem: (key: string) => void;
   clearCart: () => void;
@@ -635,16 +651,22 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     (
       product: Product,
       opts?: {
+        variantId?: string;
+        sku?: string;
+        partNumber?: string;
+        simType?: string;
         colorName?: string;
         colorHex?: string;
         storageLabel?: string;
         warranty?: string;
         unitPrice?: number;
         originalUnitPrice?: number;
+        stockCount?: number;
         qty?: number;
       }
     ) => {
-      if (!product.inStock) {
+      const effectiveStock = opts?.stockCount ?? product.stockCount;
+      if (!product.inStock || effectiveStock <= 0) {
         showToast('این کالا در حال حاضر ناموجود است.', 'info');
         return;
       }
@@ -657,7 +679,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const unitPrice = opts?.unitPrice ?? product.price;
       const originalUnitPrice = opts?.originalUnitPrice ?? product.originalPrice ?? product.price;
       const addQty = Math.max(1, opts?.qty ?? 1);
-      const key = `${product.id}__${colorName}__${storageLabel}__${warranty}`;
+      const key = `${product.id}__${opts?.variantId || colorName}__${storageLabel}__${warranty}`;
 
       setCart((prev) => {
         const idx = prev.findIndex((item) => item.key === key);
@@ -665,7 +687,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if (idx >= 0) {
           updated = prev.map((item, i) =>
             i === idx
-              ? { ...item, qty: Math.min(product.stockCount || 10, item.qty + addQty) }
+              ? { ...item, qty: Math.min(effectiveStock || 10, item.qty + addQty) }
               : item
           );
         } else {
@@ -674,6 +696,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             {
               key,
               productId: product.id,
+              ...(opts?.variantId ? { variantId: opts.variantId } : {}),
+              ...(opts?.sku ? { sku: opts.sku } : {}),
+              ...(opts?.partNumber ? { partNumber: opts.partNumber } : {}),
+              ...(opts?.simType ? { simType: opts.simType } : {}),
               slug: product.slug,
               nameFa: product.nameFa,
               brand: product.brand,
@@ -684,8 +710,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
               warranty,
               unitPrice,
               originalUnitPrice,
-              qty: Math.min(product.stockCount || 10, addQty),
-              stockCount: product.stockCount,
+              qty: Math.min(effectiveStock || 10, addQty),
+              stockCount: effectiveStock,
             },
           ];
         }

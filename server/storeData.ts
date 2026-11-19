@@ -27,7 +27,10 @@ export interface CategoryDTO {
   id: string;
   slug: string;
   label: string;
+  titleEn?: string;
   subtitle: string;
+  descriptionFa?: string;
+  iconName?: string;
   parentId: string | null;
   isActive: boolean;
   image: string;
@@ -40,7 +43,160 @@ export interface BrandDTO {
   id: string;
   name: string;
   labelFa?: string;
+  slug?: string;
+  logoUrl?: string;
+  websiteUrl?: string;
+  isFeatured?: boolean;
   isActive: boolean;
+}
+
+export interface AuthRoleDTO {
+  id: string;
+  name: string;
+  titleFa: string;
+  description?: string;
+  isSystem: boolean;
+  createdAt?: string;
+}
+
+export interface WarrantyDTO {
+  id: string;
+  providerName: string;
+  durationMonths: number;
+  coverageFa: string;
+  termsUrl?: string | null;
+  isActive: boolean;
+}
+
+export type AttributeDataType = 'text' | 'number' | 'boolean' | 'select';
+
+export interface AttributeDefinitionDTO {
+  id: string;
+  code: string;
+  nameFa: string;
+  nameEn: string;
+  dataType: AttributeDataType;
+  unit?: string | null;
+  isFilterable: boolean;
+  sortOrder: number;
+  categoryIds?: string[];
+}
+
+export interface ProductAttributeValueDTO {
+  id?: string;
+  productId: string;
+  attributeId: string;
+  code: string;
+  nameFa: string;
+  nameEn: string;
+  dataType: AttributeDataType;
+  unit?: string | null;
+  valueText?: string | null;
+  valueNumber?: number | null;
+  valueBoolean?: boolean | null;
+  displayValue: string;
+}
+
+export interface ProductImageDTO {
+  id: string;
+  productId: string;
+  imageUrl: string;
+  altTextFa?: string | null;
+  isCover: boolean;
+  sortOrder: number;
+}
+
+export interface ProductVariantDTO {
+  id: string;
+  productId: string;
+  warrantyId?: string | null;
+  warrantyName?: string;
+  warrantyDurationMonths?: number;
+  warrantyCoverageFa?: string;
+  sku: string;
+  barcode?: string | null;
+  partNumber?: string | null;
+  colorId?: string;
+  colorNameFa: string;
+  colorNameEn?: string | null;
+  colorHex: string;
+  storage?: string | null;
+  ram?: string | null;
+  simType?: string | null;
+  priceToman: number;
+  originalPriceToman?: number | null;
+  costPriceToman?: number | null;
+  availableStock?: number;
+  isPublished: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type PublicProductVariantDTO = Omit<ProductVariantDTO, 'costPriceToman'>;
+
+export interface WarehouseDTO {
+  id: string;
+  code: string;
+  nameFa: string;
+  city: string;
+  addressFa?: string | null;
+  isActive: boolean;
+  createdAt?: string;
+}
+
+export interface WarehouseStockDTO {
+  id: string;
+  warehouseId: string;
+  warehouseCode?: string;
+  warehouseNameFa?: string;
+  variantId: string;
+  productId?: string;
+  sku?: string;
+  shelfLocation?: string | null;
+  quantityOnHand: number;
+  reservedQty: number;
+  availableQty: number;
+  minStockAlert: number;
+  isLowStock: boolean;
+  updatedAt?: string;
+}
+
+export type StockMovementType =
+  | 'opening_balance'
+  | 'purchase_inflow'
+  | 'order_sale'
+  | 'customer_return'
+  | 'transfer_out'
+  | 'transfer_in'
+  | 'inventory_adjustment';
+
+export interface StockMovementDTO {
+  id: string;
+  warehouseId: string;
+  variantId: string;
+  movementType: StockMovementType;
+  quantityChange: number;
+  balanceAfter: number;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  idempotencyKey?: string | null;
+  noteFa?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+}
+
+export interface StockMovementInput {
+  warehouseId: string;
+  variantId: string;
+  movementType: StockMovementType;
+  quantityChange: number;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  idempotencyKey?: string | null;
+  noteFa?: string | null;
+  createdBy?: string | null;
+  shelfLocation?: string | null;
+  minStockAlert?: number;
 }
 
 export interface ProductSpecsDTO {
@@ -62,6 +218,8 @@ export interface ProductDTO {
   slug: string;
   nameFa: string;
   nameEn: string;
+  modelName?: string;
+  descriptionFa?: string;
   brand: string;
   category: ProductCategory;
   price: number;
@@ -71,6 +229,7 @@ export interface ProductDTO {
   stockCount: number;
   expressDelivery: boolean;
   warranty: string;
+  warrantyId?: string | null;
   badgeText?: string;
   rating: number;
   reviewCount: number;
@@ -82,7 +241,10 @@ export interface ProductDTO {
   storageOptions: StorageVariantDTO[];
   specs: ProductSpecsDTO;
   customSpecs?: CustomSpecItemDTO[];
+  variants?: ProductVariantDTO[];
+  attributeValues?: ProductAttributeValueDTO[];
   priceUpdatedAt?: string;
+  isPublished?: boolean;
   isFeaturedDeal?: boolean;
   isPopular?: boolean;
   salesRank: number;
@@ -1000,6 +1162,493 @@ export const DEFAULT_DEV_PRODUCTS: ProductDTO[] = [
   },
 ];
 
+export const VALID_STOCK_MOVEMENT_TYPES: StockMovementType[] = [
+  'opening_balance',
+  'purchase_inflow',
+  'order_sale',
+  'customer_return',
+  'transfer_out',
+  'transfer_in',
+  'inventory_adjustment',
+];
+
+export const DEFAULT_DEV_ROLES: AuthRoleDTO[] = [
+  {
+    id: 'role-customer',
+    name: 'customer',
+    titleFa: 'مشتری فروشگاه',
+    description: 'دسترسی استاندارد خریدار برای سفارش، آدرس‌ها و علاقه‌مندی‌ها',
+    isSystem: true,
+  },
+  {
+    id: 'role-admin',
+    name: 'admin',
+    titleFa: 'مدیر کل فروشگاه',
+    description: 'دسترسی کامل به محصولات، انبارها، سفارش‌ها، کاربران و گزارش‌های ممیزی',
+    isSystem: true,
+  },
+  {
+    id: 'role-warehouse',
+    name: 'warehouse_manager',
+    titleFa: 'مدیر انبار و موجودی',
+    description: 'ثبت ورود/خروج کالا، حواله‌های انبار و مدیریت موجودی تنوع‌ها (SKU)',
+    isSystem: true,
+  },
+  {
+    id: 'role-sales',
+    name: 'sales_operator',
+    titleFa: 'اپراتور فروش و پیگیری سفارش',
+    description: 'بررسی سفارش‌ها، تغییر وضعیت ارسال و پاسخگویی به تیکت‌ها',
+    isSystem: true,
+  },
+  {
+    id: 'role-content',
+    name: 'content_editor',
+    titleFa: 'کارشناس محتوا و کاتالوگ',
+    description: 'ویرایش مشخصات فنی، تصاویر، دسته‌بندی‌ها و برندها',
+    isSystem: true,
+  },
+];
+
+export const DEFAULT_DEV_WARRANTIES: WarrantyDTO[] = [
+  {
+    id: 'w-amir-18',
+    providerName: 'امیر سرویس (۱۸ ماهه جامع + کد همتا)',
+    durationMonths: 18,
+    coverageFa: '۱۸ ماه گارانتی رسمی شرکتی + تضمین اصالت و کد رجیستری سامانه همتا + ۷ روز ضمانت تعویض سخت‌افزاری',
+    termsUrl: null,
+    isActive: true,
+  },
+  {
+    id: 'w-hamahang-18',
+    providerName: 'هماهنگ (۱۸ ماهه رسمی)',
+    durationMonths: 18,
+    coverageFa: '۱۸ ماه گارانتی هماهنگ با پوشش قطعات اصلی و رجیستری قانونی همتا',
+    termsUrl: null,
+    isActive: true,
+  },
+  {
+    id: 'w-daria-18',
+    providerName: 'داریا همراه پایتخت (۱۸ ماهه)',
+    durationMonths: 18,
+    coverageFa: '۱۸ ماه گارانتی معتبر داریا همراه با شبکه خدمات پس از فروش سراسری',
+    termsUrl: null,
+    isActive: true,
+  },
+  {
+    id: 'w-tesco-18',
+    providerName: 'تسکو / حامی (۱۸ ماهه)',
+    durationMonths: 18,
+    coverageFa: '۱۸ ماه گارانتی رسمی قطعات و خدمات تخصصی شیائومی و لوازم جانبی',
+    termsUrl: null,
+    isActive: true,
+  },
+  {
+    id: 'w-amir-12',
+    providerName: 'امیر سرویس (۱۲ ماهه طلایی لوازم جانبی)',
+    durationMonths: 12,
+    coverageFa: '۱۲ ماه ضمانت تعویض و اصالت برای ایرپاد، شارژر GaN و پاوربانک‌های اورجینال',
+    termsUrl: null,
+    isActive: true,
+  },
+  {
+    id: 'w-original',
+    providerName: 'تضمین اصالت اورجینال فروشگاه امیر',
+    durationMonths: 6,
+    coverageFa: 'ضمانت اصالت و سلامت فیزیکی کالا در زمان تحویل برای قاب و محافظ صفحه',
+    termsUrl: null,
+    isActive: true,
+  },
+];
+
+export const DEFAULT_DEV_ATTRIBUTES: AttributeDefinitionDTO[] = [
+  { id: 'attr-screen-size', code: 'screen_size', nameFa: 'اندازه نمایشگر', nameEn: 'Screen Size', dataType: 'number', unit: 'اینچ', isFilterable: true, sortOrder: 1, categoryIds: ['phones', 'flagship-phones', 'tablets'] },
+  { id: 'attr-refresh-rate', code: 'refresh_rate', nameFa: 'نرخ نوسازی نمایشگر', nameEn: 'Refresh Rate', dataType: 'number', unit: 'Hz', isFilterable: true, sortOrder: 2, categoryIds: ['phones', 'flagship-phones', 'tablets'] },
+  { id: 'attr-chipset', code: 'chipset', nameFa: 'تراشه مرکزی', nameEn: 'Chipset', dataType: 'text', unit: null, isFilterable: true, sortOrder: 3, categoryIds: ['phones', 'flagship-phones', 'tablets'] },
+  { id: 'attr-main-cam', code: 'main_camera_mp', nameFa: 'رزولوشن دوربین اصلی', nameEn: 'Main Camera', dataType: 'number', unit: 'مگاپیکسل', isFilterable: true, sortOrder: 4, categoryIds: ['phones', 'flagship-phones'] },
+  { id: 'attr-battery', code: 'battery_mah', nameFa: 'ظرفیت باتری', nameEn: 'Battery Capacity', dataType: 'number', unit: 'میلی‌آمپر', isFilterable: true, sortOrder: 5, categoryIds: ['phones', 'flagship-phones'] },
+  { id: 'attr-fast-charge', code: 'fast_charge_w', nameFa: 'توان شارژ سریع', nameEn: 'Fast Charging', dataType: 'number', unit: 'وات', isFilterable: true, sortOrder: 6, categoryIds: ['phones', 'flagship-phones', 'chargers'] },
+  { id: 'attr-5g', code: 'network_5g', nameFa: 'پشتیبانی از شبکه 5G', nameEn: '5G Support', dataType: 'boolean', unit: null, isFilterable: true, sortOrder: 7, categoryIds: ['phones', 'flagship-phones'] },
+  { id: 'attr-sim', code: 'sim_type', nameFa: 'نوع سیم‌کارت', nameEn: 'SIM Configuration', dataType: 'select', unit: null, isFilterable: true, sortOrder: 8, categoryIds: ['phones', 'flagship-phones'] },
+  { id: 'attr-os', code: 'os', nameFa: 'سیستم‌عامل', nameEn: 'Operating System', dataType: 'select', unit: null, isFilterable: true, sortOrder: 9, categoryIds: ['phones', 'flagship-phones', 'tablets'] },
+  { id: 'attr-ip', code: 'water_resistance', nameFa: 'گواهی مقاومت در برابر آب', nameEn: 'Water Resistance', dataType: 'text', unit: null, isFilterable: false, sortOrder: 10, categoryIds: ['phones', 'flagship-phones', 'smartwatches'] },
+];
+
+export const DEFAULT_DEV_WAREHOUSES: WarehouseDTO[] = [
+  {
+    id: 'wh-thr-central',
+    code: 'WH-THR-CENTRAL',
+    nameFa: 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)',
+    city: 'تهران',
+    addressFa: 'تهران، خیابان جمهوری، مرکز توزیع اکسپرس موبایل امیر',
+    isActive: true,
+  },
+  {
+    id: 'wh-isf-hub',
+    code: 'WH-ISF-HUB',
+    nameFa: 'انبار منطقه‌ای اصفهان',
+    city: 'اصفهان',
+    addressFa: 'اصفهان، خیابان فردوسی، مرکز لجستیک موبایل امیر',
+    isActive: true,
+  },
+];
+
+export const DEFAULT_DEV_VARIANTS: ProductVariantDTO[] = [
+  // iPhone 16 Pro Max
+  {
+    id: 'var-16pm-desert-256',
+    productId: 'iphone-16-pro-max',
+    warrantyId: 'w-amir-18',
+    warrantyName: 'امیر سرویس (۱۸ ماهه جامع + کد همتا)',
+    warrantyDurationMonths: 18,
+    warrantyCoverageFa: '۱۸ ماه گارانتی رسمی شرکتی + تضمین اصالت و کد رجیستری سامانه همتا + ۷ روز ضمانت تعویض سخت‌افزاری',
+    sku: 'APL-16PM-256-DSRT-ZAA',
+    barcode: '0195949722103',
+    partNumber: 'ZA/A',
+    colorId: 'desert',
+    colorNameFa: 'تیتانیوم کویری (Desert Titanium)',
+    colorNameEn: 'Desert Titanium',
+    colorHex: '#C5B4A0',
+    storage: '۲۵۶ گیگابایت',
+    ram: '۸ گیگ',
+    simType: 'دو سیم‌کارت فیزیکی (Dual Nano-SIM)',
+    priceToman: 94_200_000,
+    originalPriceToman: 98_000_000,
+    costPriceToman: 88_500_000,
+    availableStock: 3,
+    isPublished: true,
+  },
+  {
+    id: 'var-16pm-black-256',
+    productId: 'iphone-16-pro-max',
+    warrantyId: 'w-amir-18',
+    warrantyName: 'امیر سرویس (۱۸ ماهه جامع + کد همتا)',
+    warrantyDurationMonths: 18,
+    warrantyCoverageFa: '۱۸ ماه گارانتی رسمی شرکتی + تضمین اصالت و کد رجیستری سامانه همتا + ۷ روز ضمانت تعویض سخت‌افزاری',
+    sku: 'APL-16PM-256-BLK-ZAA',
+    barcode: '0195949722110',
+    partNumber: 'ZA/A',
+    colorId: 'midnight',
+    colorNameFa: 'تیتانیوم مشکی (Black Titanium)',
+    colorNameEn: 'Black Titanium',
+    colorHex: '#2A2B2D',
+    storage: '۲۵۶ گیگابایت',
+    ram: '۸ گیگ',
+    simType: 'دو سیم‌کارت فیزیکی (Dual Nano-SIM)',
+    priceToman: 94_200_000,
+    originalPriceToman: 98_000_000,
+    costPriceToman: 88_500_000,
+    availableStock: 2,
+    isPublished: true,
+  },
+  {
+    id: 'var-16pm-desert-512',
+    productId: 'iphone-16-pro-max',
+    warrantyId: 'w-amir-18',
+    warrantyName: 'امیر سرویس (۱۸ ماهه جامع + کد همتا)',
+    warrantyDurationMonths: 18,
+    warrantyCoverageFa: '۱۸ ماه گارانتی رسمی شرکتی + تضمین اصالت و کد رجیستری سامانه همتا + ۷ روز ضمانت تعویض سخت‌افزاری',
+    sku: 'APL-16PM-512-DSRT-ZAA',
+    barcode: '0195949722127',
+    partNumber: 'ZA/A',
+    colorId: 'desert',
+    colorNameFa: 'تیتانیوم کویری (Desert Titanium)',
+    colorNameEn: 'Desert Titanium',
+    colorHex: '#C5B4A0',
+    storage: '۵۱۲ گیگابایت',
+    ram: '۸ گیگ',
+    simType: 'دو سیم‌کارت فیزیکی (Dual Nano-SIM)',
+    priceToman: 106_500_000,
+    originalPriceToman: 110_300_000,
+    costPriceToman: 100_200_000,
+    availableStock: 2,
+    isPublished: true,
+  },
+  {
+    id: 'var-16pm-natural-1tb',
+    productId: 'iphone-16-pro-max',
+    warrantyId: 'w-amir-18',
+    warrantyName: 'امیر سرویس (۱۸ ماهه جامع + کد همتا)',
+    warrantyDurationMonths: 18,
+    warrantyCoverageFa: '۱۸ ماه گارانتی رسمی شرکتی + تضمین اصالت و کد رجیستری سامانه همتا + ۷ روز ضمانت تعویض سخت‌افزاری',
+    sku: 'APL-16PM-1TB-NAT-ZAA',
+    barcode: '0195949722134',
+    partNumber: 'ZA/A',
+    colorId: 'titanium',
+    colorNameFa: 'تیتانیوم طبیعی (Natural Titanium)',
+    colorNameEn: 'Natural Titanium',
+    colorHex: '#8E8B82',
+    storage: '۱ ترابایت',
+    ram: '۸ گیگ',
+    simType: 'دو سیم‌کارت فیزیکی (Dual Nano-SIM)',
+    priceToman: 119_800_000,
+    originalPriceToman: 123_600_000,
+    costPriceToman: 112_900_000,
+    availableStock: 1,
+    isPublished: true,
+  },
+  // Galaxy S24 Ultra
+  {
+    id: 'var-s24u-gray-256',
+    productId: 'galaxy-s24-ultra',
+    warrantyId: 'w-hamahang-18',
+    warrantyName: 'هماهنگ (۱۸ ماهه رسمی)',
+    warrantyDurationMonths: 18,
+    warrantyCoverageFa: '۱۸ ماه گارانتی هماهنگ با پوشش قطعات اصلی و رجیستری قانونی همتا',
+    sku: 'SAM-S24U-256-GRY-VN',
+    barcode: '8806095306780',
+    partNumber: 'Vietnam · SM-S928B',
+    colorId: 'titanium',
+    colorNameFa: 'خاکستری تیتانیوم',
+    colorNameEn: 'Titanium Gray',
+    colorHex: '#9c9589',
+    storage: '۲۵۶ گیگابایت',
+    ram: '۱۲ گیگ',
+    simType: 'دو سیم‌کارت + eSIM',
+    priceToman: 63_800_000,
+    originalPriceToman: 68_500_000,
+    costPriceToman: 59_100_000,
+    availableStock: 2,
+    isPublished: true,
+  },
+  {
+    id: 'var-s24u-black-512',
+    productId: 'galaxy-s24-ultra',
+    warrantyId: 'w-hamahang-18',
+    warrantyName: 'هماهنگ (۱۸ ماهه رسمی)',
+    warrantyDurationMonths: 18,
+    warrantyCoverageFa: '۱۸ ماه گارانتی هماهنگ با پوشش قطعات اصلی و رجیستری قانونی همتا',
+    sku: 'SAM-S24U-512-BLK-VN',
+    barcode: '8806095306797',
+    partNumber: 'Vietnam · SM-S928B',
+    colorId: 'midnight',
+    colorNameFa: 'مشکی تیتانیوم',
+    colorNameEn: 'Titanium Black',
+    colorHex: '#1e293b',
+    storage: '۵۱۲ گیگابایت',
+    ram: '۱۲ گیگ',
+    simType: 'دو سیم‌کارت + eSIM',
+    priceToman: 71_200_000,
+    originalPriceToman: 75_900_000,
+    costPriceToman: 66_400_000,
+    availableStock: 1,
+    isPublished: true,
+  },
+  // Huawei Pura 70 Ultra
+  {
+    id: 'var-pura70u-white-512',
+    productId: 'huawei-pura-70-ultra',
+    warrantyId: 'w-amir-18',
+    warrantyName: 'امیر سرویس (۱۸ ماهه جامع + کد همتا)',
+    warrantyDurationMonths: 18,
+    warrantyCoverageFa: '۱۸ ماه گارانتی رسمی شرکتی + تضمین اصالت و کد رجیستری سامانه همتا + ۷ روز ضمانت تعویض سخت‌افزاری',
+    sku: 'HUA-P70U-512-WHT-GLB',
+    barcode: '6942103121104',
+    partNumber: 'Global · HBP-LX9',
+    colorId: 'silver',
+    colorNameFa: 'سفید مرواریدی',
+    colorNameEn: 'Pearl White',
+    colorHex: '#f1f5f9',
+    storage: '۵۱۲ گیگابایت',
+    ram: '۱۶ گیگ',
+    simType: 'دو سیم‌کارت 5G',
+    priceToman: 61_500_000,
+    originalPriceToman: 65_000_000,
+    costPriceToman: 56_800_000,
+    availableStock: 4,
+    isPublished: true,
+  },
+  // Xiaomi 14 Ultra
+  {
+    id: 'var-x14u-black-512',
+    productId: 'xiaomi-14-ultra',
+    warrantyId: 'w-tesco-18',
+    warrantyName: 'تسکو / حامی (۱۸ ماهه)',
+    warrantyDurationMonths: 18,
+    warrantyCoverageFa: '۱۸ ماه گارانتی رسمی قطعات و خدمات تخصصی شیائومی و لوازم جانبی',
+    sku: 'XIA-14U-512-BLK-GLB',
+    barcode: '6941812771020',
+    partNumber: 'Global · 24030PN60G',
+    colorId: 'midnight',
+    colorNameFa: 'مشکی چرمی',
+    colorNameEn: 'Black Vegan Leather',
+    colorHex: '#1f2937',
+    storage: '۵۱۲ گیگابایت',
+    ram: '۱۶ گیگ',
+    simType: 'دو سیم‌کارت 5G',
+    priceToman: 57_900_000,
+    originalPriceToman: 61_500_000,
+    costPriceToman: 53_200_000,
+    availableStock: 4,
+    isPublished: true,
+  },
+  // iPhone 15 Pro
+  {
+    id: 'var-15p-natural-256',
+    productId: 'iphone-15-pro',
+    warrantyId: 'w-amir-18',
+    warrantyName: 'امیر سرویس (۱۸ ماهه جامع + کد همتا)',
+    warrantyDurationMonths: 18,
+    warrantyCoverageFa: '۱۸ ماه گارانتی رسمی شرکتی + تضمین اصالت و کد رجیستری سامانه همتا + ۷ روز ضمانت تعویض سخت‌افزاری',
+    sku: 'APL-15P-256-NAT-ZAA',
+    barcode: '0195949019807',
+    partNumber: 'ZA/A',
+    colorId: 'titanium',
+    colorNameFa: 'تیتانیوم طبیعی',
+    colorNameEn: 'Natural Titanium',
+    colorHex: '#9c9589',
+    storage: '۲۵۶ گیگابایت',
+    ram: '۸ گیگ',
+    simType: 'دو سیم‌کارت فیزیکی (Dual Nano-SIM)',
+    priceToman: 78_500_000,
+    originalPriceToman: 82_000_000,
+    costPriceToman: 73_900_000,
+    availableStock: 6,
+    isPublished: true,
+  },
+];
+
+export const DEFAULT_DEV_WAREHOUSE_STOCK: WarehouseStockDTO[] = [
+  { id: 'ws-1', warehouseId: 'wh-thr-central', warehouseCode: 'WH-THR-CENTRAL', warehouseNameFa: 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', variantId: 'var-16pm-desert-256', productId: 'iphone-16-pro-max', sku: 'APL-16PM-256-DSRT-ZAA', shelfLocation: 'A-01-01', quantityOnHand: 3, reservedQty: 0, availableQty: 3, minStockAlert: 2, isLowStock: false },
+  { id: 'ws-2', warehouseId: 'wh-thr-central', warehouseCode: 'WH-THR-CENTRAL', warehouseNameFa: 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', variantId: 'var-16pm-black-256', productId: 'iphone-16-pro-max', sku: 'APL-16PM-256-BLK-ZAA', shelfLocation: 'A-01-02', quantityOnHand: 2, reservedQty: 0, availableQty: 2, minStockAlert: 2, isLowStock: true },
+  { id: 'ws-3', warehouseId: 'wh-thr-central', warehouseCode: 'WH-THR-CENTRAL', warehouseNameFa: 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', variantId: 'var-16pm-desert-512', productId: 'iphone-16-pro-max', sku: 'APL-16PM-512-DSRT-ZAA', shelfLocation: 'A-01-03', quantityOnHand: 2, reservedQty: 0, availableQty: 2, minStockAlert: 1, isLowStock: false },
+  { id: 'ws-4', warehouseId: 'wh-isf-hub', warehouseCode: 'WH-ISF-HUB', warehouseNameFa: 'انبار منطقه‌ای اصفهان', variantId: 'var-16pm-natural-1tb', productId: 'iphone-16-pro-max', sku: 'APL-16PM-1TB-NAT-ZAA', shelfLocation: 'B-02-01', quantityOnHand: 1, reservedQty: 0, availableQty: 1, minStockAlert: 1, isLowStock: true },
+  { id: 'ws-5', warehouseId: 'wh-thr-central', warehouseCode: 'WH-THR-CENTRAL', warehouseNameFa: 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', variantId: 'var-s24u-gray-256', productId: 'galaxy-s24-ultra', sku: 'SAM-S24U-256-GRY-VN', shelfLocation: 'A-02-01', quantityOnHand: 2, reservedQty: 0, availableQty: 2, minStockAlert: 2, isLowStock: true },
+  { id: 'ws-6', warehouseId: 'wh-thr-central', warehouseCode: 'WH-THR-CENTRAL', warehouseNameFa: 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', variantId: 'var-s24u-black-512', productId: 'galaxy-s24-ultra', sku: 'SAM-S24U-512-BLK-VN', shelfLocation: 'A-02-02', quantityOnHand: 1, reservedQty: 0, availableQty: 1, minStockAlert: 1, isLowStock: true },
+  { id: 'ws-7', warehouseId: 'wh-thr-central', warehouseCode: 'WH-THR-CENTRAL', warehouseNameFa: 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', variantId: 'var-pura70u-white-512', productId: 'huawei-pura-70-ultra', sku: 'HUA-P70U-512-WHT-GLB', shelfLocation: 'A-03-01', quantityOnHand: 4, reservedQty: 0, availableQty: 4, minStockAlert: 2, isLowStock: false },
+  { id: 'ws-8', warehouseId: 'wh-thr-central', warehouseCode: 'WH-THR-CENTRAL', warehouseNameFa: 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', variantId: 'var-x14u-black-512', productId: 'xiaomi-14-ultra', sku: 'XIA-14U-512-BLK-GLB', shelfLocation: 'A-03-02', quantityOnHand: 4, reservedQty: 0, availableQty: 4, minStockAlert: 2, isLowStock: false },
+  { id: 'ws-9', warehouseId: 'wh-thr-central', warehouseCode: 'WH-THR-CENTRAL', warehouseNameFa: 'انبار مرکزی تهران (پاساژ علاءالدین / چارسو)', variantId: 'var-15p-natural-256', productId: 'iphone-15-pro', sku: 'APL-15P-256-NAT-ZAA', shelfLocation: 'A-01-05', quantityOnHand: 6, reservedQty: 0, availableQty: 6, minStockAlert: 2, isLowStock: false },
+];
+
+export const DEFAULT_DEV_PRODUCT_ATTRIBUTES: Record<
+  string,
+  Array<{ code: string; valueText?: string | null; valueNumber?: number | null; valueBoolean?: boolean | null }>
+> = {
+  'iphone-16-pro-max': [
+    { code: 'screen_size', valueNumber: 6.9 },
+    { code: 'refresh_rate', valueNumber: 120 },
+    { code: 'chipset', valueText: 'Apple A18 Pro (3nm)' },
+    { code: 'main_camera_mp', valueNumber: 48 },
+    { code: 'battery_mah', valueNumber: 4685 },
+    { code: 'fast_charge_w', valueNumber: 45 },
+    { code: 'network_5g', valueBoolean: true },
+    { code: 'sim_type', valueText: 'دو سیم‌کارت فیزیکی (ZA/A)' },
+    { code: 'os', valueText: 'iOS 18' },
+    { code: 'water_resistance', valueText: 'IP68 (عمق ۶ متر تا ۳۰ دقیقه)' },
+  ],
+  'galaxy-s24-ultra': [
+    { code: 'screen_size', valueNumber: 6.8 },
+    { code: 'refresh_rate', valueNumber: 120 },
+    { code: 'chipset', valueText: 'Snapdragon 8 Gen 3 for Galaxy' },
+    { code: 'main_camera_mp', valueNumber: 200 },
+    { code: 'battery_mah', valueNumber: 5000 },
+    { code: 'fast_charge_w', valueNumber: 45 },
+    { code: 'network_5g', valueBoolean: true },
+    { code: 'sim_type', valueText: 'دو سیم‌کارت + eSIM' },
+    { code: 'os', valueText: 'Android 14 · One UI 6.1' },
+    { code: 'water_resistance', valueText: 'IP68' },
+  ],
+  'huawei-pura-70-ultra': [
+    { code: 'screen_size', valueNumber: 6.8 },
+    { code: 'refresh_rate', valueNumber: 120 },
+    { code: 'chipset', valueText: 'Kirin 9010' },
+    { code: 'main_camera_mp', valueNumber: 50 },
+    { code: 'battery_mah', valueNumber: 5200 },
+    { code: 'fast_charge_w', valueNumber: 100 },
+    { code: 'network_5g', valueBoolean: true },
+    { code: 'sim_type', valueText: 'دو سیم‌کارت 5G' },
+    { code: 'os', valueText: 'EMUI 14.2 گلوبال' },
+    { code: 'water_resistance', valueText: 'IP68' },
+  ],
+  'xiaomi-14-ultra': [
+    { code: 'screen_size', valueNumber: 6.73 },
+    { code: 'refresh_rate', valueNumber: 120 },
+    { code: 'chipset', valueText: 'Snapdragon 8 Gen 3' },
+    { code: 'main_camera_mp', valueNumber: 50 },
+    { code: 'battery_mah', valueNumber: 5000 },
+    { code: 'fast_charge_w', valueNumber: 90 },
+    { code: 'network_5g', valueBoolean: true },
+    { code: 'sim_type', valueText: 'دو سیم‌کارت 5G' },
+    { code: 'os', valueText: 'HyperOS' },
+    { code: 'water_resistance', valueText: 'IP68' },
+  ],
+  'iphone-15-pro': [
+    { code: 'screen_size', valueNumber: 6.1 },
+    { code: 'refresh_rate', valueNumber: 120 },
+    { code: 'chipset', valueText: 'Apple A17 Pro (3nm)' },
+    { code: 'main_camera_mp', valueNumber: 48 },
+    { code: 'battery_mah', valueNumber: 3274 },
+    { code: 'fast_charge_w', valueNumber: 27 },
+    { code: 'network_5g', valueBoolean: true },
+    { code: 'sim_type', valueText: 'دو سیم‌کارت فیزیکی (ZA/A)' },
+    { code: 'os', valueText: 'iOS 18' },
+    { code: 'water_resistance', valueText: 'IP68' },
+  ],
+};
+
+export function stripPrivateVariantFields(v: ProductVariantDTO): PublicProductVariantDTO {
+  const { costPriceToman: _omitted, ...publicVariant } = v;
+  return publicVariant;
+}
+
+export function formatAttributeDisplayValue(
+  attr: Pick<AttributeDefinitionDTO, 'dataType' | 'unit'>,
+  val: { valueText?: string | null; valueNumber?: number | null; valueBoolean?: boolean | null }
+): string {
+  if (attr.dataType === 'boolean' && typeof val.valueBoolean === 'boolean') {
+    return val.valueBoolean ? 'دارد' : 'ندارد';
+  }
+  if (attr.dataType === 'number' && typeof val.valueNumber === 'number' && Number.isFinite(val.valueNumber)) {
+    const formatted = new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 2 }).format(val.valueNumber);
+    return attr.unit ? `${formatted} ${attr.unit}` : formatted;
+  }
+  const text = String(val.valueText ?? '').trim();
+  if (text) {
+    return attr.unit && !text.includes(attr.unit) ? `${text} ${attr.unit}` : text;
+  }
+  if (typeof val.valueNumber === 'number' && Number.isFinite(val.valueNumber)) {
+    const formatted = new Intl.NumberFormat('fa-IR', { maximumFractionDigits: 2 }).format(val.valueNumber);
+    return attr.unit ? `${formatted} ${attr.unit}` : formatted;
+  }
+  if (typeof val.valueBoolean === 'boolean') {
+    return val.valueBoolean ? 'دارد' : 'ندارد';
+  }
+  return '—';
+}
+
+export function applyStockMovementDelta(
+  currentOnHand: number,
+  reservedQty: number,
+  quantityChange: number
+): { ok: true; balanceAfter: number } | { ok: false; statusCode: number; error: string } {
+  const delta = Math.trunc(Number(quantityChange));
+  if (!Number.isFinite(delta) || delta === 0) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: 'مقدار تغییر موجودی (quantityChange) باید عدد صحیح غیرصفر باشد.',
+    };
+  }
+  const safeCurrent = Math.max(0, Math.trunc(Number(currentOnHand) || 0));
+  const safeReserved = Math.max(0, Math.trunc(Number(reservedQty) || 0));
+  const balanceAfter = safeCurrent + delta;
+  if (balanceAfter < 0) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: `موجودی انبار کافی نیست (موجودی فعلی: ${safeCurrent} عدد، تغییر درخواستی: ${delta}).`,
+    };
+  }
+  if (balanceAfter < safeReserved) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: `موجودی پس از کسر (${balanceAfter}) نمی‌تواند کمتر از تعداد رزروشده (${safeReserved}) باشد.`,
+    };
+  }
+  return { ok: true, balanceAfter };
+}
+
 export function toEnglishDigitsServer(input: unknown): string {
   return String(input ?? '')
     .replace(/[۰-۹]/g, (ch) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)))
@@ -1310,6 +1959,8 @@ export interface OrderItemInput {
   key?: unknown;
   productId?: unknown;
   slug?: unknown;
+  variantId?: unknown;
+  sku?: unknown;
   colorName?: unknown;
   colorHex?: unknown;
   storageLabel?: unknown;
@@ -1320,6 +1971,10 @@ export interface OrderItemInput {
 export interface ComputedOrderItem {
   key: string;
   productId: string;
+  variantId?: string;
+  sku?: string;
+  partNumber?: string;
+  simType?: string;
   slug: string;
   nameFa: string;
   brand: string;
@@ -1350,7 +2005,7 @@ export function calculateOrderTotalsServer(params: {
       couponDiscount: number;
       shippingCost: number;
       totalAmount: number;
-      stockDecrements: Array<{ productId: string; qty: number }>;
+      stockDecrements: Array<{ productId: string; variantId?: string; qty: number }>;
     }
   | { ok: false; statusCode: number; error: string } {
   if (!Array.isArray(params.items) || params.items.length === 0) {
@@ -1365,6 +2020,7 @@ export function calculateOrderTotalsServer(params: {
   }
 
   const requestedQtyPerProduct = new Map<string, number>();
+  const requestedQtyPerVariant = new Map<string, { productId: string; variantId: string; qty: number }>();
   const computedItems: ComputedOrderItem[] = [];
 
   for (const rawItem of params.items) {
@@ -1384,10 +2040,39 @@ export function calculateOrderTotalsServer(params: {
       return { ok: false, statusCode: 400, error: 'تعداد سفارش هر کالا باید بین ۱ تا ۵۰ عدد باشد.' };
     }
 
+    const rawVariantId = String(rawItem?.variantId || '').trim();
+    const rawSku = String(rawItem?.sku || '').trim().toUpperCase();
+    const matchedProductVariant = (product.variants || []).find(
+      (v) =>
+        v.isPublished !== false &&
+        ((rawVariantId && v.id === rawVariantId) || (rawSku && v.sku.toUpperCase() === rawSku))
+    );
+
+    if (matchedProductVariant) {
+      const prevVar = requestedQtyPerVariant.get(matchedProductVariant.id);
+      const nextVarQty = (prevVar?.qty || 0) + qty;
+      requestedQtyPerVariant.set(matchedProductVariant.id, {
+        productId: product.id,
+        variantId: matchedProductVariant.id,
+        qty: nextVarQty,
+      });
+
+      if (
+        typeof matchedProductVariant.availableStock === 'number' &&
+        matchedProductVariant.availableStock < nextVarQty
+      ) {
+        return {
+          ok: false,
+          statusCode: 409,
+          error: `موجودی تنوع «${matchedProductVariant.sku}» کافی نیست (موجودی فعلی: ${matchedProductVariant.availableStock} عدد).`,
+        };
+      }
+    }
+
     const totalForProduct = (requestedQtyPerProduct.get(product.id) || 0) + qty;
     requestedQtyPerProduct.set(product.id, totalForProduct);
 
-    if (!product.inStock || product.stockCount < totalForProduct) {
+    if (!matchedProductVariant && (!product.inStock || product.stockCount < totalForProduct)) {
       return {
         ok: false,
         statusCode: 409,
@@ -1396,14 +2081,19 @@ export function calculateOrderTotalsServer(params: {
     }
 
     const storageLabel =
+      matchedProductVariant?.storage ||
       String(rawItem?.storageLabel || '').trim() ||
       product.storageOptions[0]?.label ||
       product.specs.storageDefault;
-    const variant = product.storageOptions.find((v) => v.label === storageLabel);
-    const delta = variant ? variant.priceDelta : 0;
+    const storageOpt = product.storageOptions.find((v) => v.label === storageLabel);
+    const delta = storageOpt ? storageOpt.priceDelta : 0;
 
-    let unitPrice = Math.max(0, product.price + delta);
-    let originalUnitPrice = Math.max(unitPrice, (product.originalPrice ?? product.price) + delta);
+    let unitPrice = matchedProductVariant
+      ? Math.max(0, matchedProductVariant.priceToman)
+      : Math.max(0, product.price + delta);
+    let originalUnitPrice = matchedProductVariant
+      ? Math.max(unitPrice, matchedProductVariant.originalPriceToman ?? matchedProductVariant.priceToman)
+      : Math.max(unitPrice, (product.originalPrice ?? product.price) + delta);
 
     const requestedWarranty = String(rawItem?.warranty || '').trim();
     const careRequested = requestedWarranty.includes('Care+');
@@ -1415,21 +2105,37 @@ export function calculateOrderTotalsServer(params: {
     originalUnitPrice += carePrice;
 
     const colorName =
-      String(rawItem?.colorName || '').trim() || product.colors[0]?.name || product.colorLabel;
+      matchedProductVariant?.colorNameFa ||
+      String(rawItem?.colorName || '').trim() ||
+      product.colors[0]?.name ||
+      product.colorLabel;
     const matchedColor = product.colors.find((c) => c.name === colorName) || product.colors[0];
-    const colorHex = String(rawItem?.colorHex || '').trim() || matchedColor?.hex || '#1e293b';
+    const colorHex =
+      matchedProductVariant?.colorHex ||
+      String(rawItem?.colorHex || '').trim() ||
+      matchedColor?.hex ||
+      '#1e293b';
+    const baseWarranty = matchedProductVariant?.warrantyName || product.warranty;
     const warranty =
       careRequested && carePrice > 0
-        ? `${product.warranty} + بیمه حوادث و شکستگی Amir Care+`
-        : product.warranty;
+        ? `${baseWarranty} + بیمه حوادث و شکستگی Amir Care+`
+        : baseWarranty;
 
     const key =
       String(rawItem?.key || '').trim() ||
-      `${product.id}__${colorName}__${storageLabel}__${warranty}`;
+      `${product.id}__${matchedProductVariant?.id || colorName}__${storageLabel}__${warranty}`;
 
     computedItems.push({
       key,
       productId: product.id,
+      ...(matchedProductVariant
+        ? {
+            variantId: matchedProductVariant.id,
+            sku: matchedProductVariant.sku,
+            partNumber: matchedProductVariant.partNumber || undefined,
+            simType: matchedProductVariant.simType || undefined,
+          }
+        : {}),
       slug: product.slug,
       nameFa: product.nameFa,
       brand: product.brand,
@@ -1441,7 +2147,10 @@ export function calculateOrderTotalsServer(params: {
       unitPrice,
       originalUnitPrice,
       qty,
-      stockCount: product.stockCount,
+      stockCount:
+        typeof matchedProductVariant?.availableStock === 'number'
+          ? matchedProductVariant.availableStock
+          : product.stockCount,
     });
   }
 
@@ -1471,10 +2180,25 @@ export function calculateOrderTotalsServer(params: {
   const shippingCost = afterDiscounts >= threshold ? 0 : STANDARD_SHIPPING_FEE_DEFAULT;
   const totalAmount = afterDiscounts + shippingCost;
 
-  const stockDecrements = [...requestedQtyPerProduct.entries()].map(([productId, qty]) => ({
-    productId,
-    qty,
-  }));
+  const stockDecrements: Array<{ productId: string; variantId?: string; qty: number }> = [];
+  const variantCoveredQtyByProduct = new Map<string, number>();
+  for (const vEntry of requestedQtyPerVariant.values()) {
+    stockDecrements.push({
+      productId: vEntry.productId,
+      variantId: vEntry.variantId,
+      qty: vEntry.qty,
+    });
+    variantCoveredQtyByProduct.set(
+      vEntry.productId,
+      (variantCoveredQtyByProduct.get(vEntry.productId) || 0) + vEntry.qty
+    );
+  }
+  for (const [productId, totalQty] of requestedQtyPerProduct.entries()) {
+    const remaining = totalQty - (variantCoveredQtyByProduct.get(productId) || 0);
+    if (remaining > 0) {
+      stockDecrements.push({ productId, qty: remaining });
+    }
+  }
 
   return {
     ok: true,
