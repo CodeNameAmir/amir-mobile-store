@@ -49,7 +49,6 @@ export type AppRoute =
   | { page: 'contact' }
   | { page: 'terms' }
   | { page: 'account' }
-  | { page: 'admin' }
   | { page: 'status' }
   | { page: 'not-found'; path: string };
 
@@ -123,7 +122,6 @@ function parseAppUrl(urlInput: string): {
   if (path === '/contact') return { route: { page: 'contact' } };
   if (path === '/terms') return { route: { page: 'terms' } };
   if (path === '/account') return { route: { page: 'account' } };
-  if (path === '/admin') return { route: { page: 'admin' } };
   if (path === '/status') return { route: { page: 'status' } };
 
   return { route: { page: 'not-found', path } };
@@ -172,6 +170,7 @@ interface StoreContextValue {
   refreshCatalogMetadata: () => Promise<void>;
   recentSearches: string[];
   addRecentSearch: (q: string) => void;
+  removeRecentSearch: (q: string) => void;
   clearRecentSearches: () => void;
   couponRules: CouponRule[];
   storeSettings: StoreSettings;
@@ -297,6 +296,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (clean.length < 2) return;
     setRecentSearches((prev) => {
       const next = [clean, ...prev.filter((item) => item.toLowerCase() !== clean.toLowerCase())].slice(0, 6);
+      saveStoredRecentSearches(next);
+      return next;
+    });
+  }, []);
+
+  const removeRecentSearch = useCallback((q: string) => {
+    const clean = q.trim().toLowerCase();
+    setRecentSearches((prev) => {
+      const next = prev.filter((item) => item.toLowerCase() !== clean);
       saveStoredRecentSearches(next);
       return next;
     });
@@ -518,8 +526,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         title = `${prod.nameFa} | فروشگاه موبایل امیر`;
         description = `خرید و بررسی مشخصات ${prod.nameFa} (${prod.brand}) با گارانتی معتبر و ارسال سریع.`;
       }
-    } else if (route.page === 'admin') {
-      title = 'پنل مدیریت فروشگاه | فروشگاه موبایل امیر';
     } else if (route.page === 'account') {
       title = 'حساب کاربری | فروشگاه موبایل امیر';
     } else if (route.page === 'cart' || route.page === 'checkout') {
@@ -1046,6 +1052,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         refreshCatalogMetadata,
         recentSearches,
         addRecentSearch,
+        removeRecentSearch,
         clearRecentSearches,
         couponRules,
         storeSettings,

@@ -1,8 +1,23 @@
 import {execSync} from 'child_process';
+import fs from 'node:fs';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
-import {defineConfig} from 'vite';
+import {defineConfig, type Plugin} from 'vite';
+
+function copyIndexTo404Plugin(): Plugin {
+  return {
+    name: 'copy-index-to-404',
+    closeBundle() {
+      const distDir = path.resolve(__dirname, 'dist');
+      const indexFile = path.join(distDir, 'index.html');
+      const fallbackFile = path.join(distDir, '404.html');
+      if (fs.existsSync(indexFile)) {
+        fs.copyFileSync(indexFile, fallbackFile);
+      }
+    },
+  };
+}
 
 function readGit(command: string): string | null {
   try {
@@ -64,7 +79,7 @@ export default defineConfig(() => {
   return {
     // Root-absolute base ensures nested SPA routes resolve scripts and assets cleanly (override via VITE_BASE_PATH for subpath hosting)
     base: process.env.VITE_BASE_PATH || '/',
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), copyIndexTo404Plugin()],
     define: {
       __APP_BUILD_INFO__: JSON.stringify(buildInfo),
     },
@@ -74,6 +89,7 @@ export default defineConfig(() => {
       },
     },
     server: {
+      allowedHosts: true as const,
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
     },

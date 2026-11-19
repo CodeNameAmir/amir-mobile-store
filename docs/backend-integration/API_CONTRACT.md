@@ -37,7 +37,8 @@ Admin Panel Origin: `https://admin-panel-ams.codenameamir.ir`
 | `POST` | `/api/auth/verify-2fa` | Public | Completes 2FA login with `{ twoFactorToken, code }` |
 | `POST` | `/api/auth/resend-2fa` | Public | Resends 2FA OTP challenge |
 | `POST` | `/api/auth/logout` | Public | Clears `amir_session` cookie (`{ allDevices?: boolean }`) |
-| `PATCH` | `/api/auth/profile` | Auth | Updates profile fields (never modifies `role`) |
+| `PATCH` | `/api/auth/profile` | Auth | Updates profile fields including `avatarUrl` (never modifies `role`) |
+| `DELETE` | `/api/auth/account` | Auth | Permanently deletes user account (`{ currentPassword }` required if `hasPassword`) and clears session |
 | `POST` | `/api/auth/change-password` | Auth | Updates password |
 | `POST` | `/api/auth/two-factor` | Auth | Enables/disables 2FA |
 | `POST/PUT/DELETE` | `/api/auth/addresses/*` | Auth | Address book management |
@@ -51,6 +52,7 @@ Admin Panel Origin: `https://admin-panel-ams.codenameamir.ir`
   "fullName": "نام کاربر",
   "phone": "09123456789",
   "role": "admin",
+  "avatarUrl": "data:image/jpeg;base64,... or https://...",
   "emailVerified": true,
   "twoFactorEnabled": false,
   "hasPassword": true,
@@ -67,10 +69,11 @@ Admin Panel Origin: `https://admin-panel-ams.codenameamir.ir`
 
 | Method | Path | Access | Description |
 | --- | --- | --- | --- |
-| `GET` | `/api/categories` | Public | Category metadata list |
+| `GET` | `/api/categories` | Public | Active nested category metadata (`id`, `slug`, `label`, `subtitle`, `parentId`, `isActive`, `image`, `seoTitle`, `seoDescription`, `sortOrder`) |
+| `GET` | `/api/brands` | Public | Active brand directory (`id`, `name`, `labelFa`, `isActive`) |
 | `GET` | `/api/store/config` | Public | Active coupon rules (`coupons`) and `store_settings` (`settings`) |
 | `GET` | `/api/products` | Public | Catalog with query filters: `category`, `q`, `brand`, `inStock`, `discounted`, `express`, `minPrice`, `maxPrice`, `sort` |
-| `GET` | `/api/products/:slug` | Public | Product detail + approved reviews `{ product, reviews }` |
+| `GET` | `/api/products/:slug` | Public | Product detail (including `images[]`, `customSpecs[]`, `priceUpdatedAt`) + approved reviews `{ product, reviews }` |
 | `POST` | `/api/coupons/validate` | Public | Body `{ code, subtotal }` -> `{ valid, code, discountAmount, message }` |
 | `GET` | `/api/products/:id/reviews` | Public | Approved reviews `{ reviews }` |
 | `POST` | `/api/products/:id/reviews` | Public (verified badge if logged in) | Body `{ author, rating, comment }` -> `201 { review }` |
@@ -86,55 +89,52 @@ Admin Panel Origin: `https://admin-panel-ams.codenameamir.ir`
 
 ## 4. Admin Panel Protected Endpoints (`/api/admin/*`)
 
-All endpoints below require `amir_session` cookie of an authenticated user whose `public.app_users.role = 'admin'`.
+All endpoints below are consumed by the dedicated Admin Panel (`https://admin-panel-ams.codenameamir.ir/#/`) and require `amir_session` cookie of an authenticated user whose `public.app_users.role = 'admin'`.
 - Unauthenticated -> `401 { error: "..." }`
 - Non-admin (`role = 'customer'`) -> `403 { error: "..." }`
 
 ### 4.1 Admin Identity & Dashboard Stats
-- **`GET /api/admin/me`** -> `{ authenticated: true, user: PublicUserDTO }` (`user.role === 'admin'`)
-- **`GET /api/admin/stats`** ->
-```json
-{
-  "stats": {
-    "totalRevenue": 150000000,
-    "totalOrders": 12,
-    "pendingOrders": 3,
-    "preparingOrders": 3,
-    "shippedOrders": 4,
-    "deliveredOrders": 4,
-    "cancelledOrders": 1,
-    "totalProducts": 14,
-    "outOfStockProducts": 1,
-    "lowStockProducts": 4,
-    "totalCustomers": 25,
-    "adminUsersCount": 1,
-    "recentOrders": []
-  }
-}
-```
-*(Note: `totalRevenue` sums orders where `status !== 'cancelled'`.)*
+- **`GET /api/admin/me`** -> `{ user: PublicUserDTO }` (`user.role === 'admin'`)
+- **`GET /api/admin/stats`** -> `{ stats: { totalRevenue, totalOrders, pendingOrders, preparingOrders, shippedOrders, deliveredOrders, cancelledOrders, totalProducts, outOfStockProducts, lowStockProducts, totalCustomers, adminUsersCount, recentOrders } }`
 
-### 4.2 Product & Inventory Management
-- **`GET /api/admin/products`** — Query filters: `category`, `q`, `brand`, `inStock`, `discounted`, `express`, `sort`. Returns `{ products, total }`.
+### 4.2 Unlimited Nested Category Management
+- **`GET /api/admin/categories`** -> `{ categories: CategoryDTO[] }` (includes inactive categories, sorted by `sortOrder`)
+- **`POST /api/admin/categories`** -> Creates a category (`201 { category }`).
+  - Body: `{ label, slug?, subtitle?, parentId?: string | null, isActive?: boolean, image?: string, seoTitle?: string, seoDescription?: string, sortOrder?: number }`
+- **`PUT /api/admin/categories/:id`** / **`PATCH /api/admin/categories/:id`** -> Updates category fields (`200 { category }`).
+- **`DELETE /api/admin/categories/:id`** -> Deletes category and clears `parentId` on child categories (`200 { ok: true, id }`).
+
+### 4.3 Dynamic Brand Management (Huawei, Nothing, custom brands)
+- **`GET /api/admin/brands`** -> `{ brands: BrandDTO[] }`
+- **`POST /api/admin/brands`** -> Creates or updates a brand (`201 { brand }`).
+  - Body: `{ name, labelFa?, id?, isActive?: boolean }`
+- **`DELETE /api/admin/brands/:id`** -> Deletes a brand (`200 { ok: true, id }`).
+
+### 4.4 Product & Inventory Management
+- **`GET /api/admin/products`** — Query filters: `category`, `q`, `brand`, `inStock`, `sort`. Returns `{ products, total }`.
 - **`GET /api/admin/products/:id`** — Matches `id` or `slug`. Returns `{ product }`.
 - **`POST /api/admin/products`** — Creates product (`201 { product }`). Logs audit `product.create`.
-  - Required fields: `nameFa` (min 2 chars), `brand`, `category` (`phones|tablets|smartwatches|audio|chargers|cases|gaming`), `price` (`>= 0`).
-  - Optional: `id`, `slug`, `nameEn`, `originalPrice`, `discountPercent`, `inStock`, `stockCount`, `expressDelivery`, `warranty`, `badgeText`, `rating`, `reviewCount`, `recommendPercent`, `image`, `colorLabel`, `colors`, `storageOptions`, `specs`, `isFeaturedDeal`, `isPopular`, `salesRank`, `releaseOrder`.
-- **`PATCH /api/admin/products/:id`** and **`PUT /api/admin/products/:id`** — Updates product fields (`{ product }`). Logs audit `product.update`.
-- **`PATCH /api/admin/products/:id/inventory`** — Body `{ stockCount?: number, inStock?: boolean }`. Automatically coerces `inStock: false` when `stockCount === 0` (and vice-versa if `inStock` wasn't explicitly forced). Logs audit `product.inventory_update`. Returns `{ product }`.
+  - Required fields: `nameFa` (min 2 chars), `brand` (any string — e.g. `Apple`, `Samsung`, `Huawei`, custom), `category` (any active category slug), `price` (`> 0`).
+  - Optional: `id`, `slug`, `nameEn`, `originalPrice`, `discountPercent`, `inStock`, `stockCount`, `expressDelivery`, `warranty`, `badgeText`, `rating`, `reviewCount`, `recommendPercent`, `image`, **`images: string[]`** (multi-image gallery), `colorLabel`, `colors`, `storageOptions`, `specs`, **`customSpecs: Array<{ label: string; value: string }>`** (unlimited custom technical specs), **`priceUpdatedAt`**, `isFeaturedDeal`, `isPopular`, `salesRank`, `releaseOrder`.
+- **`PATCH /api/admin/products/:id`** and **`PUT /api/admin/products/:id`** — Updates product fields (`{ product }`). Automatically refreshes `priceUpdatedAt` whenever `price` changes. Logs audit `product.update`.
+- **`PATCH /api/admin/products/:id/inventory`** — Body `{ stockCount?: number, inStock?: boolean }`. Logs audit `product.inventory_update`. Returns `{ product }`.
 - **`DELETE /api/admin/products/:id`** — Deletes product (`{ ok: true, id }`). Logs audit `product.delete`.
 
-### 4.3 Orders Management
-- **`GET /api/admin/orders`** — Optional `?status=paid|preparing|shipped|delivered|cancelled`. Returns `{ orders, total }`.
+### 4.5 Orders Management
+- **`GET /api/admin/orders`** — Optional `?status=paid|preparing|shipped|delivered|cancelled&search=...`. Returns `{ orders, total, page, limit }`.
 - **`GET /api/admin/orders/:code`** — Returns `{ order }`.
-- **`PATCH /api/admin/orders/:code/status`** — Body `{ status?: 'paid'|'preparing'|'shipped'|'delivered'|'cancelled', adminNote?: string }`. Logs audit `order.status_update`. Returns `{ order }`.
+- **`PATCH /api/admin/orders/:code/status`** — Body `{ status: 'paid'|'preparing'|'shipped'|'delivered'|'cancelled', adminNote?: string }`. Updates both order tracking and invoice views. Logs audit `order.status_update`. Returns `{ order }`.
 
-### 4.4 Customers Management
-- **`GET /api/admin/customers`** — Returns `{ customers: AdminCustomerDTO[], total }`. Never exposes `passwordHash` or `activeSessionIds`.
-- **`GET /api/admin/customers/:id`** — Returns `{ customer: AdminCustomerDTO, orders: OrderRecord[] }`.
+### 4.6 Customers & Audit Logs
+- **`GET /api/admin/customers`** / **`GET /api/admin/customers/:id`**
+- **`GET /api/admin/audit-logs`** — Optional `?limit=50&offset=0` (max `200`).
 
-### 4.5 Audit Logs
-- **`GET /api/admin/audit-logs`** — Optional `?limit=50` (max `200`). Returns `{ logs: AdminAuditLogDTO[], total }`.
-  - Backend stores/reads `public.admin_audit_logs` and supports standard columns:
-    `id`, `admin_user_id` (or `actor_id` / `user_id`), `admin_email` (or `actor_email`), `action`, `entity_type` (or `target_type` / `resource_type`), `entity_id` (or `target_id` / `resource_id`), `details` (or `metadata` / `payload`), `created_at`.
-  - All `details` objects are recursively sanitized to strip `password`, `otp`, `token`, `secret`, `hash`, `session`, `cookie`, and `service_role`.
+---
+
+## 5. Database Migration (Supabase PostgreSQL)
+Run `docs/backend-integration/SUPABASE_MIGRATION_V2.sql` in your Supabase SQL Editor to add:
+- `public.app_users.avatar_url`
+- `public.categories` (nested categories + image + SEO + sort_order)
+- `public.brands` (custom brands including Huawei)
+- `public.products.images`, `public.products.custom_specs`, `public.products.price_updated_at`
+- `public.orders.admin_note`

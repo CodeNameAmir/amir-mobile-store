@@ -8,6 +8,7 @@ import {
   SlidersHorizontal,
   X,
 } from 'lucide-react';
+import { DualPriceRangeSlider } from '../components/DualPriceRangeSlider';
 import { ProductCard } from '../components/ProductCard';
 import { useStore } from '../context/StoreContext';
 import type { BrandId, CategoryId, CategoryItem, SortOption } from '../types/store';
@@ -44,6 +45,7 @@ export const CatalogPage: React.FC = () => {
     resetFilters,
     recentSearches,
     addRecentSearch,
+    removeRecentSearch,
     clearRecentSearches,
     buildHref,
     handleLinkClick,
@@ -57,6 +59,16 @@ export const CatalogPage: React.FC = () => {
   useEffect(() => {
     setLocalSearch(filters.searchQuery || '');
   }, [filters.searchQuery]);
+
+  // Record typed catalog queries into recent search history after user pauses typing
+  useEffect(() => {
+    const trimmed = localSearch.trim();
+    if (trimmed.length < 2) return;
+    const timer = window.setTimeout(() => {
+      addRecentSearch(trimmed);
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [addRecentSearch, localSearch]);
 
   // Reset pagination whenever filters change
   useEffect(() => {
@@ -333,56 +345,20 @@ export const CatalogPage: React.FC = () => {
           )}
         </div>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-[11px]">
-            <span className="text-[#434655]">حداقل قیمت:</span>
-            <span className="font-bold text-[#0b1c30] tabular-nums-fa">
-              {formatToman(sliderMinPrice)} تومان
-            </span>
-          </div>
-          <input
-            type="range"
-            data-testid="price-min-slider"
-            min={0}
-            max={catalogMaxPrice}
-            step={1_000_000}
-            value={sliderMinPrice}
-            onChange={(e) => {
-              const val = Number(e.target.value);
-              setFilters((p) => ({
-                ...p,
-                minPrice: val,
-                maxPrice: Number.isFinite(p.maxPrice) && p.maxPrice < val ? val : p.maxPrice,
-              }));
-            }}
-            aria-label="حداقل قیمت به تومان"
-            className="w-full accent-[#004ac6] cursor-pointer"
-          />
-
-          <div className="flex items-center justify-between text-[11px] pt-1">
-            <span className="text-[#434655]">حداکثر قیمت:</span>
-            <span className="font-bold text-[#004ac6] tabular-nums-fa">
-              {formatToman(sliderMaxPrice)} تومان
-            </span>
-          </div>
-          <input
-            type="range"
-            data-testid="price-max-slider"
-            min={1_000_000}
-            max={catalogMaxPrice}
-            step={1_000_000}
-            value={sliderMaxPrice}
-            onChange={(e) => {
-              const val = Number(e.target.value);
-              setFilters((p) => ({
-                ...p,
-                maxPrice: val >= catalogMaxPrice ? Infinity : Math.max(val, p.minPrice),
-              }));
-            }}
-            aria-label="حداکثر قیمت به تومان"
-            className="w-full accent-[#004ac6] cursor-pointer"
-          />
-        </div>
+        <DualPriceRangeSlider
+          min={0}
+          max={catalogMaxPrice}
+          step={1_000_000}
+          minValue={sliderMinPrice}
+          maxValue={sliderMaxPrice}
+          onChange={(nextMin, nextMax) => {
+            setFilters((p) => ({
+              ...p,
+              minPrice: nextMin,
+              maxPrice: nextMax >= catalogMaxPrice ? Infinity : nextMax,
+            }));
+          }}
+        />
 
         <div className="grid grid-cols-2 gap-2 pt-1">
           <div>
@@ -598,17 +574,29 @@ export const CatalogPage: React.FC = () => {
                   جستجوهای اخیر:
                 </span>
                 {recentSearches.map((item) => (
-                  <button
+                  <div
                     key={item}
-                    type="button"
-                    onClick={() => {
-                      setLocalSearch(item);
-                      setFilters((p) => ({ ...p, searchQuery: item }));
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#e5eeff] font-semibold text-[#0b1c30]"
+                    className="inline-flex items-center rounded-lg bg-[#f8f9ff] border border-[#e5eeff] overflow-hidden"
                   >
-                    {item}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLocalSearch(item);
+                        setFilters((p) => ({ ...p, searchQuery: item }));
+                      }}
+                      className="px-2.5 py-1 hover:bg-[#eff4ff] font-semibold text-[#0b1c30]"
+                    >
+                      {item}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`حذف ${item} از تاریخچه`}
+                      onClick={() => removeRecentSearch(item)}
+                      className="pl-1.5 pr-1 py-1 text-[#434655] hover:text-rose-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                 ))}
                 <button
                   type="button"

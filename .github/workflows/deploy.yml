@@ -39,12 +39,14 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_API_URL: ${{ vars.VITE_API_URL || secrets.VITE_API_URL || 'https://api.codenameamir.ir' }}
-          VITE_BASE_PATH: "./"
+          VITE_BASE_PATH: "/"
           VITE_GIT_COMMIT_SHA: ${{ github.sha }}
           VITE_GIT_BRANCH: ${{ github.ref_name }}
           VITE_GITHUB_REPO: ${{ github.repository }}
           VITE_GITHUB_RUN_NUMBER: ${{ github.run_number }}
-        run: npm run build
+        run: |
+          npm run build
+          cp dist/index.html dist/404.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

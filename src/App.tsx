@@ -9,7 +9,6 @@ import { TempCommitBanner } from './components/TempCommitBanner';
 import { StoreProvider, useStore } from './context/StoreContext';
 import { AboutPage } from './pages/AboutPage';
 import { AccountPage } from './pages/AccountPage';
-import { AdminPage } from './pages/AdminPage';
 import { CartCheckoutPage } from './pages/CartCheckoutPage';
 import { CatalogPage } from './pages/CatalogPage';
 import { ComparePage } from './pages/ComparePage';
@@ -99,8 +98,6 @@ const StoreShell: React.FC = () => {
         return <TermsPage />;
       case 'account':
         return <AccountPage />;
-      case 'admin':
-        return <AdminPage />;
       case 'status':
         return <ServerStatusPage />;
       case 'not-found':

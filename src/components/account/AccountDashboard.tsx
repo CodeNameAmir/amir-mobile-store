@@ -218,7 +218,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
         return;
       }
       setAvatarUrl(compressed);
-      await updateUserProfile({
+      const updated = await updateUserProfile({
         fullName: fullName.trim() || user.fullName,
         phone: phone.trim() || user.phone || '',
         nationalId: nationalId.trim(),
@@ -226,7 +226,9 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
         newsletterOptIn,
         avatarUrl: compressed,
       });
+      setAvatarUrl(updated.avatarUrl || compressed);
     } catch (err) {
+      setAvatarUrl(user.avatarUrl || '');
       showToast(err instanceof Error ? err.message : 'خطا در بارگذاری تصویر پروفایل.', 'error');
     } finally {
       setAvatarBusy(false);
@@ -246,6 +248,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
         avatarUrl: '',
       });
     } catch (err) {
+      setAvatarUrl(user.avatarUrl || '');
       showToast(err instanceof Error ? err.message : 'خطا در حذف تصویر پروفایل.', 'error');
     } finally {
       setAvatarBusy(false);
@@ -524,8 +527,9 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
         <div className="pt-3 border-t border-[#eff4ff] space-y-2">
           {user.role === 'admin' && (
             <a
-              href={buildHref('/admin')}
-              onClick={(e) => handleLinkClick(e, '/admin')}
+              href="https://admin-panel-ams.codenameamir.ir/#/"
+              target="_blank"
+              rel="noopener noreferrer"
               data-testid="sidebar-admin-panel-link"
               className="w-full h-10 px-3.5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition-colors"
             >

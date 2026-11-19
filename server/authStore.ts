@@ -405,17 +405,32 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
   const rawStorage = Array.isArray(parsedStorage) ? (parsedStorage as StorageVariantDTO[]) : [];
 
   const mainImage = typeof row.image_url === 'string' && row.image_url.trim() ? row.image_url.trim() : '';
+  const colImages = parseJsonValue<unknown>(row.images, []);
+  const dedicatedImages = Array.isArray(colImages)
+    ? colImages.map((item) => String(item || '').trim()).filter(Boolean)
+    : [];
   const embeddedImages = Array.isArray(rawSpecs.__images)
     ? rawSpecs.__images.map((item) => String(item || '').trim()).filter(Boolean)
     : [];
-  const imagesList = Array.from(new Set([mainImage, ...embeddedImages].filter(Boolean)));
-  const customSpecs = Array.isArray(rawSpecs.__customSpecs)
-    ? (rawSpecs.__customSpecs as Array<{ label?: unknown; value?: unknown }>)
-        .map((s) => ({ label: String(s?.label || '').trim(), value: String(s?.value || '').trim() }))
-        .filter((s) => s.label && s.value)
-    : [];
+  const imagesList = Array.from(
+    new Set([mainImage, ...(dedicatedImages.length > 0 ? dedicatedImages : embeddedImages)].filter(Boolean))
+  );
+
+  const colCustomSpecs = parseJsonValue<unknown>(row.custom_specs, []);
+  const rawCustomSpecsSource =
+    Array.isArray(colCustomSpecs) && colCustomSpecs.length > 0
+      ? colCustomSpecs
+      : Array.isArray(rawSpecs.__customSpecs)
+      ? rawSpecs.__customSpecs
+      : [];
+  const customSpecs = (rawCustomSpecsSource as Array<{ label?: unknown; value?: unknown }>)
+    .map((s) => ({ label: String(s?.label || '').trim(), value: String(s?.value || '').trim() }))
+    .filter((s) => s.label && s.value);
+
   const priceUpdatedAt =
-    typeof rawSpecs.__priceUpdatedAt === 'string' && rawSpecs.__priceUpdatedAt.trim()
+    row.price_updated_at
+      ? String(row.price_updated_at)
+      : typeof rawSpecs.__priceUpdatedAt === 'string' && rawSpecs.__priceUpdatedAt.trim()
       ? rawSpecs.__priceUpdatedAt.trim()
       : row.updated_at
       ? String(row.updated_at)
@@ -485,7 +500,7 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
   };
 }
 
-function toSupabaseProductRow(p: ProductDTO): Record<string, unknown> {
+function toSupabaseProductRow(p: ProductDTO, includeExtendedColumns = false): Record<string, unknown> {
   const cleanImages = Array.isArray(p.images)
     ? Array.from(new Set([p.image, ...p.images].map((u) => String(u || '').trim()).filter(Boolean)))
     : [];
@@ -500,7 +515,7 @@ function toSupabaseProductRow(p: ProductDTO): Record<string, unknown> {
   if (cleanCustomSpecs.length > 0) specsPayload.__customSpecs = cleanCustomSpecs;
   if (p.priceUpdatedAt) specsPayload.__priceUpdatedAt = p.priceUpdatedAt;
 
-  return {
+  const baseRow: Record<string, unknown> = {
     id: p.id,
     slug: p.slug,
     name_fa: p.nameFa,
@@ -529,6 +544,14 @@ function toSupabaseProductRow(p: ProductDTO): Record<string, unknown> {
     release_order: p.releaseOrder,
     updated_at: new Date().toISOString(),
   };
+
+  if (includeExtendedColumns) {
+    baseRow.images = cleanImages;
+    baseRow.custom_specs = cleanCustomSpecs;
+    baseRow.price_updated_at = p.priceUpdatedAt || new Date().toISOString();
+  }
+
+  return baseRow;
 }
 
 function mapSupabaseAuditRow(row: Record<string, unknown>): AdminAuditLogDTO {
@@ -607,6 +630,53 @@ function isSchemaColumnMismatch(err: { code?: string; message?: string } | null 
 }
 
 export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorageAdapter {
+  const avatarSettingKey = (userId: string) => `user_avatar:${userId}`;
+
+  const hydrateAvatarFallback = async (
+    rawRow: Record<string, unknown>,
+    mapped: StoredUserRecord
+  ): Promise<StoredUserRecord> => {
+    if (mapped.avatarUrl || 'avatar_url' in rawRow) {
+      return mapped;
+    }
+    try {
+      const { data } = await supabase
+        .from('store_settings')
+        .select('value')
+        .eq('key', avatarSettingKey(mapped.id))
+        .maybeSingle();
+      const val = data?.value as { avatarUrl?: unknown } | string | null | undefined;
+      const storedUrl =
+        typeof val === 'string'
+          ? val.trim()
+          : val && typeof val === 'object' && typeof val.avatarUrl === 'string'
+          ? val.avatarUrl.trim()
+          : '';
+      if (storedUrl) {
+        return { ...mapped, avatarUrl: storedUrl };
+      }
+    } catch {
+      // Ignore if store_settings is unavailable in mock tests
+    }
+    return mapped;
+  };
+
+  const persistAvatarFallback = async (userId: string, avatarUrl?: string): Promise<void> => {
+    try {
+      if (avatarUrl) {
+        await supabase.from('store_settings').upsert({
+          key: avatarSettingKey(userId),
+          value: { avatarUrl },
+          updated_at: new Date().toISOString(),
+        });
+      } else {
+        await supabase.from('store_settings').delete().eq('key', avatarSettingKey(userId));
+      }
+    } catch {
+      // Ignore if store_settings is unavailable
+    }
+  };
+
   return {
     mode: 'supabase',
 
@@ -627,7 +697,9 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         .eq('email', email)
         .maybeSingle();
       if (error) throw new Error(`Supabase user lookup failed: ${error.message}`);
-      return data ? mapSupabaseUserRow(data as Record<string, unknown>) : null;
+      if (!data) return null;
+      const row = data as Record<string, unknown>;
+      return hydrateAvatarFallback(row, mapSupabaseUserRow(row));
     },
 
     async findUserById(userId: string) {
@@ -637,7 +709,9 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         .eq('id', userId)
         .maybeSingle();
       if (error) throw new Error(`Supabase user lookup failed: ${error.message}`);
-      return data ? mapSupabaseUserRow(data as Record<string, unknown>) : null;
+      if (!data) return null;
+      const row = data as Record<string, unknown>;
+      return hydrateAvatarFallback(row, mapSupabaseUserRow(row));
     },
 
     async createUser(params) {
@@ -688,6 +762,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       };
 
       const withAvatar = { ...basePayload, avatar_url: next.avatarUrl ?? null };
+      let usedAvatarFallback = false;
       let { data, error } = await supabase
         .from('app_users')
         .update(withAvatar)
@@ -696,6 +771,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         .single();
 
       if (error && isSchemaColumnMismatch(error)) {
+        usedAvatarFallback = true;
         const fallback = await supabase
           .from('app_users')
           .update(basePayload)
@@ -709,6 +785,12 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (error || !data) {
         throw new Error(`Supabase update user failed: ${error?.message || 'no row returned'}`);
       }
+
+      if (usedAvatarFallback) {
+        await persistAvatarFallback(userId, next.avatarUrl);
+        return { ...mapSupabaseUserRow(data as Record<string, unknown>), avatarUrl: next.avatarUrl };
+      }
+
       return mapSupabaseUserRow(data as Record<string, unknown>);
     },
 
@@ -717,6 +799,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (error) {
         throw new Error(`Supabase delete user failed: ${error.message}`);
       }
+      await persistAvatarFallback(userId, undefined);
       return true;
     },
 
@@ -876,11 +959,24 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
 
     async createProduct(product: ProductDTO) {
       const nowIso = new Date().toISOString();
-      const row = toSupabaseProductRow({
+      const target = {
         ...product,
         priceUpdatedAt: product.priceUpdatedAt || nowIso,
-      });
-      const { data, error } = await supabase.from('products').insert(row).select('*').single();
+      };
+      let { data, error } = await supabase
+        .from('products')
+        .insert(toSupabaseProductRow(target, true))
+        .select('*')
+        .single();
+      if (error && isSchemaColumnMismatch(error)) {
+        const fallback = await supabase
+          .from('products')
+          .insert(toSupabaseProductRow(target, false))
+          .select('*')
+          .single();
+        data = fallback.data;
+        error = fallback.error;
+      }
       if (error || !data) {
         throw new Error(`Supabase create product failed: ${error?.message || 'no row returned'}`);
       }
@@ -907,13 +1003,22 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (typeof patch.stockCount === 'number' && patch.inStock === undefined) {
         merged.inStock = patch.stockCount > 0;
       }
-      const row = toSupabaseProductRow(merged);
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('products')
-        .update(row)
+        .update(toSupabaseProductRow(merged, true))
         .eq('id', current.id)
         .select('*')
         .single();
+      if (error && isSchemaColumnMismatch(error)) {
+        const fallback = await supabase
+          .from('products')
+          .update(toSupabaseProductRow(merged, false))
+          .eq('id', current.id)
+          .select('*')
+          .single();
+        data = fallback.data;
+        error = fallback.error;
+      }
       if (error || !data) {
         throw new Error(`Supabase update product failed: ${error?.message || 'no row returned'}`);
       }

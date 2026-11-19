@@ -46,6 +46,8 @@ export const Navbar: React.FC = () => {
     categories,
     brands,
     recentSearches,
+    addRecentSearch,
+    removeRecentSearch,
     clearRecentSearches,
     cartSummary,
     compareIds,
@@ -100,13 +102,19 @@ export const Navbar: React.FC = () => {
     suggestions.brands.length > 0 ||
     suggestions.categories.length > 0;
 
-  const showRecentPanel = searchFocused && searchValue.trim().length < 2 && recentSearches.length > 0;
-  const showSuggestionsPanel = searchFocused && searchValue.trim().length >= 2 && hasSuggestionResults;
+  const showRecentPanel = searchFocused && searchValue.trim().length < 2;
+  const showSuggestionsPanel = searchFocused && searchValue.trim().length >= 2;
+
+  const POPULAR_SEARCHES = ['آیفون ۱۶', 'هواوی', 'سامسونگ', 'پاوربانک انکر'];
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmed = searchValue.trim();
+    if (trimmed.length >= 2) {
+      addRecentSearch(trimmed);
+    }
     setSearchFocused(false);
-    navigateToCatalog({ category: 'all', searchQuery: searchValue });
+    navigateToCatalog({ category: 'all', searchQuery: trimmed });
     setMobileMenuOpen(false);
   };
 
@@ -226,7 +234,7 @@ export const Navbar: React.FC = () => {
                 placeholder="جستجوی هوشمند مدل، برند (مثلاً هواوی، اپل) یا دسته..."
                 aria-label="جستجوی محصولات"
                 data-testid="navbar-search-input"
-                className="w-full h-11 pr-11 pl-4 rounded-xl bg-[#eff4ff] text-sm text-[#0b1c30] placeholder:text-[#434655]/70 border border-transparent focus:border-[#2563eb] focus:bg-white focus:outline-none transition-all"
+                className="w-full h-11 pr-11 pl-10 rounded-xl bg-[#eff4ff] text-sm text-[#0b1c30] placeholder:text-[#434655]/70 border border-transparent focus:border-[#2563eb] focus:bg-white focus:outline-none transition-all"
               />
               <button
                 type="submit"
@@ -235,44 +243,102 @@ export const Navbar: React.FC = () => {
               >
                 <Search className="w-4 h-4" />
               </button>
+              {searchValue.trim().length > 0 && (
+                <button
+                  type="button"
+                  aria-label="پاک کردن متن جستجو"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setSearchValue('');
+                    setSearchFocused(true);
+                  }}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#434655] hover:text-rose-600 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </form>
 
             {showRecentPanel && (
               <div
                 data-testid="recent-searches-dropdown"
-                className="absolute top-12 right-0 left-0 bg-white rounded-2xl border border-[#dce9ff] shadow-xl overflow-hidden z-50 p-3 space-y-2.5"
+                className="absolute top-12 right-0 left-0 bg-white rounded-2xl border border-[#dce9ff] shadow-xl overflow-hidden z-50 p-3.5 space-y-3"
               >
                 <div className="flex items-center justify-between text-xs font-bold text-[#434655]">
                   <span className="inline-flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-[#004ac6]" />
-                    جستجوهای اخیر شما
+                    تاریخچه جستجوهای اخیر
                   </span>
-                  <button
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={clearRecentSearches}
-                    className="text-[11px] font-semibold text-rose-600 hover:underline inline-flex items-center gap-1"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    پاک کردن
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {recentSearches.map((q) => (
+                  {recentSearches.length > 0 && (
                     <button
-                      key={q}
                       type="button"
                       onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setSearchValue(q);
-                        setSearchFocused(false);
-                        navigateToCatalog({ category: 'all', searchQuery: q });
-                      }}
-                      className="px-3 py-1.5 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-xs font-semibold text-[#0b1c30] transition-colors"
+                      onClick={clearRecentSearches}
+                      className="text-[11px] font-semibold text-rose-600 hover:underline inline-flex items-center gap-1"
                     >
-                      {q}
+                      <Trash2 className="w-3 h-3" />
+                      پاک کردن همه
                     </button>
-                  ))}
+                  )}
+                </div>
+
+                {recentSearches.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {recentSearches.map((q) => (
+                      <div
+                        key={q}
+                        className="inline-flex items-center rounded-xl bg-[#eff4ff] border border-[#dce9ff] overflow-hidden"
+                      >
+                        <button
+                          type="button"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setSearchValue(q);
+                            setSearchFocused(false);
+                            navigateToCatalog({ category: 'all', searchQuery: q });
+                          }}
+                          className="px-3 py-1.5 hover:bg-[#dce9ff] text-xs font-semibold text-[#0b1c30] transition-colors"
+                        >
+                          {q}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`حذف ${q} از تاریخچه`}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => removeRecentSearch(q)}
+                          className="pl-2 pr-1 py-1.5 text-[#434655] hover:text-rose-600 transition-colors"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-[#434655]">
+                    هنوز عبارتی جستجو نکرده‌اید. پس از اولین جستجو، تاریخچه شما اینجا نمایش داده می‌شود.
+                  </p>
+                )}
+
+                <div className="pt-2 border-t border-[#eff4ff] space-y-2">
+                  <p className="text-[11px] font-bold text-[#434655]">جستجوهای پرطرفدار:</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {POPULAR_SEARCHES.map((term) => (
+                      <button
+                        key={term}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => {
+                          addRecentSearch(term);
+                          setSearchValue(term);
+                          setSearchFocused(false);
+                          navigateToCatalog({ category: 'all', searchQuery: term });
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#e5eeff] text-[11px] font-semibold text-[#004ac6] transition-colors"
+                      >
+                        {term}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             )}
@@ -290,6 +356,7 @@ export const Navbar: React.FC = () => {
                         href={buildHref(`/catalog?brand=${encodeURIComponent(brand.name)}`)}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={(e) => {
+                          addRecentSearch(searchValue.trim() || brand.labelFa || brand.name);
                           if (e.button === 0 && !e.metaKey && !e.ctrlKey) {
                             e.preventDefault();
                             setSearchFocused(false);
@@ -308,6 +375,7 @@ export const Navbar: React.FC = () => {
                         href={buildHref(`/catalog?cat=${encodeURIComponent(cat.slug)}`)}
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={(e) => {
+                          addRecentSearch(searchValue.trim() || cat.label);
                           if (e.button === 0 && !e.metaKey && !e.ctrlKey) {
                             e.preventDefault();
                             setSearchFocused(false);
@@ -323,31 +391,62 @@ export const Navbar: React.FC = () => {
                   </div>
                 )}
 
-                {suggestions.products.length > 0 && (
-                  <div className="divide-y divide-[#eff4ff]">
-                    {suggestions.products.map((item) => (
-                      <a
-                        key={item.id}
-                        href={buildHref(`/product/${item.slug}`)}
+                {hasSuggestionResults ? (
+                  suggestions.products.length > 0 && (
+                    <div className="divide-y divide-[#eff4ff]">
+                      {suggestions.products.map((item) => (
+                        <a
+                          key={item.id}
+                          href={buildHref(`/product/${item.slug}`)}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={(e) => {
+                            addRecentSearch(searchValue.trim() || item.nameFa);
+                            handleLinkClick(e, `/product/${item.slug}`, () => setSearchFocused(false));
+                          }}
+                          className="w-full p-3 flex items-center gap-3 hover:bg-[#f8f9ff] text-right transition-colors"
+                        >
+                          <div className="w-11 h-11 rounded-xl bg-[#eff4ff] overflow-hidden shrink-0">
+                            <SmartImage src={item.image} alt={item.nameFa} className="w-full h-full object-cover" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-extrabold text-[#0b1c30] truncate">{item.nameFa}</p>
+                            <p className="text-[11px] text-[#434655] mt-0.5">
+                              {item.brand} · {item.specs.storageDefault}
+                            </p>
+                          </div>
+                          <span className="text-xs font-black text-[#004ac6] tabular-nums-fa shrink-0">
+                            {item.inStock ? `${formatToman(item.price)} تومان` : 'ناموجود'}
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <p className="p-3 text-xs text-[#434655]">
+                    پیشنهاد سریع مستقیمی یافت نشد؛ برای جستجوی هوشمند کامل روی دکمه زیر کلیک کنید.
+                  </p>
+                )}
+
+                {recentSearches.length > 0 && (
+                  <div className="px-3 py-2 bg-[#f8f9ff] border-t border-[#eff4ff] flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-bold text-[#434655] inline-flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-[#004ac6]" />
+                      اخیر:
+                    </span>
+                    {recentSearches.slice(0, 4).map((q) => (
+                      <button
+                        key={`live-recent-${q}`}
+                        type="button"
                         onMouseDown={(e) => e.preventDefault()}
-                        onClick={(e) =>
-                          handleLinkClick(e, `/product/${item.slug}`, () => setSearchFocused(false))
-                        }
-                        className="w-full p-3 flex items-center gap-3 hover:bg-[#f8f9ff] text-right transition-colors"
+                        onClick={() => {
+                          setSearchValue(q);
+                          setSearchFocused(false);
+                          navigateToCatalog({ category: 'all', searchQuery: q });
+                        }}
+                        className="px-2 py-0.5 rounded-md bg-white border border-[#dce9ff] text-[11px] font-semibold text-[#0b1c30] hover:border-[#2563eb]"
                       >
-                        <div className="w-11 h-11 rounded-xl bg-[#eff4ff] overflow-hidden shrink-0">
-                          <SmartImage src={item.image} alt={item.nameFa} className="w-full h-full object-cover" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-extrabold text-[#0b1c30] truncate">{item.nameFa}</p>
-                          <p className="text-[11px] text-[#434655] mt-0.5">
-                            {item.brand} · {item.specs.storageDefault}
-                          </p>
-                        </div>
-                        <span className="text-xs font-black text-[#004ac6] tabular-nums-fa shrink-0">
-                          {item.inStock ? `${formatToman(item.price)} تومان` : 'ناموجود'}
-                        </span>
-                      </a>
+                        {q}
+                      </button>
                     ))}
                   </div>
                 )}
@@ -356,8 +455,10 @@ export const Navbar: React.FC = () => {
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
+                    const trimmed = searchValue.trim();
+                    if (trimmed.length >= 2) addRecentSearch(trimmed);
                     setSearchFocused(false);
-                    navigateToCatalog({ category: 'all', searchQuery: searchValue });
+                    navigateToCatalog({ category: 'all', searchQuery: trimmed });
                   }}
                   className="w-full py-2.5 bg-[#eff4ff] hover:bg-[#dce9ff] text-xs font-extrabold text-[#004ac6] transition-colors"
                 >
@@ -367,12 +468,13 @@ export const Navbar: React.FC = () => {
             )}
           </div>
 
-          {/* Left side: Admin (if admin), Tracking, Account & Cart CTA */}
+          {/* Left side: External Admin Panel (if admin), Tracking, Account & Cart CTA */}
           <div className="flex items-center gap-2 md:gap-2.5 shrink-0">
             {user?.role === 'admin' && (
               <a
-                href={buildHref('/admin')}
-                onClick={(e) => handleLinkClick(e, '/admin')}
+                href="https://admin-panel-ams.codenameamir.ir/#/"
+                target="_blank"
+                rel="noopener noreferrer"
                 data-testid="nav-admin-link"
                 className="hidden sm:inline-flex items-center gap-1.5 h-10 px-3 rounded-xl bg-[#ffdbca]/60 hover:bg-[#ffdbca] text-[#8e3c00] text-xs font-bold transition-colors whitespace-nowrap shrink-0"
               >
@@ -539,8 +641,10 @@ export const Navbar: React.FC = () => {
               ))}
               {user?.role === 'admin' && (
                 <a
-                  href={buildHref('/admin')}
-                  onClick={(e) => handleLinkClick(e, '/admin', () => setMobileMenuOpen(false))}
+                  href="https://admin-panel-ams.codenameamir.ir/#/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setMobileMenuOpen(false)}
                   className="text-right px-3 py-2.5 rounded-xl text-xs font-bold bg-[#ffdbca]/60 text-[#8e3c00] col-span-2"
                 >
                   پنل مدیریت فروشگاه

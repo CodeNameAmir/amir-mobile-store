@@ -978,3 +978,125 @@ test('Supabase adapter handles app_users.role, products CRUD, orders status upda
   assert.equal(deleted, true);
 });
 
+test('Supabase storage persists avatarUrl via store_settings fallback when app_users.avatar_url column is missing', async () => {
+  const userRows = new Map<string, Record<string, unknown>>([
+    [
+      'user-avatar-1',
+      {
+        id: 'user-avatar-1',
+        email: 'avatar@codenameamir.ir',
+        role: 'customer',
+        password_hash: 'hash',
+        full_name: 'کاربر آواتار',
+        phone: '09120000001',
+        is_email_verified: true,
+        totp_enabled: false,
+        two_factor_method: 'none',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ],
+  ]);
+  const settingsRows = new Map<string, Record<string, unknown>>();
+
+  const mockSupabase = {
+    from(table: string) {
+      if (table === 'app_users') {
+        return {
+          select() {
+            return {
+              eq(field: string, value: string) {
+                const match = [...userRows.values()].find((r) => r[field] === value) || null;
+                return {
+                  maybeSingle: async () => ({ data: match, error: null }),
+                };
+              },
+            };
+          },
+          update(patch: Record<string, unknown>) {
+            return {
+              eq(field: string, value: string) {
+                if ('avatar_url' in patch) {
+                  return {
+                    select: () => ({
+                      single: async () => ({
+                        data: null,
+                        error: { code: 'PGRST204', message: "Could not find the 'avatar_url' column of 'app_users'" },
+                      }),
+                    }),
+                  };
+                }
+                const existing = [...userRows.values()].find((r) => r[field] === value);
+                const updated = existing ? { ...existing, ...patch } : null;
+                if (updated) userRows.set(String(updated.id), updated);
+                return {
+                  select: () => ({
+                    single: async () => ({ data: updated, error: null }),
+                  }),
+                };
+              },
+            };
+          },
+        };
+      }
+
+      if (table === 'store_settings') {
+        return {
+          select() {
+            return {
+              eq(field: string, value: string) {
+                const match = [...settingsRows.values()].find((r) => r[field] === value) || null;
+                return {
+                  maybeSingle: async () => ({ data: match, error: null }),
+                };
+              },
+            };
+          },
+          upsert: async (row: Record<string, unknown>) => {
+            settingsRows.set(String(row.key), row);
+            return { error: null };
+          },
+          delete() {
+            return {
+              eq: async (field: string, value: string) => {
+                for (const [k, v] of settingsRows.entries()) {
+                  if (v[field] === value) settingsRows.delete(k);
+                }
+                return { error: null };
+              },
+            };
+          },
+        };
+      }
+
+      throw new Error(`Unexpected table ${table}`);
+    },
+  } as unknown as SupabaseClient;
+
+  const adapter = createSupabaseAuthStorage(mockSupabase);
+  const sampleAvatar = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+  const updated = await adapter.updateUser('user-avatar-1', (user) => ({
+    ...user,
+    avatarUrl: sampleAvatar,
+  }));
+  assert.equal(updated?.avatarUrl, sampleAvatar);
+
+  // Simulate full browser reload (Ctrl+Shift+R -> fresh GET /api/auth/me -> findUserById)
+  const reloaded = await adapter.findUserById('user-avatar-1');
+  assert.equal(reloaded?.avatarUrl, sampleAvatar);
+
+  const byEmail = await adapter.findUserByEmail('avatar@codenameamir.ir');
+  assert.equal(byEmail?.avatarUrl, sampleAvatar);
+
+  // Removing avatar clears fallback entry
+  const cleared = await adapter.updateUser('user-avatar-1', (user) => ({
+    ...user,
+    avatarUrl: undefined,
+  }));
+  assert.equal(cleared?.avatarUrl, undefined);
+  const afterClear = await adapter.findUserById('user-avatar-1');
+  assert.equal(afterClear?.avatarUrl, undefined);
+});
+
+
