@@ -57,6 +57,9 @@ export interface ToastItem {
   id: string;
   message: string;
   tone: 'success' | 'info' | 'error';
+  image?: string;
+  actionLabel?: string;
+  actionHref?: string;
 }
 
 export const DEFAULT_FILTERS: FilterState = {
@@ -188,6 +191,7 @@ interface StoreContextValue {
   resetFilters: () => void;
   cart: CartItem[];
   cartSummary: CartSummary;
+  cartPulseTick: number;
   addToCart: (
     product: Product,
     opts?: {
@@ -251,7 +255,11 @@ interface StoreContextValue {
   setDefaultUserAddress: (id: string) => Promise<DemoUser>;
   deleteUserAddress: (id: string) => Promise<DemoUser>;
   toasts: ToastItem[];
-  showToast: (message: string, tone?: ToastItem['tone']) => void;
+  showToast: (
+    message: string,
+    tone?: ToastItem['tone'],
+    meta?: { image?: string; actionLabel?: string; actionHref?: string }
+  ) => void;
   dismissToast: (id: string) => void;
 }
 
@@ -303,15 +311,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [productsLoading, setProductsLoading] = useState<boolean>(true);
   const [resendStatus, setResendStatus] = useState<ResendServiceStatus | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [cartPulseTick, setCartPulseTick] = useState<number>(0);
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const showToast = useCallback(
-    (message: string, tone: ToastItem['tone'] = 'success') => {
+    (
+      message: string,
+      tone: ToastItem['tone'] = 'success',
+      meta?: { image?: string; actionLabel?: string; actionHref?: string }
+    ) => {
       const id = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-      setToasts((prev) => [...prev.slice(-2), { id, message, tone }]);
+      setToasts((prev) => [...prev.slice(-2), { id, message, tone, ...meta }]);
       window.setTimeout(() => {
         dismissToast(id);
       }, 4200);
@@ -731,7 +744,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         storeRepository.saveCart(updated);
         return updated;
       });
-      showToast(`«${product.nameFa}» به سبد خرید اضافه شد.`, 'success');
+
+      setCartPulseTick((n) => n + 1);
+
+      showToast(`«${product.nameFa}» به سبد خرید اضافه شد.`, 'success', {
+        image: product.image,
+        actionLabel: 'مشاهده سبد',
+        actionHref: '/cart',
+      });
     },
     [showToast]
   );
@@ -1126,6 +1146,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         resetFilters,
         cart,
         cartSummary,
+        cartPulseTick,
         addToCart,
         updateCartQty,
         removeCartItem,

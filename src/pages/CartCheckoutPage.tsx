@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowLeft,
   ArrowRight,
+  Check,
   CheckCircle2,
   MapPin,
   Minus,
@@ -14,12 +16,77 @@ import {
 } from 'lucide-react';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
-import type { CheckoutFormData } from '../types/store';
+import type { CheckoutFormData, Product } from '../types/store';
+import { UI_EASE } from '../utils/motionHelpers';
 import {
   formatToman,
   toPersianDigits,
   validateCheckoutForm,
 } from '../utils/storeLogic';
+import { useTemporarilyAdded } from '../utils/useTemporarilyAdded';
+
+interface CrossSellCardProps {
+  product: Product;
+  onAdd: (product: Product) => void;
+}
+
+const CrossSellCard: React.FC<CrossSellCardProps> = ({ product, onAdd }) => {
+  const { recentlyAdded, triggerAdded } = useTemporarilyAdded(1400);
+
+  return (
+    <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex items-center gap-3">
+      <div className="w-14 h-14 rounded-lg overflow-hidden bg-white shrink-0">
+        <SmartImage src={product.image} alt={product.nameFa} className="w-full h-full object-cover" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-[#11161E] line-clamp-1">{product.nameFa}</p>
+        <p className="text-xs font-semibold text-[#1453D6] tabular-nums-fa mt-0.5">
+          {formatToman(product.price)} تومان
+        </p>
+      </div>
+      <motion.button
+        type="button"
+        whileTap={{ scale: 0.94 }}
+        data-added={recentlyAdded ? 'true' : undefined}
+        onClick={() => {
+          onAdd(product);
+          triggerAdded();
+        }}
+        className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors shrink-0 min-w-[72px] inline-flex items-center justify-center gap-1 ${
+          recentlyAdded
+            ? 'bg-[#ECFDF3] border-[#ABEFC6] text-[#067647]'
+            : 'bg-white border-[#E4E8EE] hover:bg-[#1453D6] hover:text-white hover:border-[#1453D6]'
+        }`}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          {recentlyAdded ? (
+            <motion.span
+              key="added"
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.85 }}
+              transition={{ duration: 0.15, ease: UI_EASE }}
+              className="inline-flex items-center gap-1"
+            >
+              <Check className="w-3.5 h-3.5" strokeWidth={2} />
+              <span>اضافه شد</span>
+            </motion.span>
+          ) : (
+            <motion.span
+              key="add"
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.85 }}
+              transition={{ duration: 0.14, ease: UI_EASE }}
+            >
+              افزودن
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </motion.button>
+    </div>
+  );
+};
 
 interface CartCheckoutPageProps {
   mode: 'cart' | 'checkout';
@@ -212,90 +279,111 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
                   </span>
                 </div>
 
-                {cart.map((item) => (
-                  <div
-                    key={item.key}
-                    data-testid={`cart-item-${item.slug}`}
-                    className="p-5 flex flex-col sm:flex-row sm:items-center gap-4"
-                  >
-                    <div className="w-24 h-24 rounded-xl bg-[#F3F5F8] border border-[#E4E8EE] overflow-hidden shrink-0">
-                      <SmartImage
-                        src={item.image}
-                        alt={item.nameFa}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
+                <AnimatePresence initial={false}>
+                  {cart.map((item) => (
+                    <motion.div
+                      key={item.key}
+                      layout
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, x: 24, scale: 0.98 }}
+                      transition={{ duration: 0.2, ease: UI_EASE }}
+                      data-testid={`cart-item-${item.slug}`}
+                      className="p-5 flex flex-col sm:flex-row sm:items-center gap-4"
+                    >
+                      <div className="w-24 h-24 rounded-xl bg-[#F3F5F8] border border-[#E4E8EE] overflow-hidden shrink-0">
+                        <SmartImage
+                          src={item.image}
+                          alt={item.nameFa}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
 
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <a
-                        href={buildHref(`/product/${item.slug}`)}
-                        onClick={(e) => handleLinkClick(e, `/product/${item.slug}`)}
-                        className="text-sm font-semibold text-[#11161E] hover:text-[#1453D6] text-right line-clamp-2 block"
-                      >
-                        {item.nameFa}
-                      </a>
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <a
+                          href={buildHref(`/product/${item.slug}`)}
+                          onClick={(e) => handleLinkClick(e, `/product/${item.slug}`)}
+                          className="text-sm font-semibold text-[#11161E] hover:text-[#1453D6] text-right line-clamp-2 block"
+                        >
+                          {item.nameFa}
+                        </a>
 
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#4A5464]">
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#F1F3F6] font-medium">
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-[#4A5464]">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#F1F3F6] font-medium">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full border border-black/15"
+                              style={{ backgroundColor: item.colorHex }}
+                            />
+                            {item.colorName}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md bg-[#F1F3F6] font-medium">
+                            {item.storageLabel}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[#1453D6] font-medium">
+                            <ShieldCheck className="w-3.5 h-3.5" strokeWidth={1.5} />
+                            {item.warranty}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex sm:flex-col items-center sm:items-end justify-between gap-3 shrink-0">
+                        <div className="flex items-center gap-2 bg-[#F7F8FA] border border-[#E4E8EE] rounded-lg p-1">
+                          <motion.button
+                            type="button"
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => updateCartQty(item.key, -1)}
+                            aria-label="کاهش تعداد"
+                            className="w-7 h-7 rounded-md bg-white text-[#11161E] flex items-center justify-center hover:bg-[#F1F3F6] transition-colors"
+                          >
+                            <Minus className="w-3.5 h-3.5" strokeWidth={1.5} />
+                          </motion.button>
                           <span
-                            className="w-2.5 h-2.5 rounded-full border border-black/15"
-                            style={{ backgroundColor: item.colorHex }}
-                          />
-                          {item.colorName}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md bg-[#F1F3F6] font-medium">
-                          {item.storageLabel}
-                        </span>
-                        <span className="inline-flex items-center gap-1 text-[#1453D6] font-medium">
-                          <ShieldCheck className="w-3.5 h-3.5" strokeWidth={1.5} />
-                          {item.warranty}
-                        </span>
-                      </div>
-                    </div>
+                            data-testid={`cart-qty-${item.slug}`}
+                            className="w-6 text-center text-xs font-semibold tabular-nums-fa overflow-hidden inline-flex items-center justify-center"
+                          >
+                            <AnimatePresence mode="popLayout" initial={false}>
+                              <motion.span
+                                key={item.qty}
+                                initial={{ opacity: 0, y: -6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: 6 }}
+                                transition={{ duration: 0.16, ease: UI_EASE }}
+                                className="inline-block"
+                              >
+                                {toPersianDigits(item.qty)}
+                              </motion.span>
+                            </AnimatePresence>
+                          </span>
+                          <motion.button
+                            type="button"
+                            whileTap={{ scale: 0.9 }}
+                            onClick={() => updateCartQty(item.key, 1)}
+                            aria-label="افزایش تعداد"
+                            className="w-7 h-7 rounded-md bg-white text-[#11161E] flex items-center justify-center hover:bg-[#F1F3F6] transition-colors"
+                          >
+                            <Plus className="w-3.5 h-3.5" strokeWidth={1.5} />
+                          </motion.button>
+                        </div>
 
-                    <div className="flex sm:flex-col items-center sm:items-end justify-between gap-3 shrink-0">
-                      <div className="flex items-center gap-2 bg-[#F7F8FA] border border-[#E4E8EE] rounded-lg p-1">
-                        <button
-                          type="button"
-                          onClick={() => updateCartQty(item.key, -1)}
-                          aria-label="کاهش تعداد"
-                          className="w-7 h-7 rounded-md bg-white text-[#11161E] flex items-center justify-center hover:bg-[#F1F3F6]"
-                        >
-                          <Minus className="w-3.5 h-3.5" strokeWidth={1.5} />
-                        </button>
-                        <span
-                          data-testid={`cart-qty-${item.slug}`}
-                          className="w-6 text-center text-xs font-semibold tabular-nums-fa"
-                        >
-                          {toPersianDigits(item.qty)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => updateCartQty(item.key, 1)}
-                          aria-label="افزایش تعداد"
-                          className="w-7 h-7 rounded-md bg-white text-[#11161E] flex items-center justify-center hover:bg-[#F1F3F6]"
-                        >
-                          <Plus className="w-3.5 h-3.5" strokeWidth={1.5} />
-                        </button>
+                        <div className="text-left">
+                          <p className="text-sm font-semibold text-[#11161E] tabular-nums-fa">
+                            {formatToman(item.unitPrice * item.qty)}{' '}
+                            <span className="text-[11px] font-normal text-[#4A5464]">تومان</span>
+                          </p>
+                          <motion.button
+                            type="button"
+                            whileTap={{ scale: 0.94 }}
+                            onClick={() => removeCartItem(item.key)}
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-[#B42318] hover:underline mt-1"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />
+                            <span>حذف</span>
+                          </motion.button>
+                        </div>
                       </div>
-
-                      <div className="text-left">
-                        <p className="text-sm font-semibold text-[#11161E] tabular-nums-fa">
-                          {formatToman(item.unitPrice * item.qty)}{' '}
-                          <span className="text-[11px] font-normal text-[#4A5464]">تومان</span>
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => removeCartItem(item.key)}
-                          className="inline-flex items-center gap-1 text-[11px] font-medium text-[#B42318] hover:underline mt-1"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />
-                          <span>حذف</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               </div>
 
               {crossSellProducts.length > 0 && (
@@ -305,27 +393,11 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
                   </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {crossSellProducts.map((acc) => (
-                      <div
+                      <CrossSellCard
                         key={acc.id}
-                        className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex items-center gap-3"
-                      >
-                        <div className="w-14 h-14 rounded-lg overflow-hidden bg-white shrink-0">
-                          <SmartImage src={acc.image} alt={acc.nameFa} className="w-full h-full object-cover" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-[#11161E] line-clamp-1">{acc.nameFa}</p>
-                          <p className="text-xs font-semibold text-[#1453D6] tabular-nums-fa mt-0.5">
-                            {formatToman(acc.price)} تومان
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addToCart(acc)}
-                          className="px-3 py-1.5 rounded-lg bg-white border border-[#E4E8EE] hover:bg-[#1453D6] hover:text-white hover:border-[#1453D6] text-xs font-medium transition-colors shrink-0"
-                        >
-                          افزودن
-                        </button>
-                      </div>
+                        product={acc}
+                        onAdd={(prod) => addToCart(prod)}
+                      />
                     ))}
                   </div>
                 </div>

@@ -1,8 +1,11 @@
 import React from 'react';
-import { Bell, Heart, Scale, ShoppingBag, Star } from 'lucide-react';
+import { motion } from 'motion/react';
+import { Bell, Check, Heart, Scale, ShoppingBag, Star } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import type { Product } from '../types/store';
+import { UI_EASE } from '../utils/motionHelpers';
 import { formatToman, toPersianDigits } from '../utils/storeLogic';
+import { useTemporarilyAdded } from '../utils/useTemporarilyAdded';
 import { SmartImage } from './SmartImage';
 
 interface ProductCardProps {
@@ -23,6 +26,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
     toggleStockAlert,
   } = useStore();
 
+  const { recentlyAdded, triggerAdded } = useTemporarilyAdded(1900);
+
   const isWishlisted = wishlist.includes(product.id);
   const isCompared = compareIds.includes(product.id);
   const isAlerted = stockAlerts.includes(product.id);
@@ -38,10 +43,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
     ? { label: product.badgeText, style: 'bg-[#EEF3FC] text-[#1453D6] border border-[#D4E2FA]' }
     : null;
 
+  const handleCardBuy = () => {
+    addToCart(product);
+    triggerAdded();
+  };
+
   return (
     <article
       data-testid={`product-card-${product.slug}`}
-      className="group bg-white rounded-xl border border-[#E4E8EE] hover:border-[#C5CEDB] hover:shadow-xs transition-colors flex flex-col overflow-hidden"
+      className="group card-lift bg-white rounded-xl border border-[#E4E8EE] hover:border-[#C5CEDB] hover:shadow-md flex flex-col overflow-hidden"
     >
       {/* Studio neutral image stage */}
       <div className="relative bg-[#F3F5F8] p-4 aspect-[4/3] overflow-hidden">
@@ -54,7 +64,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
           <SmartImage
             src={product.image}
             alt={product.nameFa}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.04]"
           />
         </a>
 
@@ -67,8 +77,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
         )}
 
         <div className="absolute top-3 left-3 flex flex-col gap-1.5">
-          <button
+          <motion.button
             type="button"
+            whileTap={{ scale: 0.88 }}
             onClick={() => toggleWishlist(product.id)}
             aria-label={isWishlisted ? 'حذف از علاقه‌مندی' : 'افزودن به علاقه‌مندی'}
             className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors ${
@@ -77,11 +88,20 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
                 : 'bg-white/95 border-[#E4E8EE] text-[#4A5464] hover:text-[#B42318]'
             }`}
           >
-            <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-current' : ''}`} strokeWidth={1.5} />
-          </button>
+            <motion.span
+              key={isWishlisted ? 'liked' : 'unliked'}
+              initial={isWishlisted ? { scale: 0.55 } : false}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', stiffness: 480, damping: 18 }}
+              className="inline-flex items-center justify-center"
+            >
+              <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-current' : ''}`} strokeWidth={1.5} />
+            </motion.span>
+          </motion.button>
 
-          <button
+          <motion.button
             type="button"
+            whileTap={{ scale: 0.88 }}
             data-testid={`compare-toggle-${product.slug}`}
             onClick={() => toggleCompare(product.id)}
             aria-label={isCompared ? 'حذف از مقایسه' : 'افزودن به مقایسه'}
@@ -93,7 +113,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
             }`}
           >
             <Scale className="w-4 h-4" strokeWidth={1.5} />
-          </button>
+          </motion.button>
         </div>
       </div>
 
@@ -147,18 +167,46 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
           </div>
 
           {product.inStock ? (
-            <button
+            <motion.button
               type="button"
-              onClick={() => addToCart(product)}
-              className="h-9 px-3 rounded-lg bg-[#F1F3F6] hover:bg-[#1453D6] text-[#11161E] hover:text-white text-xs font-medium inline-flex items-center gap-1.5 transition-colors shrink-0"
+              whileTap={{ scale: 0.94 }}
+              onClick={handleCardBuy}
+              data-added={recentlyAdded ? 'true' : undefined}
+              className={`h-9 px-3 rounded-lg text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors shrink-0 min-w-[78px] ${
+                recentlyAdded
+                  ? 'bg-[#ECFDF3] border border-[#ABEFC6] text-[#067647]'
+                  : 'bg-[#F1F3F6] hover:bg-[#1453D6] text-[#11161E] hover:text-white'
+              }`}
               aria-label={`افزودن ${product.nameFa} به سبد خرید`}
             >
-              <ShoppingBag className="w-4 h-4" strokeWidth={1.5} />
-              <span>خرید</span>
-            </button>
+              {recentlyAdded ? (
+                <motion.span
+                  key="added"
+                  initial={{ opacity: 0, scale: 0.82 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.18, ease: UI_EASE }}
+                  className="inline-flex items-center gap-1"
+                >
+                  <Check className="w-3.5 h-3.5" strokeWidth={2} />
+                  <span>اضافه شد</span>
+                </motion.span>
+              ) : (
+                <motion.span
+                  key="buy"
+                  initial={{ opacity: 0.2, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ duration: 0.16, ease: UI_EASE }}
+                  className="inline-flex items-center gap-1.5"
+                >
+                  <ShoppingBag className="w-4 h-4" strokeWidth={1.5} />
+                  <span>خرید</span>
+                </motion.span>
+              )}
+            </motion.button>
           ) : (
-            <button
+            <motion.button
               type="button"
+              whileTap={{ scale: 0.95 }}
               onClick={() => toggleStockAlert(product.id)}
               className={`h-9 px-3 rounded-lg text-xs font-medium inline-flex items-center gap-1.5 transition-colors shrink-0 ${
                 isAlerted
@@ -168,7 +216,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
             >
               <Bell className="w-4 h-4" strokeWidth={1.5} />
               <span>{isAlerted ? 'اطلاع می‌دهیم' : 'خبرم کن'}</span>
-            </button>
+            </motion.button>
           )}
         </div>
       </div>

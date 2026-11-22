@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowLeft,
   Award,
@@ -24,6 +25,7 @@ import { DEFAULT_FILTERS, useStore } from '../context/StoreContext';
 import { STORE_ASSETS } from '../data/assets';
 import { CUSTOMER_TESTIMONIALS, TECH_ARTICLES } from '../data/catalog';
 import type { BrandId, CategoryId } from '../types/store';
+import { UI_EASE } from '../utils/motionHelpers';
 import {
   extractAvailableBrands,
   filterAndSortProducts,
@@ -193,42 +195,50 @@ export const HomePage: React.FC = () => {
         >
           <div className="grid grid-cols-1 lg:grid-cols-12 items-center gap-8 p-6 sm:p-10 lg:p-12">
             <div className="lg:col-span-7 space-y-5 z-10">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-[#CBD5E1]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#60A5FA] shrink-0" />
-                <span>{currentSlide.badge}</span>
-              </div>
+              <motion.div
+                key={currentSlide.id}
+                initial={{ opacity: 0.01, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, ease: UI_EASE }}
+                className="space-y-5"
+              >
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-white/5 border border-white/10 text-xs font-medium text-[#CBD5E1]">
+                  <span>{currentSlide.badge}</span>
+                </div>
 
-              <h1 className="text-2xl sm:text-3xl lg:text-[38px] font-semibold leading-[1.4]">
-                {currentSlide.title}
-              </h1>
+                <h1 className="text-2xl sm:text-3xl lg:text-[38px] font-semibold leading-[1.4]">
+                  {currentSlide.title}
+                </h1>
 
-              <p className="text-sm sm:text-base text-[#A3B0C2] max-w-xl leading-7 font-normal">
-                {currentSlide.subtitle}
-              </p>
+                <p className="text-sm sm:text-base text-[#A3B0C2] max-w-xl leading-7 font-normal">
+                  {currentSlide.subtitle}
+                </p>
 
-              <div className="flex flex-wrap items-center gap-3 pt-1">
-                <a
-                  href={buildHref(currentSlide.ctaHref)}
-                  onClick={(e) => handleLinkClick(e, currentSlide.ctaHref)}
-                  className="w-full sm:w-auto justify-center h-11 px-6 rounded-lg bg-white hover:bg-[#F1F3F6] text-[#11161E] font-semibold text-sm inline-flex items-center gap-2 transition-colors"
-                >
-                  <span>{currentSlide.ctaLabel}</span>
-                  <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
-                </a>
-                <a
-                  href={buildHref(currentSlide.secondaryHref)}
-                  onClick={(e) => handleLinkClick(e, currentSlide.secondaryHref)}
-                  className="w-full sm:w-auto justify-center h-11 px-5 rounded-lg bg-white/5 hover:bg-white/10 text-white font-medium text-sm border border-white/15 inline-flex items-center transition-colors"
-                >
-                  {currentSlide.secondaryLabel}
-                </a>
-              </div>
+                <div className="flex flex-wrap items-center gap-3 pt-1">
+                  <a
+                    href={buildHref(currentSlide.ctaHref)}
+                    onClick={(e) => handleLinkClick(e, currentSlide.ctaHref)}
+                    className="w-full sm:w-auto justify-center h-11 px-6 rounded-lg bg-white hover:bg-[#F1F3F6] text-[#11161E] font-semibold text-sm inline-flex items-center gap-2 transition-colors"
+                  >
+                    <span>{currentSlide.ctaLabel}</span>
+                    <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
+                  </a>
+                  <a
+                    href={buildHref(currentSlide.secondaryHref)}
+                    onClick={(e) => handleLinkClick(e, currentSlide.secondaryHref)}
+                    className="w-full sm:w-auto justify-center h-11 px-5 rounded-lg bg-white/5 hover:bg-white/10 text-white font-medium text-sm border border-white/15 inline-flex items-center transition-colors"
+                  >
+                    {currentSlide.secondaryLabel}
+                  </a>
+                </div>
+              </motion.div>
 
               {/* Slider Navigation Controls */}
               <div className="flex items-center justify-between pt-4 max-w-lg border-t border-white/10">
                 <div className="flex items-center gap-2">
-                  <button
+                  <motion.button
                     type="button"
+                    whileTap={{ scale: 0.92 }}
                     data-testid="promo-slider-prev"
                     onClick={() =>
                       setActiveSlide((prev) => (prev - 1 + promoSlides.length) % promoSlides.length)
@@ -237,16 +247,17 @@ export const HomePage: React.FC = () => {
                     className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-white flex items-center justify-center transition-colors"
                   >
                     <ChevronRight className="w-4 h-4" strokeWidth={1.5} />
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
                     type="button"
+                    whileTap={{ scale: 0.92 }}
                     data-testid="promo-slider-next"
                     onClick={() => setActiveSlide((prev) => (prev + 1) % promoSlides.length)}
                     aria-label="اسلاید بعدی"
                     className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-white flex items-center justify-center transition-colors"
                   >
                     <ChevronLeft className="w-4 h-4" strokeWidth={1.5} />
-                  </button>
+                  </motion.button>
                   <span dir="ltr" className="text-xs font-medium text-[#94A3B8] mr-2 tabular-nums-fa inline-block">
                     {toPersianDigits(activeSlide + 1)} / {toPersianDigits(promoSlides.length)}
                   </span>
@@ -269,7 +280,13 @@ export const HomePage: React.FC = () => {
             </div>
 
             <div className="lg:col-span-5 flex flex-col items-center">
-              <div className="relative w-full max-w-[440px] rounded-xl overflow-hidden bg-[#1B212C] border border-white/10">
+              <motion.div
+                key={`${currentSlide.id}-card`}
+                initial={{ opacity: 0.01, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.28, ease: UI_EASE }}
+                className="relative w-full max-w-[440px] rounded-xl overflow-hidden bg-[#1B212C] border border-white/10"
+              >
                 <div className="aspect-[4/3] w-full overflow-hidden">
                   <SmartImage
                     src={currentSlide.image}
@@ -293,9 +310,21 @@ export const HomePage: React.FC = () => {
                     </span>
                   )}
                 </div>
-              </div>
+              </motion.div>
             </div>
           </div>
+
+          {!sliderPaused && (
+            <motion.div
+              key={`slide-progress-${activeSlide}`}
+              aria-hidden="true"
+              initial={{ scaleX: 0 }}
+              animate={{ scaleX: 1 }}
+              transition={{ duration: 6, ease: 'linear' }}
+              style={{ transformOrigin: 'right center' }}
+              className="absolute bottom-0 left-0 right-0 h-[2px] bg-[#60A5FA]/70"
+            />
+          )}
         </div>
       </section>
 
@@ -419,14 +448,14 @@ export const HomePage: React.FC = () => {
                   navigateToCatalog({ category: cat.slug as CategoryId });
                 }
               }}
-              className="group bg-white rounded-xl border border-[#E4E8EE] hover:border-[#C5CEDB] p-4 text-center flex flex-col items-center gap-3 transition-colors"
+              className="group card-lift bg-white rounded-xl border border-[#E4E8EE] hover:border-[#C5CEDB] hover:shadow-sm p-4 text-center flex flex-col items-center gap-3"
             >
               {cat.image ? (
                 <div className="w-14 h-14 rounded-lg bg-[#F3F5F8] overflow-hidden border border-[#E4E8EE] shrink-0">
                   <SmartImage
                     src={cat.image}
                     alt={cat.label}
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
                   />
                 </div>
               ) : (
@@ -435,7 +464,7 @@ export const HomePage: React.FC = () => {
                 </div>
               )}
               <div>
-                <p className="text-xs sm:text-sm font-semibold text-[#11161E]">{cat.label}</p>
+                <p className="text-xs sm:text-sm font-semibold text-[#11161E] group-hover:text-[#1453D6] transition-colors">{cat.label}</p>
                 <p className="text-[11px] text-[#6E7889] mt-0.5 line-clamp-1">{cat.subtitle}</p>
               </div>
             </a>
@@ -494,28 +523,45 @@ export const HomePage: React.FC = () => {
             <button
               type="button"
               onClick={() => setPopularBrand('ALL')}
-              className={`px-3.5 py-2 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+              className={`relative px-3.5 py-2 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
                 popularBrand === 'ALL'
-                  ? 'bg-[#1453D6] text-white'
+                  ? 'text-white'
                   : 'bg-white border border-[#E4E8EE] text-[#4A5464] hover:border-[#C5CEDB] hover:text-[#11161E]'
               }`}
             >
-              همه برندها
+              {popularBrand === 'ALL' && (
+                <motion.span
+                  layoutId="home-brand-pill"
+                  transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                  className="absolute inset-0 rounded-lg bg-[#1453D6]"
+                />
+              )}
+              <span className="relative z-10">همه برندها</span>
             </button>
             {phoneBrands.map((bName) => {
               const bObj = brands.find((b) => b.name.toLowerCase() === bName.toLowerCase());
+              const active = popularBrand === bName;
               return (
                 <button
                   key={bName}
                   type="button"
                   onClick={() => setPopularBrand(bName)}
-                  className={`px-3.5 py-2 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                    popularBrand === bName
-                      ? 'bg-[#1453D6] text-white'
+                  className={`relative px-3.5 py-2 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    active
+                      ? 'text-white'
                       : 'bg-white border border-[#E4E8EE] text-[#4A5464] hover:border-[#C5CEDB] hover:text-[#11161E]'
                   }`}
                 >
-                  {bObj?.labelFa ? `${bObj.labelFa} (${bName})` : bName}
+                  {active && (
+                    <motion.span
+                      layoutId="home-brand-pill"
+                      transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                      className="absolute inset-0 rounded-lg bg-[#1453D6]"
+                    />
+                  )}
+                  <span className="relative z-10">
+                    {bObj?.labelFa ? `${bObj.labelFa} (${bName})` : bName}
+                  </span>
                 </button>
               );
             })}
@@ -661,7 +707,7 @@ export const HomePage: React.FC = () => {
           {TECH_ARTICLES.map((art) => (
             <article
               key={art.id}
-              className="bg-white rounded-xl border border-[#E4E8EE] overflow-hidden flex flex-col hover:border-[#C5CEDB] transition-colors"
+              className="group card-lift bg-white rounded-xl border border-[#E4E8EE] overflow-hidden flex flex-col hover:border-[#C5CEDB] hover:shadow-md"
             >
               <a
                 href={buildHref(`/product/${art.targetSlug}`)}
@@ -671,7 +717,7 @@ export const HomePage: React.FC = () => {
                 <SmartImage
                   src={art.image}
                   alt={art.title}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.03]"
                 />
               </a>
               <div className="p-5 flex-1 flex flex-col gap-2.5">

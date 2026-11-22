@@ -1,5 +1,6 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, Info, RotateCcw, X } from 'lucide-react';
+import { AnimatePresence, motion, MotionConfig } from 'motion/react';
+import { AlertTriangle, ArrowLeft, CheckCircle2, Info, RotateCcw, X } from 'lucide-react';
 import { BackToTopButton } from './components/BackToTopButton';
 import { CompareTray } from './components/CompareTray';
 import { Footer } from './components/Footer';
@@ -7,6 +8,7 @@ import { Navbar } from './components/Navbar';
 import { RouteTransitionBar } from './components/RouteTransitionBar';
 import { TempCommitBanner } from './components/TempCommitBanner';
 import { StoreProvider, useStore } from './context/StoreContext';
+import { UI_EASE } from './utils/motionHelpers';
 import { AboutPage } from './pages/AboutPage';
 import { AccountPage } from './pages/AccountPage';
 import { CartCheckoutPage } from './pages/CartCheckoutPage';
@@ -84,46 +86,89 @@ class StoreErrorBoundary extends React.Component<
 }
 
 const ToastStack: React.FC = () => {
-  const { toasts, dismissToast } = useStore();
-  if (toasts.length === 0) return null;
+  const { toasts, dismissToast, buildHref, handleLinkClick } = useStore();
 
   return (
     <div
       aria-live="polite"
-      className="fixed bottom-4 md:bottom-auto md:top-20 left-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] no-print pointer-events-none"
+      className="fixed bottom-4 md:bottom-auto md:top-20 left-4 z-50 flex flex-col gap-2.5 max-w-sm w-[calc(100vw-2rem)] no-print pointer-events-none"
     >
-      {toasts.slice(-2).map((toast) => (
-        <div
-          key={toast.id}
-          role="status"
-          className={`pointer-events-auto rounded-xl px-4 py-3 shadow-sm flex items-center justify-between gap-3 text-xs font-medium border ${
-            toast.tone === 'error'
-              ? 'bg-[#B42318] text-white border-[#912018]'
-              : toast.tone === 'info'
-              ? 'bg-[#1E2530] text-white border-[#2E3746]'
-              : 'bg-[#13171F] text-white border-[#252C38]'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            {toast.tone === 'error' ? (
-              <AlertTriangle className="w-4 h-4 text-[#FDA29B] shrink-0" strokeWidth={1.5} />
-            ) : toast.tone === 'info' ? (
-              <Info className="w-4 h-4 text-[#93B4F5] shrink-0" strokeWidth={1.5} />
-            ) : (
-              <CheckCircle2 className="w-4 h-4 text-[#6CE9A6] shrink-0" strokeWidth={1.5} />
-            )}
-            <span className="leading-5">{toast.message}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => dismissToast(toast.id)}
-            aria-label="بستن اعلان"
-            className="text-white/70 hover:text-white transition-colors shrink-0"
+      <AnimatePresence initial={false} mode="popLayout">
+        {toasts.slice(-2).map((toast) => (
+          <motion.div
+            key={toast.id}
+            layout
+            role="status"
+            initial={{ opacity: 0, y: -12, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -24, scale: 0.94 }}
+            transition={{ duration: 0.22, ease: UI_EASE }}
+            className={`pointer-events-auto relative overflow-hidden rounded-xl px-4 py-3 shadow-lg flex items-center justify-between gap-3 text-xs font-medium border ${
+              toast.tone === 'error'
+                ? 'bg-[#B42318] text-white border-[#912018]'
+                : toast.tone === 'info'
+                ? 'bg-[#1E2530] text-white border-[#2E3746]'
+                : 'bg-[#13171F] text-white border-[#252C38]'
+            }`}
           >
-            <X className="w-4 h-4" strokeWidth={1.5} />
-          </button>
-        </div>
-      ))}
+            <div className="flex items-center gap-2.5 min-w-0">
+              {toast.image ? (
+                <div className="w-8 h-8 rounded-lg bg-white overflow-hidden shrink-0 border border-white/15">
+                  <img
+                    src={toast.image}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : toast.tone === 'error' ? (
+                <AlertTriangle className="w-4 h-4 text-[#FDA29B] shrink-0" strokeWidth={1.5} />
+              ) : toast.tone === 'info' ? (
+                <Info className="w-4 h-4 text-[#93B4F5] shrink-0" strokeWidth={1.5} />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-[#6CE9A6] shrink-0" strokeWidth={1.5} />
+              )}
+              <div className="min-w-0 flex flex-col gap-1">
+                <span className="leading-5">{toast.message}</span>
+                {toast.actionHref && toast.actionLabel && (
+                  <a
+                    href={buildHref(toast.actionHref)}
+                    onClick={(e) =>
+                      handleLinkClick(e, toast.actionHref!, () => dismissToast(toast.id))
+                    }
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#93B4F5] hover:text-white transition-colors self-start"
+                  >
+                    <span>{toast.actionLabel}</span>
+                    <ArrowLeft className="w-3 h-3" strokeWidth={1.75} />
+                  </a>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => dismissToast(toast.id)}
+              aria-label="بستن اعلان"
+              className="text-white/70 hover:text-white transition-colors shrink-0"
+            >
+              <X className="w-4 h-4" strokeWidth={1.5} />
+            </button>
+            <motion.span
+              aria-hidden="true"
+              initial={{ scaleX: 1 }}
+              animate={{ scaleX: 0 }}
+              transition={{ duration: 4.1, ease: 'linear' }}
+              style={{ transformOrigin: 'right center' }}
+              className={`absolute bottom-0 left-0 right-0 h-[2px] ${
+                toast.tone === 'error'
+                  ? 'bg-[#FDA29B]/70'
+                  : toast.tone === 'info'
+                  ? 'bg-[#93B4F5]/70'
+                  : 'bg-[#6CE9A6]/75'
+              }`}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 };
@@ -131,6 +176,21 @@ const ToastStack: React.FC = () => {
 const StoreShell: React.FC = () => {
   const { route, compareIds } = useStore();
   const showCompareSpacer = compareIds.length > 0 && route.page !== 'compare';
+
+  const pageKey = (() => {
+    switch (route.page) {
+      case 'product':
+        return `product:${route.slug}`;
+      case 'public-profile':
+        return `profile:${route.username}`;
+      case 'order-confirmed':
+        return `order-confirmed:${route.code}`;
+      case 'tracking':
+        return `tracking:${route.code ?? ''}`;
+      default:
+        return route.page;
+    }
+  })();
 
   const renderPage = () => {
     switch (route.page) {
@@ -179,7 +239,16 @@ const StoreShell: React.FC = () => {
       <RouteTransitionBar />
       <Navbar />
       <TempCommitBanner />
-      <main className="flex-1">{renderPage()}</main>
+      <main className="flex-1">
+        <motion.div
+          key={pageKey}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2, ease: UI_EASE }}
+        >
+          {renderPage()}
+        </motion.div>
+      </main>
       <Footer />
       <CompareTray />
       <BackToTopButton />
@@ -191,9 +260,11 @@ const StoreShell: React.FC = () => {
 export default function App() {
   return (
     <StoreErrorBoundary>
-      <StoreProvider>
-        <StoreShell />
-      </StoreProvider>
+      <MotionConfig reducedMotion="user">
+        <StoreProvider>
+          <StoreShell />
+        </StoreProvider>
+      </MotionConfig>
     </StoreErrorBoundary>
   );
 }

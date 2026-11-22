@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   ChevronDown,
   Clock,
@@ -13,6 +14,7 @@ import { ProductCard } from '../components/ProductCard';
 import { ProductCardSkeleton, SkeletonBox } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
 import type { BrandId, CategoryId, CategoryItem, SortOption } from '../types/store';
+import { UI_EASE } from '../utils/motionHelpers';
 import {
   computeCatalogMaxPrice,
   extractAvailableBrands,
@@ -57,6 +59,7 @@ export const CatalogPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [extraVisibleCount, setExtraVisibleCount] = useState(0);
   const [localSearch, setLocalSearch] = useState(filters.searchQuery || '');
+  const [openFaqIndices, setOpenFaqIndices] = useState<number[]>([0, 1]);
 
   useEffect(() => {
     setLocalSearch(filters.searchQuery || '');
@@ -525,21 +528,29 @@ export const CatalogPage: React.FC = () => {
         </aside>
 
         {/* Mobile Filter Drawer */}
-        {mobileFiltersOpen && (
-          <div className="lg:hidden bg-white rounded-2xl border border-[#E4E8EE] p-5">
-            <div className="flex justify-end mb-2">
-              <button
-                type="button"
-                onClick={() => setMobileFiltersOpen(false)}
-                className="p-1.5 rounded-lg bg-[#F1F3F6] text-[#11161E]"
-                aria-label="بستن فیلترها"
-              >
-                <X className="w-4 h-4" strokeWidth={1.5} />
-              </button>
-            </div>
-            {filterSidebarContent}
-          </div>
-        )}
+        <AnimatePresence>
+          {mobileFiltersOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.2, ease: UI_EASE }}
+              className="lg:hidden bg-white rounded-2xl border border-[#E4E8EE] p-5"
+            >
+              <div className="flex justify-end mb-2">
+                <button
+                  type="button"
+                  onClick={() => setMobileFiltersOpen(false)}
+                  className="p-1.5 rounded-lg bg-[#F1F3F6] text-[#11161E]"
+                  aria-label="بستن فیلترها"
+                >
+                  <X className="w-4 h-4" strokeWidth={1.5} />
+                </button>
+              </div>
+              {filterSidebarContent}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Product Results Column */}
         <div className="lg:col-span-9 space-y-5">
@@ -563,20 +574,30 @@ export const CatalogPage: React.FC = () => {
 
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
                 <span className="text-xs font-medium text-[#4A5464] shrink-0">مرتب‌سازی</span>
-                {SORT_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setFilters((p) => ({ ...p, sortBy: opt.id }))}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                      filters.sortBy === opt.id
-                        ? 'bg-[#EEF3FC] text-[#1453D6]'
-                        : 'text-[#4A5464] hover:bg-[#F1F3F6] hover:text-[#11161E]'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+                {SORT_OPTIONS.map((opt) => {
+                  const active = filters.sortBy === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setFilters((p) => ({ ...p, sortBy: opt.id }))}
+                      className={`relative px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                        active
+                          ? 'text-[#1453D6]'
+                          : 'text-[#4A5464] hover:bg-[#F1F3F6] hover:text-[#11161E]'
+                      }`}
+                    >
+                      {active && (
+                        <motion.span
+                          layoutId="catalog-sort-active"
+                          transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                          className="absolute inset-0 rounded-lg bg-[#EEF3FC]"
+                        />
+                      )}
+                      <span className="relative z-10">{opt.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -865,25 +886,58 @@ export const CatalogPage: React.FC = () => {
             <h2 className="text-base font-semibold text-[#11161E]">
               پرسش‌های متداول پیش از خرید از فروشگاه موبایل امیر
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1.5">
-                <p className="text-xs font-semibold text-[#11161E] flex items-center justify-between">
-                  آیا تمام گوشی‌ها با کد رجیستری همتا ارسال می‌شوند؟
-                  <ChevronDown className="w-4 h-4 text-[#6E7889]" strokeWidth={1.5} />
-                </p>
-                <p className="text-xs text-[#4A5464] leading-6">
-                  بله؛ تمامی گوشی‌های هوشمند فروشگاه با پلمپ کارخانه و کد رجیستری رسمی سامانه همتا عرضه می‌شوند و هنگام تحویل به نام خریدار فعال می‌گردد.
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1.5">
-                <p className="text-xs font-semibold text-[#11161E] flex items-center justify-between">
-                  تفاوت گارانتی ۱۸ ماهه امیر سرویس چیست؟
-                  <ChevronDown className="w-4 h-4 text-[#6E7889]" strokeWidth={1.5} />
-                </p>
-                <p className="text-xs text-[#4A5464] leading-6">
-                  شامل ۷ روز ضمانت تعویض بی‌قید و شرط در صورت مغایرت فنی، پوشش قطعات اصلی و ارائه گوشی جایگزین در زمان تعمیرات تخصصی است.
-                </p>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+              {[
+                {
+                  q: 'آیا تمام گوشی‌ها با کد رجیستری همتا ارسال می‌شوند؟',
+                  a: 'بله؛ تمامی گوشی‌های هوشمند فروشگاه با پلمپ کارخانه و کد رجیستری رسمی سامانه همتا عرضه می‌شوند و هنگام تحویل به نام خریدار فعال می‌گردد.',
+                },
+                {
+                  q: 'تفاوت گارانتی ۱۸ ماهه امیر سرویس چیست؟',
+                  a: 'شامل ۷ روز ضمانت تعویض بی‌قید و شرط در صورت مغایرت فنی، پوشش قطعات اصلی و ارائه گوشی جایگزین در زمان تعمیرات تخصصی است.',
+                },
+              ].map((faq, idx) => {
+                const isOpen = openFaqIndices.includes(idx);
+                return (
+                  <div
+                    key={faq.q}
+                    className="rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      aria-expanded={isOpen}
+                      onClick={() =>
+                        setOpenFaqIndices((prev) =>
+                          prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+                        )
+                      }
+                      className="w-full p-4 text-xs font-semibold text-[#11161E] flex items-center justify-between gap-3 text-right hover:bg-[#F1F3F6]/70 transition-colors"
+                    >
+                      <span>{faq.q}</span>
+                      <motion.span
+                        animate={{ rotate: isOpen ? 180 : 0 }}
+                        transition={{ duration: 0.2, ease: UI_EASE }}
+                        className="shrink-0 text-[#6E7889]"
+                      >
+                        <ChevronDown className="w-4 h-4" strokeWidth={1.5} />
+                      </motion.span>
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {isOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2, ease: UI_EASE }}
+                          className="overflow-hidden"
+                        >
+                          <p className="px-4 pb-4 text-xs text-[#4A5464] leading-6">{faq.a}</p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

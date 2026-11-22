@@ -1,72 +1,86 @@
 import React from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { ArrowLeft, Scale, Trash2, X } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
+import { UI_EASE } from '../utils/motionHelpers';
 import { toPersianDigits } from '../utils/storeLogic';
 import { SmartImage } from './SmartImage';
 
 export const CompareTray: React.FC = () => {
   const { products, compareIds, toggleCompare, clearCompare, buildHref, handleLinkClick, route } = useStore();
 
-  if (compareIds.length === 0 || route.page === 'compare') {
-    return null;
-  }
-
   const selected = products.filter((p) => compareIds.includes(p.id));
-  if (selected.length === 0) return null;
+  const showTray = compareIds.length > 0 && route.page !== 'compare' && selected.length > 0;
 
   return (
-    <div
-      data-testid="compare-tray"
-      className="fixed bottom-4 right-4 left-4 md:left-auto md:right-6 md:max-w-xl z-40 no-print"
-    >
-      <div className="bg-[#13171F] text-white rounded-2xl border border-white/10 p-3.5 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-lg bg-[#1453D6] text-white flex items-center justify-center shrink-0">
-            <Scale className="w-4 h-4" strokeWidth={1.5} />
-          </div>
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
-            {selected.map((p) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-1.5 bg-white/10 rounded-lg pl-2 pr-1 py-1 shrink-0"
-              >
-                <div className="w-7 h-7 rounded-md overflow-hidden bg-white shrink-0">
-                  <SmartImage src={p.image} alt={p.nameFa} className="w-full h-full object-cover" />
-                </div>
-                <span className="text-[11px] font-medium max-w-[95px] truncate">{p.nameFa}</span>
-                <button
-                  type="button"
-                  onClick={() => toggleCompare(p.id)}
-                  aria-label={`حذف ${p.nameFa} از مقایسه`}
-                  className="text-white/70 hover:text-white transition-colors"
-                >
-                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
-                </button>
+    <AnimatePresence>
+      {showTray && (
+        <motion.div
+          data-testid="compare-tray"
+          initial={{ opacity: 0, y: 24, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 20, scale: 0.97 }}
+          transition={{ duration: 0.22, ease: UI_EASE }}
+          className="fixed bottom-4 right-4 left-4 md:left-auto md:right-6 md:max-w-xl z-40 no-print"
+        >
+          <div className="bg-[#13171F] text-white rounded-2xl border border-white/10 p-3.5 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-[#1453D6] text-white flex items-center justify-center shrink-0">
+                <Scale className="w-4 h-4" strokeWidth={1.5} />
               </div>
-            ))}
-          </div>
-        </div>
+              <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
+                <AnimatePresence initial={false}>
+                  {selected.map((p) => (
+                    <motion.div
+                      key={p.id}
+                      layout
+                      initial={{ opacity: 0, scale: 0.85 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      transition={{ duration: 0.16, ease: UI_EASE }}
+                      className="flex items-center gap-1.5 bg-white/10 rounded-lg pl-2 pr-1 py-1 shrink-0"
+                    >
+                      <div className="w-7 h-7 rounded-md overflow-hidden bg-white shrink-0">
+                        <SmartImage src={p.image} alt={p.nameFa} className="w-full h-full object-cover" />
+                      </div>
+                      <span className="text-[11px] font-medium max-w-[95px] truncate">{p.nameFa}</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleCompare(p.id)}
+                        aria-label={`حذف ${p.nameFa} از مقایسه`}
+                        className="text-white/70 hover:text-white transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" strokeWidth={1.5} />
+                      </button>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
+            </div>
 
-        <div className="flex items-center gap-2 shrink-0 justify-end">
-          <button
-            type="button"
-            onClick={clearCompare}
-            aria-label="پاک کردن لیست مقایسه"
-            className="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 inline-flex items-center justify-center transition-colors"
-          >
-            <Trash2 className="w-4 h-4" strokeWidth={1.5} />
-          </button>
-          <a
-            href={buildHref('/compare')}
-            onClick={(e) => handleLinkClick(e, '/compare')}
-            data-testid="open-compare-page-btn"
-            className="h-9 px-4 rounded-lg bg-white hover:bg-[#F1F3F6] text-[#11161E] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
-          >
-            <span>مقایسه ({toPersianDigits(selected.length)} از ۳)</span>
-            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={1.5} />
-          </a>
-        </div>
-      </div>
-    </div>
+            <div className="flex items-center gap-2 shrink-0 justify-end">
+              <motion.button
+                type="button"
+                whileTap={{ scale: 0.92 }}
+                onClick={clearCompare}
+                aria-label="پاک کردن لیست مقایسه"
+                className="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 inline-flex items-center justify-center transition-colors"
+              >
+                <Trash2 className="w-4 h-4" strokeWidth={1.5} />
+              </motion.button>
+              <a
+                href={buildHref('/compare')}
+                onClick={(e) => handleLinkClick(e, '/compare')}
+                data-testid="open-compare-page-btn"
+                className="h-9 px-4 rounded-lg bg-white hover:bg-[#F1F3F6] text-[#11161E] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+              >
+                <span>مقایسه ({toPersianDigits(selected.length)} از ۳)</span>
+                <ArrowLeft className="w-3.5 h-3.5" strokeWidth={1.5} />
+              </a>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 };

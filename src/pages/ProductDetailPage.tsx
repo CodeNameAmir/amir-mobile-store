@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowLeft,
   Bell,
   Calculator,
   CalendarClock,
   Camera,
+  Check,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -33,6 +35,8 @@ import { useStore } from '../context/StoreContext';
 import { hydrateProduct } from '../data/catalog';
 import { storeApi } from '../lib/authApi';
 import type { CategoryId, Product, ProductReview } from '../types/store';
+import { UI_EASE } from '../utils/motionHelpers';
+import { useTemporarilyAdded } from '../utils/useTemporarilyAdded';
 import {
   calculateCareInsurancePrice,
   calculateInstallmentPlan,
@@ -120,6 +124,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState('');
   const [useReviewUsername, setUseReviewUsername] = useState(true);
+  const { recentlyAdded, triggerAdded } = useTemporarilyAdded(2000);
 
   useEffect(() => {
     if (user?.fullName && !reviewAuthor.trim()) {
@@ -298,7 +303,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       stockCount: effectiveStockCount,
       qty,
     });
-    if (goToCart) {
+    if (!goToCart) {
+      triggerAdded();
+    } else {
       navigate('/cart');
     }
   };
@@ -361,21 +368,33 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         {/* Col 1: Product Multi-Image Gallery Slider */}
         <div className="lg:col-span-4 space-y-3">
           <div className="relative aspect-square rounded-xl bg-[#F3F5F8] border border-[#E4E8EE] overflow-hidden p-4">
-            <SmartImage
-              src={currentGalleryImg}
-              alt={`${product.nameFa} - تصویر ${toPersianDigits(activeImageIndex + 1)}`}
-              loading="eager"
-              data-testid="pdp-main-image"
-              className="w-full h-full object-cover rounded-lg transition-opacity duration-200"
-            />
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={currentGalleryImg}
+                initial={{ opacity: 0.35, scale: 0.985 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0.35, scale: 0.985 }}
+                transition={{ duration: 0.2, ease: UI_EASE }}
+                className="w-full h-full"
+              >
+                <SmartImage
+                  src={currentGalleryImg}
+                  alt={`${product.nameFa} - تصویر ${toPersianDigits(activeImageIndex + 1)}`}
+                  loading="eager"
+                  data-testid="pdp-main-image"
+                  className="w-full h-full object-cover rounded-lg"
+                />
+              </motion.div>
+            </AnimatePresence>
             {product.discountPercent && product.inStock && (
               <span className="absolute top-4 right-4 px-2.5 py-1 rounded-md bg-[#FDF1E8] border border-[#F5D6BE] text-[#A84500] text-xs font-medium tabular-nums-fa">
                 {toPersianDigits(product.discountPercent)}٪ تخفیف ویژه
               </span>
             )}
             <div className="absolute top-4 left-4 flex flex-col gap-2">
-              <button
+              <motion.button
                 type="button"
+                whileTap={{ scale: 0.88 }}
                 onClick={() => toggleWishlist(product.id)}
                 aria-label="افزودن به علاقه‌مندی‌ها"
                 className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-colors ${
@@ -384,10 +403,19 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     : 'bg-white border-[#E4E8EE] text-[#4A5464] hover:text-[#B42318]'
                 }`}
               >
-                <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-current' : ''}`} strokeWidth={1.5} />
-              </button>
-              <button
+                <motion.span
+                  key={isWishlisted ? 'liked' : 'unliked'}
+                  initial={isWishlisted ? { scale: 0.55 } : false}
+                  animate={{ scale: 1 }}
+                  transition={{ type: 'spring', stiffness: 480, damping: 18 }}
+                  className="inline-flex items-center justify-center"
+                >
+                  <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-current' : ''}`} strokeWidth={1.5} />
+                </motion.span>
+              </motion.button>
+              <motion.button
                 type="button"
+                whileTap={{ scale: 0.88 }}
                 data-testid="pdp-compare-toggle"
                 onClick={() => toggleCompare(product.id)}
                 aria-label="افزودن به مقایسه"
@@ -399,9 +427,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 }`}
               >
                 <Scale className="w-4 h-4" strokeWidth={1.5} />
-              </button>
-              <button
+              </motion.button>
+              <motion.button
                 type="button"
+                whileTap={{ scale: 0.88 }}
                 data-testid="pdp-share-btn"
                 onClick={handleShareProduct}
                 aria-label="اشتراک‌گذاری محصول"
@@ -409,7 +438,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 className="w-9 h-9 rounded-lg bg-white border border-[#E4E8EE] text-[#4A5464] hover:text-[#1453D6] flex items-center justify-center transition-colors"
               >
                 <Share2 className="w-4 h-4" strokeWidth={1.5} />
-              </button>
+              </motion.button>
             </div>
 
             {galleryImages.length > 1 && (
@@ -534,13 +563,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               {product.colors.map((color) => {
                 const selected = color.id === activeColor?.id;
                 return (
-                  <button
+                  <motion.button
                     key={color.id}
                     type="button"
+                    whileTap={{ scale: 0.95 }}
                     onClick={() => setSelectedColorId(color.id)}
                     className={`px-3 py-2 rounded-lg border text-xs font-medium inline-flex items-center gap-2 transition-colors ${
                       selected
-                        ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6]'
+                        ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6] ring-1 ring-[#1453D6]/20'
                         : 'border-[#E4E8EE] bg-white text-[#4A5464] hover:border-[#C5CEDB]'
                     }`}
                   >
@@ -549,7 +579,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                       style={{ backgroundColor: color.hex }}
                     />
                     <span>{color.name}</span>
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
@@ -562,20 +592,21 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               {product.storageOptions.map((opt) => {
                 const selected = opt.label === selectedStorage;
                 return (
-                  <button
+                  <motion.button
                     key={opt.label}
                     type="button"
+                    whileTap={{ scale: 0.97 }}
                     data-testid={`variant-storage-${opt.label}`}
                     onClick={() => setSelectedStorage(opt.label)}
                     className={`p-3 rounded-lg border text-right transition-colors ${
                       selected
-                        ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6]'
+                        ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6] ring-1 ring-[#1453D6]/20'
                         : 'border-[#E4E8EE] bg-white text-[#11161E] hover:border-[#C5CEDB]'
                     }`}
                   >
                     <p className="text-xs font-semibold">{opt.label}</p>
                     <p className="text-[11px] text-[#4A5464] mt-0.5">{opt.subtitle}</p>
-                  </button>
+                  </motion.button>
                 );
               })}
             </div>
@@ -745,46 +776,86 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 <div className="flex items-center justify-between bg-white rounded-lg border border-[#E4E8EE] p-2">
                   <span className="text-xs font-medium text-[#4A5464] pr-2">تعداد</span>
                   <div className="flex items-center gap-2">
-                    <button
+                    <motion.button
                       type="button"
+                      whileTap={{ scale: 0.9 }}
                       onClick={() => setQty((q) => Math.max(1, q - 1))}
                       aria-label="کاهش تعداد"
                       className="w-8 h-8 rounded-lg bg-[#F1F3F6] text-[#11161E] flex items-center justify-center hover:bg-[#EAECEF]"
                     >
                       <Minus className="w-4 h-4" strokeWidth={1.5} />
-                    </button>
-                    <span className="w-6 text-center text-sm font-semibold tabular-nums-fa">
-                      {toPersianDigits(qty)}
+                    </motion.button>
+                    <span className="w-6 text-center text-sm font-semibold tabular-nums-fa overflow-hidden inline-flex items-center justify-center">
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        <motion.span
+                          key={qty}
+                          initial={{ y: -8, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          exit={{ y: 8, opacity: 0 }}
+                          transition={{ duration: 0.14, ease: UI_EASE }}
+                        >
+                          {toPersianDigits(qty)}
+                        </motion.span>
+                      </AnimatePresence>
                     </span>
-                    <button
+                    <motion.button
                       type="button"
+                      whileTap={{ scale: 0.9 }}
                       onClick={() => setQty((q) => Math.min(effectiveStockCount || 5, q + 1))}
                       aria-label="افزایش تعداد"
                       className="w-8 h-8 rounded-lg bg-[#F1F3F6] text-[#11161E] flex items-center justify-center hover:bg-[#EAECEF]"
                     >
                       <Plus className="w-4 h-4" strokeWidth={1.5} />
-                    </button>
+                    </motion.button>
                   </div>
                 </div>
 
                 <div className="space-y-2.5">
-                  <button
+                  <motion.button
                     type="button"
+                    whileTap={{ scale: 0.97 }}
                     data-testid="pdp-add-to-cart"
+                    data-added={recentlyAdded ? 'true' : undefined}
                     onClick={() => handleAddToCart(false)}
-                    className="w-full h-11 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors"
+                    className={`w-full h-11 rounded-lg text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors ${
+                      recentlyAdded
+                        ? 'bg-[#067647] hover:bg-[#05603A] text-white'
+                        : 'bg-[#1453D6] hover:bg-[#0F44B5] text-white'
+                    }`}
                   >
-                    <ShoppingBag className="w-4 h-4" strokeWidth={1.5} />
-                    <span>افزودن به سبد خرید</span>
-                  </button>
-                  <button
+                    {recentlyAdded ? (
+                      <motion.span
+                        key="added"
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.18, ease: UI_EASE }}
+                        className="inline-flex items-center gap-2"
+                      >
+                        <Check className="w-4 h-4" strokeWidth={2} />
+                        <span>به سبد اضافه شد</span>
+                      </motion.span>
+                    ) : (
+                      <motion.span
+                        key="default"
+                        initial={{ opacity: 0.2, y: 4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.16, ease: UI_EASE }}
+                        className="inline-flex items-center gap-2"
+                      >
+                        <ShoppingBag className="w-4 h-4" strokeWidth={1.5} />
+                        <span>افزودن به سبد خرید</span>
+                      </motion.span>
+                    )}
+                  </motion.button>
+                  <motion.button
                     type="button"
+                    whileTap={{ scale: 0.98 }}
                     onClick={() => handleAddToCart(true)}
                     className="w-full h-10 rounded-lg bg-white hover:bg-[#EEF3FC] border border-[#DCE1E8] text-[#1453D6] text-xs font-medium inline-flex items-center justify-center gap-2 transition-colors"
                   >
                     <span>خرید فوری و مشاهده سبد</span>
                     <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
-                  </button>
+                  </motion.button>
                 </div>
 
                 {/* Inline Installment Preview */}
@@ -837,33 +908,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {complementaryItems.map((acc) => (
-              <div
+              <ComplementaryAccessoryCard
                 key={acc.id}
-                className="bg-white rounded-xl border border-[#E4E8EE] p-4 flex items-center gap-4"
-              >
-                <div className="w-20 h-20 rounded-lg bg-[#F3F5F8] overflow-hidden shrink-0">
-                  <SmartImage src={acc.image} alt={acc.nameFa} className="w-full h-full object-cover" />
-                </div>
-                <div className="flex-1 min-w-0 space-y-1">
-                  <a
-                    href={buildHref(`/product/${acc.slug}`)}
-                    onClick={(e) => handleLinkClick(e, `/product/${acc.slug}`)}
-                    className="text-xs font-semibold text-[#11161E] hover:text-[#1453D6] line-clamp-2 text-right block"
-                  >
-                    {acc.nameFa}
-                  </a>
-                  <p className="text-xs font-semibold text-[#1453D6] tabular-nums-fa">
-                    {formatToman(acc.price)} تومان
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => addToCart(acc)}
-                  className="px-3 py-2 rounded-lg bg-[#F1F3F6] hover:bg-[#1453D6] text-[#11161E] hover:text-white text-xs font-medium shrink-0 transition-colors"
-                >
-                  افزودن
-                </button>
-              </div>
+                acc={acc}
+                buildHref={buildHref}
+                handleLinkClick={handleLinkClick}
+                onAdd={() => addToCart(acc)}
+              />
             ))}
           </div>
         </section>
@@ -883,20 +934,35 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
+              className={`relative px-4 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
                 activeTab === tab.id
-                  ? 'border-[#1453D6] text-[#1453D6]'
-                  : 'border-transparent text-[#4A5464] hover:text-[#11161E]'
+                  ? 'text-[#1453D6]'
+                  : 'text-[#4A5464] hover:text-[#11161E]'
               }`}
             >
-              {tab.label}
+              <span>{tab.label}</span>
+              {activeTab === tab.id && (
+                <motion.span
+                  layoutId="pdp-active-tab-line"
+                  transition={{ type: 'spring', stiffness: 450, damping: 34 }}
+                  className="absolute bottom-0 right-0 left-0 h-[2px] bg-[#1453D6]"
+                />
+              )}
             </button>
           ))}
         </div>
 
         <div className="p-6 sm:p-8">
-          {activeTab === 'specs' && (
-            <div className="space-y-6">
+          <AnimatePresence mode="wait" initial={false}>
+            {activeTab === 'specs' && (
+              <motion.div
+                key="tab-specs"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.16, ease: UI_EASE }}
+                className="space-y-6"
+              >
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs sm:text-sm">
                 {[
                   { k: 'نمایشگر و پنل', v: `${product.specs.display} — ${product.specs.displayDetails}` },
@@ -954,11 +1020,18 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
 
           {activeTab === 'review' && (
-            <div className="space-y-4 text-sm text-[#11161E] leading-8 max-w-3xl">
+            <motion.div
+              key="tab-review"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.16, ease: UI_EASE }}
+              className="space-y-4 text-sm text-[#11161E] leading-8 max-w-3xl"
+            >
               <h3 className="text-base font-semibold">تحلیل تیم فنی فروشگاه موبایل امیر</h3>
               <p className="text-[#4A5464]">
                 محصول <span className="font-semibold text-[#11161E]">{product.nameFa}</span> یکی از ارزشمندترین گزینه‌های رده خود در بازار ایران است. واحد کنترل کیفیت ۱۸ مرحله‌ای امیر پیش از پلمپ و ارسال نهایی، اصالت پارت‌نامبر، سلامت بسته‌بندی و وضعیت استعلام در سامانه همتا را تایید می‌کند.
@@ -977,11 +1050,18 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   </p>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {activeTab === 'comments' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <motion.div
+              key="tab-comments"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.16, ease: UI_EASE }}
+              className="grid grid-cols-1 lg:grid-cols-12 gap-8"
+            >
               <div className="lg:col-span-7 space-y-4">
                 {reviewsLoading && reviews.length === 0 ? (
                   <div className="space-y-4" aria-busy="true" aria-label="در حال بارگذاری دیدگاه‌ها">
@@ -1090,8 +1170,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   {submittingReview ? 'در حال ثبت دیدگاه...' : 'ارسال دیدگاه'}
                 </button>
               </form>
-            </div>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
       </section>
 
@@ -1106,6 +1187,57 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
           </div>
         </section>
       )}
+    </div>
+  );
+};
+
+const ComplementaryAccessoryCard: React.FC<{
+  acc: Product;
+  buildHref: (to: string) => string;
+  handleLinkClick: (e: React.MouseEvent<HTMLAnchorElement>, to: string) => void;
+  onAdd: () => void;
+}> = ({ acc, buildHref, handleLinkClick, onAdd }) => {
+  const { recentlyAdded, triggerAdded } = useTemporarilyAdded(1400);
+
+  return (
+    <div className="card-lift bg-white rounded-xl border border-[#E4E8EE] hover:border-[#C5CEDB] hover:shadow-sm p-4 flex items-center gap-4">
+      <div className="w-20 h-20 rounded-lg bg-[#F3F5F8] overflow-hidden shrink-0">
+        <SmartImage src={acc.image} alt={acc.nameFa} className="w-full h-full object-cover" />
+      </div>
+      <div className="flex-1 min-w-0 space-y-1">
+        <a
+          href={buildHref(`/product/${acc.slug}`)}
+          onClick={(e) => handleLinkClick(e, `/product/${acc.slug}`)}
+          className="text-xs font-semibold text-[#11161E] hover:text-[#1453D6] line-clamp-2 text-right block"
+        >
+          {acc.nameFa}
+        </a>
+        <p className="text-xs font-semibold text-[#1453D6] tabular-nums-fa">
+          {formatToman(acc.price)} تومان
+        </p>
+      </div>
+      <motion.button
+        type="button"
+        whileTap={{ scale: 0.94 }}
+        onClick={() => {
+          onAdd();
+          triggerAdded();
+        }}
+        className={`px-3 py-2 rounded-lg text-xs font-medium shrink-0 transition-colors inline-flex items-center gap-1 ${
+          recentlyAdded
+            ? 'bg-[#ECFDF3] border border-[#ABEFC6] text-[#067647]'
+            : 'bg-[#F1F3F6] hover:bg-[#1453D6] text-[#11161E] hover:text-white'
+        }`}
+      >
+        {recentlyAdded ? (
+          <>
+            <Check className="w-3.5 h-3.5" strokeWidth={2} />
+            <span>اضافه شد</span>
+          </>
+        ) : (
+          <span>افزودن</span>
+        )}
+      </motion.button>
     </div>
   );
 };

@@ -84,9 +84,13 @@ export default defineConfig(() => {
       __APP_BUILD_INFO__: JSON.stringify(buildInfo),
     },
     resolve: {
+      dedupe: ['react', 'react-dom'],
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),
       },
+    },
+    optimizeDeps: {
+      include: ['react', 'react-dom', 'react-dom/client', 'motion/react', 'lucide-react'],
     },
     server: {
       allowedHosts: true as const,

@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowLeft,
+  Check,
   Plus,
   Scale,
   ShoppingBag,
@@ -12,7 +14,112 @@ import { ComparePageSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import type { Product } from '../types/store';
+import { UI_EASE } from '../utils/motionHelpers';
 import { formatToman, toPersianDigits } from '../utils/storeLogic';
+import { useTemporarilyAdded } from '../utils/useTemporarilyAdded';
+
+interface CompareProductHeaderCardProps {
+  product: Product;
+  href: string;
+  onNavigate: (e: React.MouseEvent<HTMLAnchorElement>, path: string) => void;
+  onRemove: (id: string) => void;
+  onAddToCart: (product: Product) => void;
+}
+
+const CompareProductHeaderCard: React.FC<CompareProductHeaderCardProps> = ({
+  product,
+  href,
+  onNavigate,
+  onRemove,
+  onAddToCart,
+}) => {
+  const { recentlyAdded, triggerAdded } = useTemporarilyAdded(1400);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: UI_EASE }}
+      className="bg-white rounded-xl border border-[#E4E8EE] p-4 space-y-3 relative card-lift"
+    >
+      <motion.button
+        type="button"
+        whileTap={{ scale: 0.88 }}
+        onClick={() => onRemove(product.id)}
+        aria-label={`حذف ${product.nameFa}`}
+        className="absolute top-2.5 left-2.5 w-7 h-7 rounded-lg bg-[#F1F3F6] hover:bg-[#FEF3F2] text-[#4A5464] hover:text-[#B42318] flex items-center justify-center transition-colors z-10"
+      >
+        <X className="w-3.5 h-3.5" strokeWidth={1.5} />
+      </motion.button>
+      <div className="aspect-[4/3] rounded-lg bg-[#F3F5F8] overflow-hidden">
+        <SmartImage
+          src={product.image}
+          alt={product.nameFa}
+          className="w-full h-full object-cover"
+        />
+      </div>
+      <a
+        href={href}
+        onClick={(e) => onNavigate(e, `/product/${product.slug}`)}
+        className="text-xs font-semibold text-[#11161E] hover:text-[#1453D6] text-right line-clamp-2 leading-5 min-h-[40px] block"
+      >
+        {product.nameFa}
+      </a>
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="inline-flex items-center gap-1 font-medium text-[#11161E] tabular-nums-fa">
+          <Star className="w-3.5 h-3.5 text-[#A84500] fill-[#A84500]" strokeWidth={1.5} />
+          {toPersianDigits(product.rating)}
+        </span>
+        <span className="font-semibold text-[#1453D6] tabular-nums-fa">
+          {formatToman(product.price)} تومان
+        </span>
+      </div>
+      <motion.button
+        type="button"
+        whileTap={{ scale: 0.96 }}
+        disabled={!product.inStock}
+        data-added={recentlyAdded ? 'true' : undefined}
+        onClick={() => {
+          onAddToCart(product);
+          triggerAdded();
+        }}
+        className={`w-full h-9 rounded-lg disabled:opacity-50 text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors ${
+          recentlyAdded
+            ? 'bg-[#ECFDF3] border border-[#ABEFC6] text-[#067647]'
+            : 'bg-[#1453D6] hover:bg-[#0F44B5] text-white'
+        }`}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          {recentlyAdded ? (
+            <motion.span
+              key="added"
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.85 }}
+              transition={{ duration: 0.16, ease: UI_EASE }}
+              className="inline-flex items-center gap-1.5"
+            >
+              <Check className="w-3.5 h-3.5" strokeWidth={2} />
+              <span>اضافه شد</span>
+            </motion.span>
+          ) : (
+            <motion.span
+              key="add"
+              initial={{ opacity: 0, scale: 0.85 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.85 }}
+              transition={{ duration: 0.14, ease: UI_EASE }}
+              className="inline-flex items-center gap-1.5"
+            >
+              <ShoppingBag className="w-3.5 h-3.5" strokeWidth={1.5} />
+              <span>{product.inStock ? 'افزودن به سبد' : 'ناموجود'}</span>
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </motion.button>
+    </motion.div>
+  );
+};
 
 interface CompareRow {
   key: string;
@@ -187,48 +294,13 @@ export const ComparePage: React.FC = () => {
                   </th>
                   {selectedProducts.map((product) => (
                     <th key={product.id} className="p-5 align-top min-w-[210px]">
-                      <div className="bg-white rounded-xl border border-[#E4E8EE] p-4 space-y-3 relative">
-                        <button
-                          type="button"
-                          onClick={() => toggleCompare(product.id)}
-                          aria-label={`حذف ${product.nameFa}`}
-                          className="absolute top-2.5 left-2.5 w-7 h-7 rounded-lg bg-[#F1F3F6] hover:bg-[#FEF3F2] text-[#4A5464] hover:text-[#B42318] flex items-center justify-center transition-colors"
-                        >
-                          <X className="w-3.5 h-3.5" strokeWidth={1.5} />
-                        </button>
-                        <div className="aspect-[4/3] rounded-lg bg-[#F3F5F8] overflow-hidden">
-                          <SmartImage
-                            src={product.image}
-                            alt={product.nameFa}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <a
-                          href={buildHref(`/product/${product.slug}`)}
-                          onClick={(e) => handleLinkClick(e, `/product/${product.slug}`)}
-                          className="text-xs font-semibold text-[#11161E] hover:text-[#1453D6] text-right line-clamp-2 leading-5 min-h-[40px] block"
-                        >
-                          {product.nameFa}
-                        </a>
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="inline-flex items-center gap-1 font-medium text-[#11161E] tabular-nums-fa">
-                            <Star className="w-3.5 h-3.5 text-[#A84500] fill-[#A84500]" strokeWidth={1.5} />
-                            {toPersianDigits(product.rating)}
-                          </span>
-                          <span className="font-semibold text-[#1453D6] tabular-nums-fa">
-                            {formatToman(product.price)} تومان
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={!product.inStock}
-                          onClick={() => addToCart(product)}
-                          className="w-full h-9 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-50 text-white text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors"
-                        >
-                          <ShoppingBag className="w-3.5 h-3.5" strokeWidth={1.5} />
-                          <span>{product.inStock ? 'افزودن به سبد' : 'ناموجود'}</span>
-                        </button>
-                      </div>
+                      <CompareProductHeaderCard
+                        product={product}
+                        href={buildHref(`/product/${product.slug}`)}
+                        onNavigate={handleLinkClick}
+                        onRemove={toggleCompare}
+                        onAddToCart={(prod) => addToCart(prod)}
+                      />
                     </th>
                   ))}
                 </tr>

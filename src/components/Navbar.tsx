@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   Calculator,
   Clock,
@@ -19,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import type { CategoryId } from '../types/store';
+import { UI_EASE } from '../utils/motionHelpers';
 import {
   buildSearchSuggestions,
   formatToman,
@@ -50,6 +52,7 @@ export const Navbar: React.FC = () => {
     removeRecentSearch,
     clearRecentSearches,
     cartSummary,
+    cartPulseTick,
     compareIds,
     storeSettings,
     user,
@@ -58,11 +61,19 @@ export const Navbar: React.FC = () => {
   const [searchValue, setSearchValue] = useState(filters.searchQuery || '');
   const [searchFocused, setSearchFocused] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [cartPulsing, setCartPulsing] = useState(false);
   const blurTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     setSearchValue(filters.searchQuery || '');
   }, [filters.searchQuery]);
+
+  useEffect(() => {
+    if (cartPulseTick <= 0) return;
+    setCartPulsing(true);
+    const timer = window.setTimeout(() => setCartPulsing(false), 450);
+    return () => window.clearTimeout(timer);
+  }, [cartPulseTick]);
 
   const navLinks = useMemo<NavEntry[]>(() => {
     const activeRoots = categories
@@ -263,11 +274,16 @@ export const Navbar: React.FC = () => {
               )}
             </form>
 
-            {showRecentPanel && (
-              <div
-                data-testid="recent-searches-dropdown"
-                className="absolute top-12 right-0 left-0 bg-white rounded-xl border border-[#E4E8EE] shadow-md overflow-hidden z-50 p-4 space-y-3"
-              >
+            <AnimatePresence>
+              {showRecentPanel && (
+                <motion.div
+                  data-testid="recent-searches-dropdown"
+                  initial={{ opacity: 0, y: -6, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.985 }}
+                  transition={{ duration: 0.16, ease: UI_EASE }}
+                  className="absolute top-12 right-0 left-0 bg-white rounded-xl border border-[#E4E8EE] shadow-md overflow-hidden z-50 p-4 space-y-3"
+                >
                 <div className="flex items-center justify-between text-xs font-medium text-[#4A5464]">
                   <span className="inline-flex items-center gap-2">
                     <Clock className="w-4 h-4 text-[#6E7889]" strokeWidth={1.5} />
@@ -344,14 +360,20 @@ export const Navbar: React.FC = () => {
                     ))}
                   </div>
                 </div>
-              </div>
-            )}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-            {showSuggestionsPanel && (
-              <div
-                data-testid="live-search-dropdown"
-                className="absolute top-12 right-0 left-0 bg-white rounded-xl border border-[#E4E8EE] shadow-md overflow-hidden z-50"
-              >
+            <AnimatePresence>
+              {showSuggestionsPanel && (
+                <motion.div
+                  data-testid="live-search-dropdown"
+                  initial={{ opacity: 0, y: -6, scale: 0.985 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.985 }}
+                  transition={{ duration: 0.16, ease: UI_EASE }}
+                  className="absolute top-12 right-0 left-0 bg-white rounded-xl border border-[#E4E8EE] shadow-md overflow-hidden z-50"
+                >
                 {(suggestions.brands.length > 0 || suggestions.categories.length > 0) && (
                   <div className="p-2.5 bg-[#F7F8FA] border-b border-[#E4E8EE] flex flex-wrap gap-2">
                     {suggestions.brands.map((brand) => (
@@ -468,8 +490,9 @@ export const Navbar: React.FC = () => {
                 >
                   مشاهده همه نتایج برای «{searchValue}»
                 </button>
-              </div>
-            )}
+              </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Left side: Admin Link, Tracking, Account & Cart CTA */}
@@ -523,21 +546,47 @@ export const Navbar: React.FC = () => {
               )}
             </a>
 
-            <a
+            <motion.a
               href={buildHref('/cart')}
               onClick={(e) => handleLinkClick(e, '/cart')}
               data-testid="nav-cart-btn"
-              className="inline-flex items-center gap-2 h-10 px-3.5 md:px-4 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs md:text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+              animate={
+                cartPulsing
+                  ? { scale: [1, 1.08, 0.97, 1] }
+                  : { scale: 1 }
+              }
+              whileTap={{ scale: 0.96 }}
+              transition={{ duration: 0.36, ease: UI_EASE }}
+              className={`relative inline-flex items-center gap-2 h-10 px-3.5 md:px-4 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs md:text-sm font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                cartPulsing ? 'ring-4 ring-[#1453D6]/25' : ''
+              }`}
             >
-              <ShoppingBag className="w-4 h-4" strokeWidth={1.5} />
+              <motion.span
+                animate={cartPulsing ? { rotate: [0, -14, 12, -5, 0] } : { rotate: 0 }}
+                transition={{ duration: 0.4, ease: UI_EASE }}
+                className="inline-flex items-center justify-center"
+              >
+                <ShoppingBag className="w-4 h-4" strokeWidth={1.5} />
+              </motion.span>
               <span className="hidden sm:inline">سبد خرید</span>
               <span
                 data-testid="cart-badge-count"
-                className="min-w-[20px] h-5 px-1.5 rounded-md bg-white/15 text-white text-xs font-medium inline-flex items-center justify-center tabular-nums-fa"
+                className="min-w-[20px] h-5 px-1.5 rounded-md bg-white/15 text-white text-xs font-medium inline-flex items-center justify-center tabular-nums-fa overflow-hidden"
               >
-                {toPersianDigits(cartSummary.itemCount)}
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.span
+                    key={cartSummary.itemCount}
+                    initial={{ y: -8, opacity: 0, scale: 0.7 }}
+                    animate={{ y: 0, opacity: 1, scale: 1 }}
+                    exit={{ y: 8, opacity: 0, scale: 0.7 }}
+                    transition={{ duration: 0.18, ease: UI_EASE }}
+                    className="inline-block"
+                  >
+                    {toPersianDigits(cartSummary.itemCount)}
+                  </motion.span>
+                </AnimatePresence>
               </span>
-            </a>
+            </motion.a>
           </div>
         </div>
 
@@ -551,26 +600,35 @@ export const Navbar: React.FC = () => {
               {navLinks.map((item) => {
                 const active = isNavItemActive(item);
                 return (
-                  <li key={item.key} className="shrink-0">
+                  <li key={item.key} className="shrink-0 relative">
                     <a
                       href={buildHref(item.href)}
                       onClick={(e) => handleNavClick(e, item)}
-                      className={`px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+                      className={`relative px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
                         active
-                          ? 'bg-[#EEF3FC] text-[#1453D6]'
+                          ? 'text-[#1453D6]'
                           : item.accent
                           ? 'text-[#A84500] hover:bg-[#FDF1E8]'
                           : 'text-[#4A5464] hover:text-[#11161E] hover:bg-[#F1F3F6]'
                       }`}
                     >
-                      {item.icon === 'compare' && <Scale className="w-4 h-4" strokeWidth={1.5} />}
-                      {item.icon === 'installments' && <Calculator className="w-4 h-4" strokeWidth={1.5} />}
-                      <span>{item.label}</span>
-                      {item.icon === 'compare' && compareIds.length > 0 && (
-                        <span className="px-1.5 py-0.5 rounded bg-[#1453D6] text-white text-[10px] font-medium tabular-nums-fa">
-                          {toPersianDigits(compareIds.length)}
-                        </span>
+                      {active && (
+                        <motion.span
+                          layoutId="navbar-cat-active"
+                          transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+                          className="absolute inset-0 rounded-lg bg-[#EEF3FC] -z-0"
+                        />
                       )}
+                      <span className="relative z-10 inline-flex items-center gap-1.5">
+                        {item.icon === 'compare' && <Scale className="w-4 h-4" strokeWidth={1.5} />}
+                        {item.icon === 'installments' && <Calculator className="w-4 h-4" strokeWidth={1.5} />}
+                        <span>{item.label}</span>
+                        {item.icon === 'compare' && compareIds.length > 0 && (
+                          <span className="px-1.5 py-0.5 rounded bg-[#1453D6] text-white text-[10px] font-medium tabular-nums-fa">
+                            {toPersianDigits(compareIds.length)}
+                          </span>
+                        )}
+                      </span>
                     </a>
                   </li>
                 );
@@ -604,90 +662,98 @@ export const Navbar: React.FC = () => {
         </nav>
 
         {/* Mobile Drawer */}
-        {mobileMenuOpen && (
-          <div className="lg:hidden border-t border-[#E4E8EE] bg-white px-4 py-4 space-y-4 shadow-md">
-            <form onSubmit={handleSearchSubmit} className="relative">
-              <input
-                type="search"
-                value={searchValue}
-                onChange={(e) => setSearchValue(e.target.value)}
-                placeholder="جستجوی موبایل، برند یا لوازم جانبی"
-                className="w-full h-10 pr-10 pl-3 rounded-lg bg-[#F1F3F6] text-sm text-[#11161E] placeholder:text-[#6E7889] focus:outline-none focus:ring-2 focus:ring-[#1453D6]"
-              />
-              <Search className="w-4 h-4 text-[#6E7889] absolute right-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
-            </form>
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.18, ease: UI_EASE }}
+              className="lg:hidden border-t border-[#E4E8EE] bg-white px-4 py-4 space-y-4 shadow-md"
+            >
+              <form onSubmit={handleSearchSubmit} className="relative">
+                <input
+                  type="search"
+                  value={searchValue}
+                  onChange={(e) => setSearchValue(e.target.value)}
+                  placeholder="جستجوی موبایل، برند یا لوازم جانبی"
+                  className="w-full h-10 pr-10 pl-3 rounded-lg bg-[#F1F3F6] text-sm text-[#11161E] placeholder:text-[#6E7889] focus:outline-none focus:ring-2 focus:ring-[#1453D6]"
+                />
+                <Search className="w-4 h-4 text-[#6E7889] absolute right-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
+              </form>
 
-            {recentSearches.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] font-medium text-[#4A5464]">اخیر</span>
-                {recentSearches.slice(0, 4).map((q) => (
-                  <button
-                    key={q}
-                    type="button"
-                    onClick={() => {
-                      setMobileMenuOpen(false);
-                      navigateToCatalog({ category: 'all', searchQuery: q });
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-[#F1F3F6] text-[11px] font-medium text-[#11161E]"
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2">
-              {navLinks.map((item) => (
-                <a
-                  key={item.key}
-                  href={buildHref(item.href)}
-                  onClick={(e) => handleNavClick(e, item)}
-                  className={`text-right px-3 py-2.5 rounded-lg text-xs font-medium transition-colors ${
-                    isNavItemActive(item)
-                      ? 'bg-[#1453D6] text-white'
-                      : item.accent
-                      ? 'bg-[#FDF1E8] text-[#A84500]'
-                      : 'bg-[#F1F3F6] text-[#11161E]'
-                  }`}
-                >
-                  {item.label}
-                </a>
-              ))}
-              {user?.role === 'admin' && (
-                <a
-                  href="https://admin-panel-ams.codenameamir.ir/#/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="text-right px-3 py-2.5 rounded-lg text-xs font-medium bg-[#FDF1E8] text-[#A84500] col-span-2"
-                >
-                  پنل مدیریت فروشگاه
-                </a>
+              {recentSearches.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-medium text-[#4A5464]">اخیر</span>
+                  {recentSearches.slice(0, 4).map((q) => (
+                    <button
+                      key={q}
+                      type="button"
+                      onClick={() => {
+                        setMobileMenuOpen(false);
+                        navigateToCatalog({ category: 'all', searchQuery: q });
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[#F1F3F6] text-[11px] font-medium text-[#11161E]"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
               )}
-            </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-[#E4E8EE] text-xs font-medium text-[#4A5464]">
-              <a
-                href={buildHref('/tracking')}
-                onClick={(e) => handleLinkClick(e, '/tracking', () => setMobileMenuOpen(false))}
-              >
-                رهگیری سفارش
-              </a>
-              <a
-                href={buildHref('/about')}
-                onClick={(e) => handleLinkClick(e, '/about', () => setMobileMenuOpen(false))}
-              >
-                درباره فروشگاه
-              </a>
-              <a
-                href={buildHref('/contact')}
-                onClick={(e) => handleLinkClick(e, '/contact', () => setMobileMenuOpen(false))}
-              >
-                پشتیبانی و تماس
-              </a>
-            </div>
-          </div>
-        )}
+              <div className="grid grid-cols-2 gap-2">
+                {navLinks.map((item) => (
+                  <a
+                    key={item.key}
+                    href={buildHref(item.href)}
+                    onClick={(e) => handleNavClick(e, item)}
+                    className={`text-right px-3 py-2.5 rounded-lg text-xs font-medium transition-colors ${
+                      isNavItemActive(item)
+                        ? 'bg-[#1453D6] text-white'
+                        : item.accent
+                        ? 'bg-[#FDF1E8] text-[#A84500]'
+                        : 'bg-[#F1F3F6] text-[#11161E]'
+                    }`}
+                  >
+                    {item.label}
+                  </a>
+                ))}
+                {user?.role === 'admin' && (
+                  <a
+                    href="https://admin-panel-ams.codenameamir.ir/#/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="text-right px-3 py-2.5 rounded-lg text-xs font-medium bg-[#FDF1E8] text-[#A84500] col-span-2"
+                  >
+                    پنل مدیریت فروشگاه
+                  </a>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-[#E4E8EE] text-xs font-medium text-[#4A5464]">
+                <a
+                  href={buildHref('/tracking')}
+                  onClick={(e) => handleLinkClick(e, '/tracking', () => setMobileMenuOpen(false))}
+                >
+                  رهگیری سفارش
+                </a>
+                <a
+                  href={buildHref('/about')}
+                  onClick={(e) => handleLinkClick(e, '/about', () => setMobileMenuOpen(false))}
+                >
+                  درباره فروشگاه
+                </a>
+                <a
+                  href={buildHref('/contact')}
+                  onClick={(e) => handleLinkClick(e, '/contact', () => setMobileMenuOpen(false))}
+                >
+                  پشتیبانی و تماس
+                </a>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
     </>
   );

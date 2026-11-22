@@ -180,12 +180,27 @@
   animation: amir-shimmer 1.35s ease-in-out infinite;
 }
 
+.card-lift {
+  transition: transform 200ms var(--ease-ui), border-color 200ms var(--ease-ui),
+    box-shadow 220ms var(--ease-ui);
+}
+
+.card-lift:hover {
+  transform: translateY(-2px);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .skeleton-shimmer,
   .route-progress-indeterminate {
     animation: none;
     background-image: none;
     background-color: #EAECEF;
+  }
+
+  .card-lift,
+  .card-lift:hover {
+    transition: none;
+    transform: none;
   }
 }
 
