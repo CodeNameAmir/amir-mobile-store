@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle2, Info, X, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, RotateCcw, X } from 'lucide-react';
 import { BackToTopButton } from './components/BackToTopButton';
 import { CompareTray } from './components/CompareTray';
 import { Footer } from './components/Footer';
@@ -22,6 +22,67 @@ import { PublicProfilePage } from './pages/PublicProfilePage';
 import { NotFoundPage, ServerStatusPage } from './pages/StatusPages';
 import { TermsPage } from './pages/TermsPage';
 
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+
+class StoreErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  ErrorBoundaryState
+> {
+  state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error('[StoreErrorBoundary]', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          dir="rtl"
+          className="min-h-screen bg-[#F7F8FA] text-[#11161E] flex items-center justify-center p-6"
+        >
+          <div className="max-w-md w-full bg-white rounded-2xl border border-[#E4E8EE] p-8 text-center space-y-4">
+            <div className="w-11 h-11 rounded-xl bg-[#FEF3F2] text-[#B42318] flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-5 h-5" strokeWidth={1.5} />
+            </div>
+            <h1 className="text-lg font-semibold text-[#11161E]">
+              خطایی در نمایش صفحه رخ داد
+            </h1>
+            <p className="text-sm text-[#4A5464] leading-7">
+              ممکن است داده‌های ذخیره‌شده مرورگر قدیمی شده باشد. با بازنشانی صفحه می‌توانید دوباره وارد فروشگاه شوید.
+            </p>
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    window.localStorage.removeItem('amir_mobile_cart_v1');
+                    window.localStorage.removeItem('amir_mobile_user_v1');
+                  } catch {
+                    // Ignore storage errors
+                  }
+                  window.location.assign('/');
+                }}
+                className="h-10 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-sm font-medium inline-flex items-center gap-2 transition-colors"
+              >
+                <RotateCcw className="w-4 h-4" strokeWidth={1.5} />
+                <span>بارگذاری مجدد فروشگاه</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const ToastStack: React.FC = () => {
   const { toasts, dismissToast } = useStore();
   if (toasts.length === 0) return null;
@@ -29,27 +90,27 @@ const ToastStack: React.FC = () => {
   return (
     <div
       aria-live="polite"
-      className="fixed bottom-4 md:bottom-auto md:top-24 left-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] no-print pointer-events-none"
+      className="fixed bottom-4 md:bottom-auto md:top-20 left-4 z-50 flex flex-col gap-2 max-w-sm w-[calc(100vw-2rem)] no-print pointer-events-none"
     >
       {toasts.slice(-2).map((toast) => (
         <div
           key={toast.id}
           role="status"
-          className={`pointer-events-auto rounded-2xl px-4 py-3 shadow-lg flex items-center justify-between gap-3 text-xs font-bold border ${
+          className={`pointer-events-auto rounded-xl px-4 py-3 shadow-sm flex items-center justify-between gap-3 text-xs font-medium border ${
             toast.tone === 'error'
-              ? 'bg-rose-950 text-white border-rose-800'
+              ? 'bg-[#B42318] text-white border-[#912018]'
               : toast.tone === 'info'
-              ? 'bg-[#213145] text-white border-[#334155]'
-              : 'bg-[#0b1c30] text-white border-[#2563eb]'
+              ? 'bg-[#1E2530] text-white border-[#2E3746]'
+              : 'bg-[#13171F] text-white border-[#252C38]'
           }`}
         >
           <div className="flex items-center gap-2">
             {toast.tone === 'error' ? (
-              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <AlertTriangle className="w-4 h-4 text-[#FDA29B] shrink-0" strokeWidth={1.5} />
             ) : toast.tone === 'info' ? (
-              <Info className="w-4 h-4 text-[#93c5fd] shrink-0" />
+              <Info className="w-4 h-4 text-[#93B4F5] shrink-0" strokeWidth={1.5} />
             ) : (
-              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="w-4 h-4 text-[#6CE9A6] shrink-0" strokeWidth={1.5} />
             )}
             <span className="leading-5">{toast.message}</span>
           </div>
@@ -57,9 +118,9 @@ const ToastStack: React.FC = () => {
             type="button"
             onClick={() => dismissToast(toast.id)}
             aria-label="بستن اعلان"
-            className="text-white/70 hover:text-white shrink-0"
+            className="text-white/70 hover:text-white transition-colors shrink-0"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" strokeWidth={1.5} />
           </button>
         </div>
       ))}
@@ -110,10 +171,13 @@ const StoreShell: React.FC = () => {
   };
 
   return (
-    <div className={`min-h-screen flex flex-col bg-[#f8f9ff] text-[#0b1c30] ${showCompareSpacer ? 'pb-20' : ''}`}>
+    <div
+      className={`min-h-screen flex flex-col bg-[#F7F8FA] text-[#11161E] ${
+        showCompareSpacer ? 'pb-20' : ''
+      }`}
+    >
       <RouteTransitionBar />
       <Navbar />
-      {/* TEMPORARY: Delete TempCommitBanner when GitHub commit indicator is no longer needed */}
       <TempCommitBanner />
       <main className="flex-1">{renderPage()}</main>
       <Footer />
@@ -126,8 +190,10 @@ const StoreShell: React.FC = () => {
 
 export default function App() {
   return (
-    <StoreProvider>
-      <StoreShell />
-    </StoreProvider>
+    <StoreErrorBoundary>
+      <StoreProvider>
+        <StoreShell />
+      </StoreProvider>
+    </StoreErrorBoundary>
   );
 }

@@ -29,9 +29,9 @@ export const BackToTopButton: React.FC = () => {
       data-testid="back-to-top-btn"
       aria-label="بازگشت به بالای صفحه"
       title="بازگشت به بالای صفحه"
-      className="fixed bottom-5 right-5 z-40 h-11 px-4 rounded-2xl bg-[#0b1c30]/90 hover:bg-[#004ac6] text-white text-xs font-bold shadow-[0_12px_28px_rgba(11,28,48,0.22)] backdrop-blur-md inline-flex items-center gap-2 transition-all duration-200 hover:-translate-y-0.5 no-print"
+      className="fixed bottom-5 right-5 z-40 h-10 px-3.5 rounded-lg bg-[#13171F] hover:bg-[#1453D6] text-white border border-white/10 text-xs font-medium shadow-md inline-flex items-center gap-2 transition-colors no-print"
     >
-      <ArrowUp className="w-4 h-4" />
+      <ArrowUp className="w-4 h-4" strokeWidth={1.5} />
       <span className="hidden sm:inline">بازگشت به بالا</span>
     </button>
   );

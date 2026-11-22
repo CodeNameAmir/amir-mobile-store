@@ -18,7 +18,6 @@ import {
   Plus,
   Settings2,
   Shield,
-  Sparkles,
   Trash2,
   UserCheck,
 } from 'lucide-react';
@@ -587,12 +586,12 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   };
 
   const navItems: Array<{ id: DashboardTab; label: string; icon: React.ReactNode }> = [
-    { id: 'overview', label: 'نمای کلی حساب', icon: <LayoutDashboard className="w-4 h-4" /> },
-    { id: 'profile', label: 'اطلاعات فردی و ایمیل', icon: <UserCheck className="w-4 h-4" /> },
-    { id: 'addresses', label: 'دفترچه آدرس‌ها', icon: <MapPin className="w-4 h-4" /> },
-    { id: 'orders', label: 'سفارش‌های من', icon: <Package className="w-4 h-4" /> },
-    { id: 'wishlist', label: 'علاقه‌مندی‌ها و اعلان‌ها', icon: <Heart className="w-4 h-4" /> },
-    { id: 'security', label: 'امنیت و رمز عبور', icon: <Shield className="w-4 h-4" /> },
+    { id: 'overview', label: 'نمای کلی حساب', icon: <LayoutDashboard className="w-4 h-4" strokeWidth={1.5} /> },
+    { id: 'profile', label: 'اطلاعات فردی و ایمیل', icon: <UserCheck className="w-4 h-4" strokeWidth={1.5} /> },
+    { id: 'addresses', label: 'دفترچه آدرس‌ها', icon: <MapPin className="w-4 h-4" strokeWidth={1.5} /> },
+    { id: 'orders', label: 'سفارش‌های من', icon: <Package className="w-4 h-4" strokeWidth={1.5} /> },
+    { id: 'wishlist', label: 'علاقه‌مندی‌ها و اعلان‌ها', icon: <Heart className="w-4 h-4" strokeWidth={1.5} /> },
+    { id: 'security', label: 'امنیت و رمز عبور', icon: <Shield className="w-4 h-4" strokeWidth={1.5} /> },
   ];
 
   const pwStrength = getPasswordStrength(newPassword);
@@ -600,9 +599,9 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
       {/* Sidebar Navigation */}
-      <aside className="lg:col-span-3 bg-white rounded-3xl border border-[#e5eeff] p-5 space-y-5 lg:sticky lg:top-28">
-        <div className="flex items-center gap-3 pb-4 border-b border-[#eff4ff]">
-          <div className="w-12 h-12 rounded-2xl bg-[#eff4ff] text-[#004ac6] flex items-center justify-center shrink-0 overflow-hidden border border-[#dce9ff]">
+      <aside className="lg:col-span-3 bg-white rounded-2xl border border-[#E4E8EE] p-5 space-y-5 lg:sticky lg:top-28">
+        <div className="flex items-center gap-3 pb-4 border-b border-[#E4E8EE]">
+          <div className="w-12 h-12 rounded-xl bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] flex items-center justify-center shrink-0 overflow-hidden">
             {avatarUrl || user.avatarUrl ? (
               <img
                 src={avatarUrl || user.avatarUrl}
@@ -611,18 +610,18 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 className="w-full h-full object-cover"
               />
             ) : (
-              <UserCheck className="w-6 h-6" />
+              <UserCheck className="w-5 h-5" strokeWidth={1.5} />
             )}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-black text-[#0b1c30] truncate">{user.fullName}</p>
+            <p className="text-sm font-semibold text-[#11161E] truncate">{user.fullName}</p>
             {user.username ? (
               <a
                 href={buildHref(`/u/${user.username}`)}
                 onClick={(e) => handleLinkClick(e, `/u/${user.username}`)}
                 dir="ltr"
                 data-testid="sidebar-username-link"
-                className="text-xs font-mono font-bold text-[#004ac6] hover:underline truncate block text-right"
+                className="text-xs font-mono font-medium text-[#1453D6] hover:underline truncate block text-right"
               >
                 @{user.username}
               </a>
@@ -630,15 +629,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               <button
                 type="button"
                 onClick={() => handleTabChange('profile')}
-                className="text-[11px] font-bold text-[#004ac6] hover:underline block"
+                className="text-[11px] font-medium text-[#1453D6] hover:underline block"
               >
                 + تنظیم نام کاربری
               </button>
             )}
-            <p dir="ltr" className="text-xs text-[#434655] truncate text-right">
+            <p dir="ltr" className="text-xs text-[#4A5464] truncate text-right">
               {user.email}
             </p>
-            <p className="text-[11px] font-bold text-emerald-700 mt-0.5">
+            <p className="text-[11px] font-medium text-[#067647] mt-0.5">
               {user.role === 'admin' ? 'مدیر فروشگاه · تاییدشده' : 'ایمیل تاییدشده'}
             </p>
           </div>
@@ -653,10 +652,10 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 type="button"
                 onClick={() => handleTabChange(item.id)}
                 data-testid={`dashboard-tab-${item.id}`}
-                className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap text-right ${
+                className={`flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap text-right ${
                   active
-                    ? 'bg-[#004ac6] text-white'
-                    : 'bg-[#f8f9ff] lg:bg-transparent text-[#434655] hover:bg-[#eff4ff] hover:text-[#0b1c30]'
+                    ? 'bg-[#1453D6] text-white font-semibold'
+                    : 'bg-[#F7F8FA] lg:bg-transparent text-[#4A5464] hover:bg-[#F1F3F6] hover:text-[#11161E]'
                 }`}
               >
                 {item.icon}
@@ -666,16 +665,16 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
           })}
         </nav>
 
-        <div className="pt-3 border-t border-[#eff4ff] space-y-2">
+        <div className="pt-3 border-t border-[#E4E8EE] space-y-2">
           {user.role === 'admin' && (
             <a
               href="https://admin-panel-ams.codenameamir.ir/#/"
               target="_blank"
               rel="noopener noreferrer"
               data-testid="sidebar-admin-panel-link"
-              className="w-full h-10 px-3.5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold inline-flex items-center justify-center gap-2 transition-colors"
+              className="w-full h-10 px-3.5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors"
             >
-              <Settings2 className="w-4 h-4" />
+              <Settings2 className="w-4 h-4" strokeWidth={1.5} />
               <span>ورود به پنل مدیریت</span>
             </a>
           )}
@@ -683,9 +682,9 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             type="button"
             onClick={() => logoutDemoUser(false)}
             data-testid="account-logout-btn"
-            className="w-full h-10 px-3.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold inline-flex items-center justify-center gap-2 transition-colors"
+            className="w-full h-10 px-3.5 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] hover:bg-[#FEE4E2] text-[#B42318] text-xs font-medium inline-flex items-center justify-center gap-2 transition-colors"
           >
-            <LogOut className="w-4 h-4" />
+            <LogOut className="w-4 h-4" strokeWidth={1.5} />
             <span>خروج از حساب کاربری</span>
           </button>
         </div>
@@ -695,11 +694,11 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
       <div ref={workspaceRef} className="lg:col-span-9 space-y-6 scroll-mt-24">
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-6">
+            <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-6">
               <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2.5">
-                    <h1 className="text-xl sm:text-2xl font-black text-[#0b1c30]">
+                    <h1 className="text-xl sm:text-2xl font-semibold text-[#11161E]">
                       سلام {user.fullName}
                     </h1>
                     {user.username && (
@@ -708,14 +707,14 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                         onClick={(e) => handleLinkClick(e, `/u/${user.username}`)}
                         dir="ltr"
                         data-testid="overview-username-badge"
-                        className="px-2.5 py-0.5 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] border border-[#dce9ff] text-[#004ac6] font-mono text-xs font-bold transition-colors"
+                        className="px-2.5 py-0.5 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] border border-[#D4E2FC] text-[#1453D6] font-mono text-xs font-medium transition-colors"
                       >
                         @{user.username}
                       </a>
                     )}
                   </div>
-                  <p className="text-xs sm:text-sm text-[#434655] mt-1">
-                    نشانی ایمیل <span dir="ltr" className="font-semibold text-[#0b1c30]">{user.email}</span>
+                  <p className="text-xs sm:text-sm text-[#4A5464] mt-1">
+                    نشانی ایمیل <span dir="ltr" className="font-medium text-[#11161E]">{user.email}</span>
                     {user.phone ? ` · موبایل ${toPersianDigits(user.phone)}` : ' · شماره موبایل ثبت نشده'}
                   </p>
                 </div>
@@ -724,40 +723,40 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     <a
                       href={buildHref(`/u/${user.username}`)}
                       onClick={(e) => handleLinkClick(e, `/u/${user.username}`)}
-                      className="h-10 px-4 rounded-xl bg-[#f8f9ff] hover:bg-[#eff4ff] border border-[#dce9ff] text-[#0b1c30] text-xs font-bold whitespace-nowrap inline-flex items-center gap-1.5"
+                      className="h-10 px-4 rounded-lg bg-[#F7F8FA] hover:bg-[#F1F3F6] border border-[#E4E8EE] text-[#11161E] text-xs font-medium whitespace-nowrap inline-flex items-center gap-1.5 transition-colors"
                     >
-                      <ExternalLink className="w-3.5 h-3.5 text-[#004ac6]" />
+                      <ExternalLink className="w-3.5 h-3.5 text-[#1453D6]" strokeWidth={1.5} />
                       <span>پروفایل عمومی</span>
                     </a>
                   )}
                   <button
                     type="button"
                     onClick={() => handleTabChange('profile')}
-                    className="h-10 px-4 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold whitespace-nowrap"
+                    className="h-10 px-4 rounded-lg bg-[#F1F3F6] hover:bg-[#E4E8EE] text-[#11161E] text-xs font-medium whitespace-nowrap transition-colors"
                   >
                     ویرایش اطلاعات
                   </button>
                   <a
                     href={buildHref('/catalog')}
                     onClick={(e) => handleLinkClick(e, '/catalog')}
-                    className="h-10 px-4 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold whitespace-nowrap inline-flex items-center"
+                    className="h-10 px-4 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold whitespace-nowrap inline-flex items-center transition-colors"
                   >
                     مشاهده فروشگاه
                   </a>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 border-t border-[#eff4ff]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 border-t border-[#E4E8EE]">
                 <button
                   type="button"
                   onClick={() => handleTabChange('orders')}
-                  className="p-4 rounded-2xl bg-[#f8f9ff] hover:bg-[#eff4ff] text-right transition-colors"
+                  className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] hover:border-[#DCE1E8] hover:bg-[#F1F3F6] text-right transition-colors"
                 >
-                  <p className="text-xs text-[#434655]">سفارش‌های ثبت‌شده</p>
+                  <p className="text-xs text-[#4A5464]">سفارش‌های ثبت‌شده</p>
                   {ordersLoading ? (
                     <SkeletonBox className="h-8 w-12 mt-1.5 rounded-lg" />
                   ) : (
-                    <p className="text-2xl font-black text-[#0b1c30] mt-1 tabular-nums-fa">
+                    <p className="text-2xl font-semibold text-[#11161E] mt-1 tabular-nums-fa">
                       {toPersianDigits(orders.length)}
                     </p>
                   )}
@@ -765,30 +764,30 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 <button
                   type="button"
                   onClick={() => handleTabChange('addresses')}
-                  className="p-4 rounded-2xl bg-[#f8f9ff] hover:bg-[#eff4ff] text-right transition-colors"
+                  className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] hover:border-[#DCE1E8] hover:bg-[#F1F3F6] text-right transition-colors"
                 >
-                  <p className="text-xs text-[#434655]">آدرس‌های ذخیره‌شده</p>
-                  <p className="text-2xl font-black text-[#0b1c30] mt-1 tabular-nums-fa">
+                  <p className="text-xs text-[#4A5464]">آدرس‌های ذخیره‌شده</p>
+                  <p className="text-2xl font-semibold text-[#11161E] mt-1 tabular-nums-fa">
                     {toPersianDigits(addresses.length)}
                   </p>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleTabChange('wishlist')}
-                  className="p-4 rounded-2xl bg-[#f8f9ff] hover:bg-[#eff4ff] text-right transition-colors"
+                  className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] hover:border-[#DCE1E8] hover:bg-[#F1F3F6] text-right transition-colors"
                 >
-                  <p className="text-xs text-[#434655]">علاقه‌مندی‌ها</p>
-                  <p className="text-2xl font-black text-[#0b1c30] mt-1 tabular-nums-fa">
+                  <p className="text-xs text-[#4A5464]">علاقه‌مندی‌ها</p>
+                  <p className="text-2xl font-semibold text-[#11161E] mt-1 tabular-nums-fa">
                     {toPersianDigits(wishlistProducts.length)}
                   </p>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleTabChange('wishlist')}
-                  className="p-4 rounded-2xl bg-[#f8f9ff] hover:bg-[#eff4ff] text-right transition-colors"
+                  className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] hover:border-[#DCE1E8] hover:bg-[#F1F3F6] text-right transition-colors"
                 >
-                  <p className="text-xs text-[#434655]">اعلان موجودی</p>
-                  <p className="text-2xl font-black text-[#0b1c30] mt-1 tabular-nums-fa">
+                  <p className="text-xs text-[#4A5464]">اعلان موجودی</p>
+                  <p className="text-2xl font-semibold text-[#11161E] mt-1 tabular-nums-fa">
                     {toPersianDigits(alertProducts.length)}
                   </p>
                 </button>
@@ -796,14 +795,14 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             </section>
 
             {/* Recent Order Snapshot */}
-            <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
+            <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-base font-black text-[#0b1c30]">آخرین سفارش‌ها</h2>
+                <h2 className="text-base font-semibold text-[#11161E]">آخرین سفارش‌ها</h2>
                 {!ordersLoading && orders.length > 0 && (
                   <button
                     type="button"
                     onClick={() => handleTabChange('orders')}
-                    className="text-xs font-bold text-[#004ac6] hover:underline"
+                    className="text-xs font-medium text-[#1453D6] hover:underline"
                   >
                     مشاهده همه
                   </button>
@@ -821,14 +820,14 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   <OrderRowSkeleton />
                 </div>
               ) : orders.length === 0 ? (
-                <div className="p-6 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
-                  <p className="text-xs sm:text-sm text-[#434655]">
+                <div className="p-6 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-3">
+                  <p className="text-xs sm:text-sm text-[#4A5464]">
                     هنوز سفارشی در حساب کاربری شما ثبت نشده است.
                   </p>
                   <a
                     href={buildHref('/catalog')}
                     onClick={(e) => handleLinkClick(e, '/catalog')}
-                    className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
+                    className="h-10 px-5 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-medium inline-flex items-center transition-colors"
                   >
                     مشاهده فروشگاه و خرید
                   </a>
@@ -837,25 +836,25 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 orders.slice(0, 2).map((ord) => (
                   <div
                     key={ord.orderCode}
-                    className="p-4 rounded-2xl bg-[#f8f9ff] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                    className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                   >
                     <div className="space-y-1">
-                      <p className="text-xs text-[#434655]">
-                        <strong dir="ltr" className="text-sm text-[#004ac6] font-black">
+                      <p className="text-xs text-[#4A5464]">
+                        <strong dir="ltr" className="text-sm text-[#1453D6] font-mono font-semibold">
                           {ord.orderCode}
                         </strong>{' '}
                         · {STATUS_LABELS[ord.status]} · {ord.createdAt}
                       </p>
-                      <p className="text-xs text-[#0b1c30] tabular-nums-fa">
+                      <p className="text-xs text-[#11161E] tabular-nums-fa">
                         {ord.customerName} · {toPersianDigits(ord.items.length)} کالا ·{' '}
-                        <strong>{formatToman(ord.totalAmount)} تومان</strong>
+                        <strong className="font-semibold">{formatToman(ord.totalAmount)} تومان</strong>
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <a
                         href={buildHref(`/tracking/${ord.orderCode}`)}
                         onClick={(e) => handleLinkClick(e, `/tracking/${ord.orderCode}`)}
-                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold inline-flex items-center"
+                        className="px-3.5 py-2 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold inline-flex items-center transition-colors"
                       >
                         رهگیری مرسوله
                       </a>
@@ -872,19 +871,19 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             <form
               onSubmit={handleSaveProfile}
               noValidate
-              className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-5"
+              className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-5"
             >
               <div>
-                <h1 className="text-lg sm:text-xl font-black text-[#0b1c30]">اطلاعات فردی و تماس</h1>
-                <p className="text-xs text-[#434655] mt-1">
+                <h1 className="text-lg sm:text-xl font-semibold text-[#11161E]">اطلاعات فردی و تماس</h1>
+                <p className="text-xs text-[#4A5464] mt-1">
                   این مشخصات برای صدور فاکتور رسمی و رجیستری قانونی همتا استفاده می‌شوند.
                 </p>
               </div>
 
               {/* Profile Photo Upload */}
-              <div className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#dce9ff] flex flex-wrap items-center justify-between gap-4">
+              <div className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3.5">
-                  <div className="w-16 h-16 rounded-2xl bg-[#eff4ff] border border-[#dce9ff] overflow-hidden flex items-center justify-center shrink-0">
+                  <div className="w-16 h-16 rounded-xl bg-[#EEF3FC] border border-[#D4E2FC] overflow-hidden flex items-center justify-center shrink-0">
                     {avatarUrl ? (
                       <img
                         src={avatarUrl}
@@ -893,19 +892,19 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      <UserCheck className="w-7 h-7 text-[#004ac6]" />
+                      <UserCheck className="w-6 h-6 text-[#1453D6]" strokeWidth={1.5} />
                     )}
                   </div>
                   <div className="space-y-1">
-                    <p className="text-xs sm:text-sm font-black text-[#0b1c30]">تصویر پروفایل کاربری</p>
-                    <p className="text-[11px] text-[#434655]">
+                    <p className="text-xs sm:text-sm font-semibold text-[#11161E]">تصویر پروفایل کاربری</p>
+                    <p className="text-[11px] text-[#4A5464]">
                       فرمت‌های JPG / PNG پشتیبانی می‌شوند و تصویر به‌صورت خودکار بهینه می‌گردد.
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="h-10 px-4 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors">
-                    <Camera className="w-4 h-4" />
+                  <label className="h-10 px-4 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors">
+                    <Camera className="w-4 h-4" strokeWidth={1.5} />
                     <span>{avatarBusy ? 'در حال بارگذاری...' : 'انتخاب / تغییر تصویر'}</span>
                     <input
                       type="file"
@@ -922,7 +921,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       disabled={avatarBusy}
                       onClick={handleRemoveAvatar}
                       data-testid="remove-avatar-btn"
-                      className="h-10 px-3.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold"
+                      className="h-10 px-3.5 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] hover:bg-[#FEE4E2] text-[#B42318] text-xs font-medium transition-colors"
                     >
                       حذف تصویر
                     </button>
@@ -932,7 +931,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label htmlFor="prof-fullname" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="prof-fullname" className="text-xs font-medium text-[#11161E] block">
                     نام و نام خانوادگی
                   </label>
                   <input
@@ -940,15 +939,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     type="text"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   {profileErrors.fullName && (
-                    <p className="text-[11px] font-bold text-rose-600">{profileErrors.fullName}</p>
+                    <p className="text-[11px] font-medium text-[#B42318]">{profileErrors.fullName}</p>
                   )}
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="prof-phone" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="prof-phone" className="text-xs font-medium text-[#11161E] block">
                     شماره موبایل
                   </label>
                   <input
@@ -958,15 +957,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     placeholder="09123456789"
-                    className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   {profileErrors.phone && (
-                    <p className="text-[11px] font-bold text-rose-600">{profileErrors.phone}</p>
+                    <p className="text-[11px] font-medium text-[#B42318]">{profileErrors.phone}</p>
                   )}
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="prof-national-id" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="prof-national-id" className="text-xs font-medium text-[#11161E] block">
                     کد ملی (اختیاری - جهت صدور فاکتور رسمی)
                   </label>
                   <input
@@ -977,15 +976,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     value={nationalId}
                     onChange={(e) => setNationalId(e.target.value)}
                     placeholder="0499370899"
-                    className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   {profileErrors.nationalId && (
-                    <p className="text-[11px] font-bold text-rose-600">{profileErrors.nationalId}</p>
+                    <p className="text-[11px] font-medium text-[#B42318]">{profileErrors.nationalId}</p>
                   )}
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="prof-birthdate" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="prof-birthdate" className="text-xs font-medium text-[#11161E] block">
                     تاریخ تولد (اختیاری)
                   </label>
                   <input
@@ -995,19 +994,19 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     value={birthDate}
                     onChange={(e) => setBirthDate(e.target.value)}
                     placeholder="1376/04/18"
-                    className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                 </div>
               </div>
 
-              <label className="flex items-center gap-2.5 text-xs text-[#0b1c30] cursor-pointer pt-1">
+              <label className="flex items-center gap-2.5 text-xs text-[#11161E] cursor-pointer pt-1">
                 <input
                   type="checkbox"
                   checked={newsletterOptIn}
                   onChange={(e) => setNewsletterOptIn(e.target.checked)}
-                  className="w-4 h-4 accent-[#004ac6]"
+                  className="w-4 h-4 accent-[#1453D6]"
                 />
-                <span>اطلاع‌رسانی جشنواره‌ها و پیشنهادات طلایی از طریق ایمیل</span>
+                <span>اطلاع‌رسانی جشنواره‌ها و پیشنهادات ویژه از طریق ایمیل</span>
               </label>
 
               <div className="flex justify-end pt-2">
@@ -1015,7 +1014,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   type="submit"
                   disabled={savingProfile}
                   data-testid="save-profile-btn"
-                  className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-xs sm:text-sm font-extrabold"
+                  className="h-11 px-6 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-xs sm:text-sm font-semibold transition-colors"
                 >
                   {savingProfile ? 'در حال ذخیره...' : 'ذخیره تغییرات پروفایل'}
                 </button>
@@ -1023,16 +1022,16 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             </form>
 
             {/* Username & Public Profile Card */}
-            <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
+            <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-base font-black text-[#0b1c30] flex items-center gap-2">
-                    <AtSign className="w-4 h-4 text-[#004ac6]" />
+                  <h2 className="text-base font-semibold text-[#11161E] flex items-center gap-2">
+                    <AtSign className="w-4 h-4 text-[#1453D6]" strokeWidth={1.5} />
                     <span>نام کاربری و پروفایل عمومی</span>
                   </h2>
-                  <p className="text-xs text-[#434655] mt-1 leading-6">
+                  <p className="text-xs text-[#4A5464] mt-1 leading-6">
                     با ثبت نام کاربری اختصاصی، می‌توانید با{' '}
-                    <span dir="ltr" className="font-mono font-bold text-[#0b1c30]">
+                    <span dir="ltr" className="font-mono font-medium text-[#11161E]">
                       @username
                     </span>{' '}
                     وارد حساب شوید و لینک پروفایل عمومی خود را به اشتراک بگذارید.
@@ -1049,9 +1048,9 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                           'نام کاربری در حافظه کپی شد.'
                         )
                       }
-                      className="h-9 px-3 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
+                      className="h-9 px-3 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
                     >
-                      <Copy className="w-3.5 h-3.5" />
+                      <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />
                       <span dir="ltr" className="font-mono">
                         @{user.username}
                       </span>
@@ -1060,9 +1059,9 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       href={buildHref(`/u/${user.username}`)}
                       onClick={(e) => handleLinkClick(e, `/u/${user.username}`)}
                       data-testid="view-public-profile-link"
-                      className="h-9 px-3 rounded-xl bg-[#213145] hover:bg-[#004ac6] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
+                      className="h-9 px-3 rounded-lg bg-[#13171F] hover:bg-[#1453D6] text-white text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
                     >
-                      <ExternalLink className="w-3.5 h-3.5" />
+                      <ExternalLink className="w-3.5 h-3.5" strokeWidth={1.5} />
                       <span>مشاهده صفحه عمومی</span>
                     </a>
                   </div>
@@ -1070,27 +1069,27 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               </div>
 
               {usernameError && (
-                <p className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold">
+                <p className="p-3 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] text-[#B42318] text-xs font-medium">
                   {usernameError}
                 </p>
               )}
 
               <form onSubmit={handleSaveUsername} className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
-                  <label htmlFor="prof-username" className="text-xs font-bold text-[#0b1c30]">
+                  <label htmlFor="prof-username" className="text-xs font-medium text-[#11161E]">
                     نام کاربری (۳ تا ۲۴ کاراکتر انگلیسی، عدد، نقطه و خط زیر)
                   </label>
                   {normalizeUsername(usernameInput) && (
                     <span
                       data-testid="profile-username-availability"
-                      className={`text-[11px] font-bold ${
+                      className={`text-[11px] font-medium ${
                         usernameCheck.checking
-                          ? 'text-[#434655]'
+                          ? 'text-[#4A5464]'
                           : usernameCheck.isCurrent
-                          ? 'text-[#004ac6]'
+                          ? 'text-[#1453D6]'
                           : usernameCheck.available
-                          ? 'text-emerald-700'
-                          : 'text-rose-600'
+                          ? 'text-[#067647]'
+                          : 'text-[#B42318]'
                       }`}
                     >
                       {usernameCheck.checking
@@ -1117,15 +1116,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       }}
                       placeholder="amir_mobile"
                       data-testid="profile-username-input"
-                      className="w-full h-11 pr-3.5 pl-9 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] font-mono text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                      className="w-full h-11 pr-3.5 pl-9 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] font-mono text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
-                    <AtSign className="w-4 h-4 text-[#004ac6] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <AtSign className="w-4 h-4 text-[#1453D6] absolute left-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
                   </div>
                   <button
                     type="submit"
                     disabled={savingUsername}
                     data-testid="save-username-btn"
-                    className="h-11 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-xs font-extrabold inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
+                    className="h-11 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-xs font-semibold inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
                   >
                     <span>
                       {savingUsername
@@ -1139,10 +1138,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
 
                 {defaultUsernameSuggestions.length > 0 && !usernameCheck.available && (
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] text-[#434655] inline-flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-[#004ac6]" />
-                      پیشنهادها:
-                    </span>
+                    <span className="text-[11px] text-[#4A5464]">پیشنهادها:</span>
                     {defaultUsernameSuggestions.slice(0, 4).map((sug) => (
                       <button
                         key={sug}
@@ -1152,7 +1148,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                           setUsernameInput(sug);
                           setUsernameError(null);
                         }}
-                        className="px-2 py-0.5 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] font-mono text-[11px] font-bold transition-colors"
+                        className="px-2 py-0.5 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] font-mono text-[11px] font-medium transition-colors"
                       >
                         @{sug}
                       </button>
@@ -1161,10 +1157,10 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 )}
 
                 {user.username && (
-                  <div className="p-3 rounded-xl bg-[#f8f9ff] border border-[#eff4ff] flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span className="text-[#434655]">
+                  <div className="p-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="text-[#4A5464]">
                       نشانی صفحه عمومی شما:{' '}
-                      <span dir="ltr" className="font-mono font-bold text-[#004ac6]">
+                      <span dir="ltr" className="font-mono font-medium text-[#1453D6]">
                         /u/{user.username}
                       </span>
                     </span>
@@ -1176,9 +1172,9 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                           'لینک صفحه عمومی کپی شد.'
                         )
                       }
-                      className="text-[11px] font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1"
+                      className="text-[11px] font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1"
                     >
-                      <Copy className="w-3 h-3" />
+                      <Copy className="w-3 h-3" strokeWidth={1.5} />
                       <span>کپی لینک عمومی</span>
                     </button>
                   </div>
@@ -1187,16 +1183,16 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             </section>
 
             {/* Change Email with Resend Verification */}
-            <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
+            <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
               <div>
-                <h2 className="text-base font-black text-[#0b1c30]">تغییر آدرس ایمیل حساب</h2>
-                <p className="text-xs text-[#434655] mt-1">
-                  ایمیل فعلی: <span dir="ltr" className="font-bold text-[#0b1c30]">{user.email}</span> · برای تغییر ایمیل، کد تایید ۶ رقمی از طریق Resend به نشانی جدید ارسال می‌شود.
+                <h2 className="text-base font-semibold text-[#11161E]">تغییر آدرس ایمیل حساب</h2>
+                <p className="text-xs text-[#4A5464] mt-1">
+                  ایمیل فعلی: <span dir="ltr" className="font-medium text-[#11161E]">{user.email}</span> · برای تغییر ایمیل، کد تایید ۶ رقمی از طریق Resend به نشانی جدید ارسال می‌شود.
                 </p>
               </div>
 
               {emailChangeErr && (
-                <p className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold">
+                <p className="p-3 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] text-[#B42318] text-xs font-medium">
                   {emailChangeErr}
                 </p>
               )}
@@ -1210,23 +1206,23 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     value={newEmailInput}
                     onChange={(e) => setNewEmailInput(e.target.value)}
                     placeholder="new-email@example.com"
-                    className="flex-1 h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="flex-1 h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   <button
                     type="submit"
                     disabled={emailChangeBusy}
-                    className="h-11 px-5 rounded-xl bg-[#213145] hover:bg-[#004ac6] text-white text-xs font-bold inline-flex items-center justify-center gap-2 whitespace-nowrap"
+                    className="h-11 px-5 rounded-lg bg-[#13171F] hover:bg-[#1453D6] text-white text-xs font-semibold inline-flex items-center justify-center gap-2 whitespace-nowrap transition-colors"
                   >
-                    <Mail className="w-4 h-4" />
+                    <Mail className="w-4 h-4" strokeWidth={1.5} />
                     <span>{emailChangeBusy ? 'در حال ارسال...' : 'ارسال کد تایید به ایمیل جدید'}</span>
                   </button>
                 </form>
               ) : (
                 <form onSubmit={handleVerifyEmailChange} className="space-y-3">
                   {emailChangePending.provider === 'sandbox-preview' && emailChangePending.previewCode && (
-                    <p className="text-xs text-[#004ac6] font-bold">
+                    <p className="text-xs text-[#1453D6] font-medium">
                       کد پیش‌نمایش تغییر ایمیل:{' '}
-                      <span dir="ltr" className="font-mono">
+                      <span dir="ltr" className="font-mono font-semibold">
                         {emailChangePending.previewCode}
                       </span>
                     </p>
@@ -1240,19 +1236,19 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       value={emailChangeOtp}
                       onChange={(e) => setEmailChangeOtp(e.target.value)}
                       placeholder="کد ۶ رقمی"
-                      className="flex-1 h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-center font-mono text-sm tracking-widest text-[#0b1c30]"
+                      className="flex-1 h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-center font-mono text-sm text-[#11161E]"
                     />
                     <button
                       type="submit"
                       disabled={emailChangeBusy}
-                      className="h-11 px-5 rounded-xl bg-[#004ac6] text-white text-xs font-bold whitespace-nowrap"
+                      className="h-11 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold whitespace-nowrap transition-colors"
                     >
                       تایید و ثبت ایمیل جدید
                     </button>
                     <button
                       type="button"
                       onClick={() => setEmailChangePending(null)}
-                      className="h-11 px-4 rounded-xl bg-[#eff4ff] text-[#434655] text-xs font-bold whitespace-nowrap"
+                      className="h-11 px-4 rounded-lg bg-[#F1F3F6] text-[#4A5464] text-xs font-medium whitespace-nowrap"
                     >
                       انصراف
                     </button>
@@ -1264,11 +1260,11 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
         )}
 
         {activeTab === 'addresses' && (
-          <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-6">
+          <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h1 className="text-lg sm:text-xl font-black text-[#0b1c30]">دفترچه آدرس‌های ارسال</h1>
-                <p className="text-xs text-[#434655] mt-1">
+                <h1 className="text-lg sm:text-xl font-semibold text-[#11161E]">دفترچه آدرس‌های ارسال</h1>
+                <p className="text-xs text-[#4A5464] mt-1">
                   آدرس پیش‌فرض شما به‌صورت خودکار در فرم تسویه حساب انتخاب می‌شود.
                 </p>
               </div>
@@ -1277,9 +1273,9 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   type="button"
                   onClick={openNewAddressForm}
                   data-testid="open-new-address-btn"
-                  className="h-10 px-4 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap"
+                  className="h-10 px-4 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition-colors"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Plus className="w-4 h-4" strokeWidth={1.5} />
                   <span>افزودن آدرس جدید</span>
                 </button>
               )}
@@ -1289,16 +1285,16 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               <form
                 onSubmit={handleSaveAddress}
                 noValidate
-                className="p-5 rounded-2xl bg-[#f8f9ff] border border-[#dce9ff] space-y-4"
+                className="p-5 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-4"
               >
                 <div className="flex items-center justify-between">
-                  <h2 className="text-sm font-black text-[#0b1c30]">
+                  <h2 className="text-sm font-semibold text-[#11161E]">
                     {editingAddressId ? 'ویرایش آدرس' : 'ثبت آدرس جدید'}
                   </h2>
                   <button
                     type="button"
                     onClick={() => setAddressFormOpen(false)}
-                    className="text-xs font-bold text-[#434655] hover:text-[#0b1c30]"
+                    className="text-xs font-medium text-[#4A5464] hover:text-[#11161E]"
                   >
                     بستن
                   </button>
@@ -1306,7 +1302,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <label htmlFor="addr-label" className="text-xs font-bold text-[#0b1c30] block">
+                    <label htmlFor="addr-label" className="text-xs font-medium text-[#11161E] block">
                       عنوان آدرس (مثال: منزل، محل کار)
                     </label>
                     <input
@@ -1315,15 +1311,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       value={addressForm.label}
                       onChange={(e) => setAddressForm((p) => ({ ...p, label: e.target.value }))}
                       placeholder="منزل"
-                      className="w-full h-10 px-3 rounded-xl bg-white border border-[#dce9ff] text-xs text-[#0b1c30]"
+                      className="w-full h-10 px-3 rounded-lg bg-white border border-[#E4E8EE] text-xs text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
                     {addressErrors.label && (
-                      <p className="text-[11px] font-bold text-rose-600">{addressErrors.label}</p>
+                      <p className="text-[11px] font-medium text-[#B42318]">{addressErrors.label}</p>
                     )}
                   </div>
 
                   <div className="space-y-1">
-                    <label htmlFor="addr-receiver" className="text-xs font-bold text-[#0b1c30] block">
+                    <label htmlFor="addr-receiver" className="text-xs font-medium text-[#11161E] block">
                       نام و نام خانوادگی تحویل‌گیرنده
                     </label>
                     <input
@@ -1331,15 +1327,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       type="text"
                       value={addressForm.receiverName}
                       onChange={(e) => setAddressForm((p) => ({ ...p, receiverName: e.target.value }))}
-                      className="w-full h-10 px-3 rounded-xl bg-white border border-[#dce9ff] text-xs text-[#0b1c30]"
+                      className="w-full h-10 px-3 rounded-lg bg-white border border-[#E4E8EE] text-xs text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
                     {addressErrors.receiverName && (
-                      <p className="text-[11px] font-bold text-rose-600">{addressErrors.receiverName}</p>
+                      <p className="text-[11px] font-medium text-[#B42318]">{addressErrors.receiverName}</p>
                     )}
                   </div>
 
                   <div className="space-y-1">
-                    <label htmlFor="addr-phone" className="text-xs font-bold text-[#0b1c30] block">
+                    <label htmlFor="addr-phone" className="text-xs font-medium text-[#11161E] block">
                       شماره موبایل تحویل‌گیرنده
                     </label>
                     <input
@@ -1349,15 +1345,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       value={addressForm.phone}
                       onChange={(e) => setAddressForm((p) => ({ ...p, phone: e.target.value }))}
                       placeholder="09123456789"
-                      className="w-full h-10 px-3 rounded-xl bg-white border border-[#dce9ff] text-xs text-left text-[#0b1c30]"
+                      className="w-full h-10 px-3 rounded-lg bg-white border border-[#E4E8EE] text-xs text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
                     {addressErrors.phone && (
-                      <p className="text-[11px] font-bold text-rose-600">{addressErrors.phone}</p>
+                      <p className="text-[11px] font-medium text-[#B42318]">{addressErrors.phone}</p>
                     )}
                   </div>
 
                   <div className="space-y-1">
-                    <label htmlFor="addr-city" className="text-xs font-bold text-[#0b1c30] block">
+                    <label htmlFor="addr-city" className="text-xs font-medium text-[#11161E] block">
                       استان / شهر
                     </label>
                     <input
@@ -1365,15 +1361,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       type="text"
                       value={addressForm.city}
                       onChange={(e) => setAddressForm((p) => ({ ...p, city: e.target.value }))}
-                      className="w-full h-10 px-3 rounded-xl bg-white border border-[#dce9ff] text-xs text-[#0b1c30]"
+                      className="w-full h-10 px-3 rounded-lg bg-white border border-[#E4E8EE] text-xs text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
                     {addressErrors.city && (
-                      <p className="text-[11px] font-bold text-rose-600">{addressErrors.city}</p>
+                      <p className="text-[11px] font-medium text-[#B42318]">{addressErrors.city}</p>
                     )}
                   </div>
 
                   <div className="space-y-1">
-                    <label htmlFor="addr-postal" className="text-xs font-bold text-[#0b1c30] block">
+                    <label htmlFor="addr-postal" className="text-xs font-medium text-[#11161E] block">
                       کد پستی ۱۰ رقمی
                     </label>
                     <input
@@ -1384,20 +1380,20 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       value={addressForm.postalCode}
                       onChange={(e) => setAddressForm((p) => ({ ...p, postalCode: e.target.value }))}
                       placeholder="1988233145"
-                      className="w-full h-10 px-3 rounded-xl bg-white border border-[#dce9ff] text-xs text-left text-[#0b1c30]"
+                      className="w-full h-10 px-3 rounded-lg bg-white border border-[#E4E8EE] text-xs text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
                     {addressErrors.postalCode && (
-                      <p className="text-[11px] font-bold text-rose-600">{addressErrors.postalCode}</p>
+                      <p className="text-[11px] font-medium text-[#B42318]">{addressErrors.postalCode}</p>
                     )}
                   </div>
 
                   <div className="flex items-end pb-2">
-                    <label className="flex items-center gap-2 text-xs font-bold text-[#0b1c30] cursor-pointer">
+                    <label className="flex items-center gap-2 text-xs font-medium text-[#11161E] cursor-pointer">
                       <input
                         type="checkbox"
                         checked={addressForm.isDefault}
                         onChange={(e) => setAddressForm((p) => ({ ...p, isDefault: e.target.checked }))}
-                        className="w-4 h-4 accent-[#004ac6]"
+                        className="w-4 h-4 accent-[#1453D6]"
                       />
                       <span>تنظیم به عنوان آدرس پیش‌فرض</span>
                     </label>
@@ -1405,7 +1401,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 </div>
 
                 <div className="space-y-1">
-                  <label htmlFor="addr-full" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="addr-full" className="text-xs font-medium text-[#11161E] block">
                     نشانی کامل پستی
                   </label>
                   <textarea
@@ -1413,11 +1409,11 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     rows={2}
                     value={addressForm.address}
                     onChange={(e) => setAddressForm((p) => ({ ...p, address: e.target.value }))}
-                    placeholder="خیابان، کوچه، پلاک، طبقه و واحد..."
-                    className="w-full p-3 rounded-xl bg-white border border-[#dce9ff] text-xs text-[#0b1c30]"
+                    placeholder="خیابان، کوچه، پلاک، طبقه و واحد"
+                    className="w-full p-3 rounded-lg bg-white border border-[#E4E8EE] text-xs text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   {addressErrors.address && (
-                    <p className="text-[11px] font-bold text-rose-600">{addressErrors.address}</p>
+                    <p className="text-[11px] font-medium text-[#B42318]">{addressErrors.address}</p>
                   )}
                 </div>
 
@@ -1425,7 +1421,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   <button
                     type="button"
                     onClick={() => setAddressFormOpen(false)}
-                    className="h-10 px-4 rounded-xl bg-white border border-[#dce9ff] text-xs font-bold text-[#434655]"
+                    className="h-10 px-4 rounded-lg bg-white border border-[#E4E8EE] text-xs font-medium text-[#4A5464]"
                   >
                     انصراف
                   </button>
@@ -1433,7 +1429,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     type="submit"
                     disabled={savingAddress}
                     data-testid="save-address-btn"
-                    className="h-10 px-5 rounded-xl bg-[#004ac6] text-white text-xs font-extrabold"
+                    className="h-10 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold transition-colors"
                   >
                     {savingAddress ? 'در حال ذخیره...' : 'ذخیره آدرس'}
                   </button>
@@ -1442,15 +1438,15 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             )}
 
             {addresses.length === 0 ? (
-              <div className="p-8 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
-                <p className="text-xs sm:text-sm text-[#434655]">
+              <div className="p-8 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-3">
+                <p className="text-xs sm:text-sm text-[#4A5464]">
                   هنوز آدرسی در دفترچه حساب خود ثبت نکرده‌اید.
                 </p>
                 {!addressFormOpen && (
                   <button
                     type="button"
                     onClick={openNewAddressForm}
-                    className="h-10 px-4 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold"
+                    className="h-10 px-4 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-medium transition-colors"
                   >
                     ثبت اولین آدرس
                   </button>
@@ -1461,17 +1457,17 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 {addresses.map((addr) => (
                   <div
                     key={addr.id}
-                    className={`p-5 rounded-2xl border space-y-3 ${
+                    className={`p-5 rounded-xl border space-y-3 ${
                       addr.isDefault
-                        ? 'bg-[#eff4ff]/50 border-[#2563eb]'
-                        : 'bg-[#f8f9ff] border-[#e5eeff]'
+                        ? 'bg-[#EEF3FC] border-[#1453D6]'
+                        : 'bg-[#F7F8FA] border-[#E4E8EE]'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-black text-[#0b1c30]">
+                      <span className="text-sm font-semibold text-[#11161E]">
                         {addr.label}
                         {addr.isDefault && (
-                          <span className="mr-2 text-[11px] font-bold text-[#004ac6]">
+                          <span className="mr-2 text-[11px] font-medium text-[#1453D6]">
                             · پیش‌فرض
                           </span>
                         )}
@@ -1481,25 +1477,25 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                           type="button"
                           onClick={() => openEditAddressForm(addr)}
                           aria-label={`ویرایش آدرس ${addr.label}`}
-                          className="p-1.5 rounded-lg bg-white text-[#434655] hover:text-[#004ac6]"
+                          className="p-1.5 rounded-lg bg-white border border-[#E4E8EE] text-[#4A5464] hover:text-[#1453D6] transition-colors"
                         >
-                          <Pencil className="w-3.5 h-3.5" />
+                          <Pencil className="w-3.5 h-3.5" strokeWidth={1.5} />
                         </button>
                         <button
                           type="button"
                           onClick={() => deleteUserAddress(addr.id)}
                           aria-label={`حذف آدرس ${addr.label}`}
-                          className="p-1.5 rounded-lg bg-white text-rose-600 hover:bg-rose-50"
+                          className="p-1.5 rounded-lg bg-white border border-[#E4E8EE] text-[#B42318] hover:bg-[#FEF3F2] transition-colors"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />
                         </button>
                       </div>
                     </div>
 
-                    <p className="text-xs text-[#0b1c30] leading-6">
+                    <p className="text-xs text-[#11161E] leading-6">
                       {addr.city}، {addr.address}
                     </p>
-                    <p className="text-[11px] text-[#434655] tabular-nums-fa">
+                    <p className="text-[11px] text-[#4A5464] tabular-nums-fa">
                       تحویل‌گیرنده: {addr.receiverName} · {toPersianDigits(addr.phone)} · کد پستی:{' '}
                       {toPersianDigits(addr.postalCode)}
                     </p>
@@ -1508,7 +1504,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       <button
                         type="button"
                         onClick={() => setDefaultUserAddress(addr.id)}
-                        className="text-xs font-bold text-[#004ac6] hover:underline"
+                        className="text-xs font-medium text-[#1453D6] hover:underline"
                       >
                         تنظیم به عنوان پیش‌فرض
                       </button>
@@ -1521,14 +1517,14 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
         )}
 
         {activeTab === 'orders' && (
-          <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-5">
+          <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h1 className="text-lg sm:text-xl font-black text-[#0b1c30]">
+              <h1 className="text-lg sm:text-xl font-semibold text-[#11161E]">
                 {ordersLoading
                   ? 'سفارش‌های ثبت‌شده'
                   : `سفارش‌های ثبت‌شده (${toPersianDigits(filteredOrders.length)})`}
               </h1>
-              <div className="flex items-center gap-1 p-1 bg-[#eff4ff] rounded-xl overflow-x-auto no-scrollbar">
+              <div className="flex items-center gap-1 p-1 bg-[#F1F3F6] border border-[#E4E8EE] rounded-lg overflow-x-auto no-scrollbar">
                 {(
                   [
                     { id: 'all', label: 'همه' },
@@ -1542,10 +1538,10 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     key={f.id}
                     type="button"
                     onClick={() => setOrderStatusFilter(f.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
                       orderStatusFilter === f.id
-                        ? 'bg-white text-[#004ac6] shadow-sm'
-                        : 'text-[#434655] hover:text-[#0b1c30]'
+                        ? 'bg-white text-[#1453D6] font-semibold border border-[#E4E8EE]'
+                        : 'text-[#4A5464] hover:text-[#11161E]'
                     }`}
                   >
                     {f.label}
@@ -1567,21 +1563,21 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 <OrderRowSkeleton />
               </div>
             ) : orders.length === 0 ? (
-              <div className="p-8 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
-                <p className="text-xs sm:text-sm text-[#434655]">
+              <div className="p-8 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-3">
+                <p className="text-xs sm:text-sm text-[#4A5464]">
                   هنوز سفارشی در حساب کاربری شما ثبت نشده است.
                 </p>
                 <a
                   href={buildHref('/catalog')}
                   onClick={(e) => handleLinkClick(e, '/catalog')}
-                  className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
+                  className="h-10 px-5 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-medium inline-flex items-center transition-colors"
                 >
                   شروع خرید از فروشگاه
                 </a>
               </div>
             ) : filteredOrders.length === 0 ? (
-              <div className="p-8 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
-                <p className="text-xs sm:text-sm text-[#434655]">
+              <div className="p-8 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-3">
+                <p className="text-xs sm:text-sm text-[#4A5464]">
                   سفارشی با این وضعیت یافت نشد.
                 </p>
               </div>
@@ -1590,18 +1586,18 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 {filteredOrders.map((ord) => (
                   <div
                     key={ord.orderCode}
-                    className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                    className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                   >
                     <div className="space-y-1">
-                      <p className="text-xs text-[#434655]">
-                        <span dir="ltr" className="text-sm font-black text-[#004ac6]">
+                      <p className="text-xs text-[#4A5464]">
+                        <span dir="ltr" className="text-sm font-mono font-semibold text-[#1453D6]">
                           {ord.orderCode}
                         </span>{' '}
                         · {STATUS_LABELS[ord.status]} · {ord.createdAt}
                       </p>
-                      <p className="text-xs text-[#434655]">
+                      <p className="text-xs text-[#4A5464]">
                         تحویل‌گیرنده: {ord.customerName} · {toPersianDigits(ord.items.length)} کالا ·{' '}
-                        <strong className="text-[#0b1c30] tabular-nums-fa">
+                        <strong className="text-[#11161E] font-semibold tabular-nums-fa">
                           {formatToman(ord.totalAmount)} تومان
                         </strong>
                       </p>
@@ -1611,14 +1607,14 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       <a
                         href={buildHref(`/order-confirmed/${ord.orderCode}`)}
                         onClick={(e) => handleLinkClick(e, `/order-confirmed/${ord.orderCode}`)}
-                        className="px-3.5 py-2 rounded-xl bg-white border border-[#dce9ff] text-xs font-bold text-[#0b1c30] hover:border-[#004ac6] inline-flex items-center"
+                        className="px-3.5 py-2 rounded-lg bg-white border border-[#E4E8EE] text-xs font-medium text-[#11161E] hover:border-[#1453D6] hover:text-[#1453D6] inline-flex items-center transition-colors"
                       >
                         مشاهده فاکتور
                       </a>
                       <a
                         href={buildHref(`/tracking/${ord.orderCode}`)}
                         onClick={(e) => handleLinkClick(e, `/tracking/${ord.orderCode}`)}
-                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold inline-flex items-center"
+                        className="px-3.5 py-2 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold inline-flex items-center transition-colors"
                       >
                         رهگیری مرسوله
                       </a>
@@ -1632,12 +1628,12 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
 
         {activeTab === 'wishlist' && (
           <div className="space-y-6">
-            <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
+            <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
               <div>
-                <h1 className="text-lg font-black text-[#0b1c30]">
+                <h1 className="text-lg font-semibold text-[#11161E]">
                   لیست علاقه‌مندی‌ها ({toPersianDigits(wishlistProducts.length)})
                 </h1>
-                <p className="text-xs text-[#434655] mt-1">
+                <p className="text-xs text-[#4A5464] mt-1">
                   محصولات منتخب شما در حساب کاربری و پایگاه داده ذخیره می‌شوند و در همه دستگاه‌ها در دسترس هستند.
                 </p>
               </div>
@@ -1648,14 +1644,14 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   ))}
                 </div>
               ) : (
-                <div className="p-8 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
-                  <p className="text-xs sm:text-sm text-[#434655]">
+                <div className="p-8 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-3">
+                  <p className="text-xs sm:text-sm text-[#4A5464]">
                     هنوز محصولی به لیست علاقه‌مندی‌های خود اضافه نکرده‌اید.
                   </p>
                   <a
                     href={buildHref('/catalog')}
                     onClick={(e) => handleLinkClick(e, '/catalog')}
-                    className="h-10 px-5 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
+                    className="h-10 px-5 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-medium inline-flex items-center transition-colors"
                   >
                     گشت‌وگذار در فروشگاه
                   </a>
@@ -1663,13 +1659,13 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               )}
             </section>
 
-            <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
-              <h2 className="text-base font-black text-[#0b1c30] flex items-center gap-2">
-                <Bell className="w-4 h-4 text-[#004ac6]" />
+            <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
+              <h2 className="text-base font-semibold text-[#11161E] flex items-center gap-2">
+                <Bell className="w-4 h-4 text-[#1453D6]" strokeWidth={1.5} />
                 <span>اعلان‌های موجودی کالا ({toPersianDigits(alertProducts.length)})</span>
               </h2>
               {alertProducts.length === 0 ? (
-                <p className="text-xs text-[#434655]">
+                <p className="text-xs text-[#4A5464]">
                   برای هیچ کالای ناموجودی درخواست اطلاع‌رسانی ثبت نکرده‌اید.
                 </p>
               ) : (
@@ -1677,19 +1673,19 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                   {alertProducts.map((p) => (
                     <div
                       key={p.id}
-                      className="p-3.5 rounded-xl bg-[#f8f9ff] flex items-center justify-between gap-3"
+                      className="p-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] flex items-center justify-between gap-3"
                     >
                       <a
                         href={buildHref(`/product/${p.slug}`)}
                         onClick={(e) => handleLinkClick(e, `/product/${p.slug}`)}
-                        className="text-xs font-bold text-[#0b1c30] hover:text-[#004ac6] text-right"
+                        className="text-xs font-medium text-[#11161E] hover:text-[#1453D6] text-right transition-colors"
                       >
                         {p.nameFa}
                       </a>
                       <button
                         type="button"
                         onClick={() => toggleStockAlert(p.id)}
-                        className="px-3 py-1.5 rounded-lg bg-white border border-[#dce9ff] text-xs font-bold text-rose-600 shrink-0"
+                        className="px-3 py-1.5 rounded-lg bg-white border border-[#E4E8EE] text-xs font-medium text-[#B42318] hover:bg-[#FEF3F2] shrink-0 transition-colors"
                       >
                         لغو اعلان
                       </button>
@@ -1706,14 +1702,14 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             <form
               onSubmit={handlePasswordChange}
               noValidate
-              className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4"
+              className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4"
             >
               <div>
-                <h1 className="text-lg sm:text-xl font-black text-[#0b1c30] flex items-center gap-2">
-                  <KeyRound className="w-5 h-5 text-[#004ac6]" />
+                <h1 className="text-lg sm:text-xl font-semibold text-[#11161E] flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-[#1453D6]" strokeWidth={1.5} />
                   <span>{user.hasPassword ? 'تغییر رمز عبور' : 'تنظیم رمز عبور برای حساب'}</span>
                 </h1>
-                <p className="text-xs text-[#434655] mt-1">
+                <p className="text-xs text-[#4A5464] mt-1">
                   {user.hasPassword
                     ? 'پس از تغییر رمز عبور، ایمیل اطلاع‌رسانی امنیتی از طریق Resend برایتان ارسال می‌شود.'
                     : 'شما با کد تایید ایمیل وارد شده‌اید؛ در صورت تمایل می‌توانید یک رمز عبور نیز برای ورود سریع‌تر تنظیم کنید.'}
@@ -1721,7 +1717,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               </div>
 
               {passwordError && (
-                <p className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold">
+                <p className="p-3 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] text-[#B42318] text-xs font-medium">
                   {passwordError}
                 </p>
               )}
@@ -1729,7 +1725,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {user.hasPassword && (
                   <div className="space-y-1.5">
-                    <label htmlFor="sec-cur-pw" className="text-xs font-bold text-[#0b1c30] block">
+                    <label htmlFor="sec-cur-pw" className="text-xs font-medium text-[#11161E] block">
                       رمز عبور فعلی
                     </label>
                     <input
@@ -1738,13 +1734,13 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       dir="ltr"
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
-                      className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs text-left text-[#0b1c30]"
+                      className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
                   </div>
                 )}
 
                 <div className="space-y-1.5">
-                  <label htmlFor="sec-new-pw" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="sec-new-pw" className="text-xs font-medium text-[#11161E] block">
                     رمز عبور جدید
                   </label>
                   <input
@@ -1753,17 +1749,17 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     dir="ltr"
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs text-left text-[#0b1c30]"
+                    className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   {newPassword && (
-                    <p className="text-[11px] text-[#434655]">
-                      قدرت: <strong>{pwStrength.labelFa}</strong>
+                    <p className="text-[11px] text-[#4A5464]">
+                      قدرت: <strong className="font-semibold">{pwStrength.labelFa}</strong>
                     </p>
                   )}
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="sec-confirm-pw" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="sec-confirm-pw" className="text-xs font-medium text-[#11161E] block">
                     تکرار رمز عبور جدید
                   </label>
                   <input
@@ -1772,7 +1768,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     dir="ltr"
                     value={confirmNewPassword}
                     onChange={(e) => setConfirmNewPassword(e.target.value)}
-                    className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs text-left text-[#0b1c30]"
+                    className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                 </div>
               </div>
@@ -1781,7 +1777,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 <button
                   type="submit"
                   disabled={savingPassword}
-                  className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-extrabold"
+                  className="h-11 px-6 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs sm:text-sm font-semibold transition-colors"
                 >
                   {savingPassword ? 'در حال ثبت...' : 'ذخیره رمز عبور'}
                 </button>
@@ -1792,24 +1788,24 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
             <form
               onSubmit={handleToggleTwoFactor}
               noValidate
-              className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4"
+              className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4"
             >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-base sm:text-lg font-black text-[#0b1c30] flex items-center gap-2">
-                    <Shield className="w-5 h-5 text-[#004ac6]" />
+                  <h2 className="text-base sm:text-lg font-semibold text-[#11161E] flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-[#1453D6]" strokeWidth={1.5} />
                     <span>تایید دومرحله‌ای (2FA) با ایمیل</span>
                   </h2>
-                  <p className="text-xs text-[#434655] mt-1 leading-6">
+                  <p className="text-xs text-[#4A5464] mt-1 leading-6">
                     با فعال‌سازی این گزینه، هنگام ورود به حساب ابتدا رمز عبور شما بررسی می‌شود و سپس کد تایید ۶ رقمی به ایمیلتان ارسال خواهد شد.
                   </p>
                 </div>
                 <span
                   data-testid="two-factor-status-badge"
-                  className={`px-3 py-1 rounded-xl text-xs font-extrabold whitespace-nowrap ${
+                  className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap ${
                     user.twoFactorEnabled
-                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                      : 'bg-[#f8f9ff] text-[#434655] border border-[#dce9ff]'
+                      ? 'bg-[#ECFDF3] text-[#067647] border border-[#ABEFC6]'
+                      : 'bg-[#F7F8FA] text-[#4A5464] border border-[#E4E8EE]'
                   }`}
                 >
                   {user.twoFactorEnabled ? 'فعال' : 'غیرفعال'}
@@ -1817,19 +1813,19 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               </div>
 
               {twoFactorErr && (
-                <p className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold">
+                <p className="p-3 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] text-[#B42318] text-xs font-medium">
                   {twoFactorErr}
                 </p>
               )}
 
               {!user.hasPassword ? (
-                <p className="p-3.5 rounded-xl bg-[#eff4ff] border border-[#dce9ff] text-xs text-[#0b1c30] leading-6">
+                <p className="p-3.5 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-xs text-[#11161E] leading-6">
                   برای فعال‌سازی تایید دومرحله‌ای، ابتدا باید از فرم «تنظیم رمز عبور برای حساب» در بالا یک رمز عبور ثبت کنید.
                 </p>
               ) : (
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
                   <div className="flex-1 space-y-1.5">
-                    <label htmlFor="two-factor-pw" className="text-xs font-bold text-[#0b1c30] block">
+                    <label htmlFor="two-factor-pw" className="text-xs font-medium text-[#11161E] block">
                       رمز عبور فعلی برای تایید
                     </label>
                     <input
@@ -1839,17 +1835,17 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       value={twoFactorPw}
                       onChange={(e) => setTwoFactorPw(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs text-left text-[#0b1c30]"
+                      className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
                   </div>
                   <button
                     type="submit"
                     disabled={twoFactorBusy}
                     data-testid="toggle-two-factor-btn"
-                    className={`h-11 px-5 rounded-xl text-xs sm:text-sm font-extrabold whitespace-nowrap transition-colors ${
+                    className={`h-11 px-5 rounded-lg text-xs sm:text-sm font-semibold whitespace-nowrap transition-colors ${
                       user.twoFactorEnabled
-                        ? 'bg-rose-50 hover:bg-rose-100 text-rose-700'
-                        : 'bg-[#004ac6] hover:bg-[#2563eb] text-white'
+                        ? 'bg-[#FEF3F2] border border-[#FECDCA] hover:bg-[#FEE4E2] text-[#B42318]'
+                        : 'bg-[#1453D6] hover:bg-[#0F44B5] text-white'
                     }`}
                   >
                     {twoFactorBusy
@@ -1862,13 +1858,13 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               )}
             </form>
 
-            <section className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
-                <h2 className="text-base font-black text-[#0b1c30] flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <h2 className="text-base font-semibold text-[#11161E] flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#067647]" strokeWidth={1.5} />
                   <span>مدیریت نشست‌های فعال</span>
                 </h2>
-                <p className="text-xs text-[#434655]">
+                <p className="text-xs text-[#4A5464]">
                   اگر در دستگاه دیگری وارد حساب خود شده‌اید، می‌توانید همه نشست‌های فعال را یکجا ببندید.
                 </p>
               </div>
@@ -1876,21 +1872,21 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 type="button"
                 onClick={() => logoutDemoUser(true)}
                 data-testid="logout-all-devices-btn"
-                className="h-11 px-5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-extrabold whitespace-nowrap shrink-0"
+                className="h-11 px-5 rounded-lg bg-[#FDF1E8] hover:bg-[#FCE6D6] text-[#A84500] border border-[#F5D6BE] text-xs font-semibold whitespace-nowrap shrink-0 transition-colors"
               >
                 خروج از همه دستگاه‌ها
               </button>
             </section>
 
             {/* Delete Account Section */}
-            <section className="bg-white rounded-3xl border border-rose-200 p-6 sm:p-8 space-y-4">
+            <section className="bg-white rounded-2xl border border-[#FECDCA] p-6 sm:p-8 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-1">
-                  <h2 className="text-base font-black text-rose-700 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-rose-600" />
+                  <h2 className="text-base font-semibold text-[#B42318] flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-[#B42318]" strokeWidth={1.5} />
                     <span>حذف دائمی حساب کاربری</span>
                   </h2>
-                  <p className="text-xs text-[#434655] leading-6">
+                  <p className="text-xs text-[#4A5464] leading-6">
                     با حذف حساب کاربری، اطلاعات پروفایل، آدرس‌ها، لیست علاقه‌مندی و همه نشست‌های فعال شما به‌طور دائمی پاک می‌شوند.
                   </p>
                 </div>
@@ -1902,7 +1898,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       setDeleteError(null);
                     }}
                     data-testid="open-delete-account-btn"
-                    className="h-11 px-5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-extrabold whitespace-nowrap shrink-0"
+                    className="h-11 px-5 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] hover:bg-[#FEE4E2] text-[#B42318] text-xs font-semibold whitespace-nowrap shrink-0 transition-colors"
                   >
                     حذف حساب کاربری
                   </button>
@@ -1913,20 +1909,20 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 <form
                   onSubmit={handleDeleteAccount}
                   data-testid="delete-account-confirm-box"
-                  className="p-4 rounded-2xl bg-rose-50/70 border border-rose-200 space-y-3"
+                  className="p-4 rounded-xl bg-[#FEF3F2] border border-[#FECDCA] space-y-3"
                 >
-                  <p className="text-xs font-bold text-rose-800">
+                  <p className="text-xs font-medium text-[#B42318]">
                     آیا از حذف دائمی حساب خود مطمئن هستید؟ این عملیات قابل بازگشت نیست.
                   </p>
                   {deleteError && (
-                    <p className="text-xs font-bold text-rose-700 bg-white p-2.5 rounded-xl border border-rose-200">
+                    <p className="text-xs font-medium text-[#B42318] bg-white p-2.5 rounded-lg border border-[#FECDCA]">
                       {deleteError}
                     </p>
                   )}
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
                     {user.hasPassword && (
                       <div className="flex-1 space-y-1">
-                        <label htmlFor="delete-account-pw" className="text-xs font-bold text-[#0b1c30] block">
+                        <label htmlFor="delete-account-pw" className="text-xs font-medium text-[#11161E] block">
                           رمز عبور فعلی برای تایید حذف
                         </label>
                         <input
@@ -1937,7 +1933,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                           onChange={(e) => setDeletePassword(e.target.value)}
                           placeholder="••••••••"
                           data-testid="delete-account-password"
-                          className="w-full h-10 px-3 rounded-xl bg-white border border-rose-200 text-xs text-left text-[#0b1c30]"
+                          className="w-full h-10 px-3 rounded-lg bg-white border border-[#FECDCA] text-xs text-left text-[#11161E]"
                         />
                       </div>
                     )}
@@ -1945,7 +1941,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       type="submit"
                       disabled={deleteBusy}
                       data-testid="confirm-delete-account-btn"
-                      className="h-10 px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold whitespace-nowrap"
+                      className="h-10 px-5 rounded-lg bg-[#B42318] hover:bg-[#912018] text-white text-xs font-semibold whitespace-nowrap transition-colors"
                     >
                       {deleteBusy ? 'در حال حذف...' : 'تایید و حذف دائمی حساب'}
                     </button>
@@ -1956,7 +1952,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                         setDeletePassword('');
                         setDeleteError(null);
                       }}
-                      className="h-10 px-4 rounded-xl bg-white border border-[#dce9ff] text-xs font-bold text-[#434655] whitespace-nowrap"
+                      className="h-10 px-4 rounded-lg bg-white border border-[#E4E8EE] text-xs font-medium text-[#4A5464] whitespace-nowrap"
                     >
                       انصراف
                     </button>

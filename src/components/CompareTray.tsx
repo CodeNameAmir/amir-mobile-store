@@ -19,28 +19,28 @@ export const CompareTray: React.FC = () => {
       data-testid="compare-tray"
       className="fixed bottom-4 right-4 left-4 md:left-auto md:right-6 md:max-w-xl z-40 no-print"
     >
-      <div className="bg-[#0b1c30]/95 backdrop-blur-md text-white rounded-2xl border border-[#2563eb]/40 p-3.5 shadow-[0_18px_40px_rgba(11,28,48,0.28)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-[#13171F] text-white rounded-2xl border border-white/10 p-3.5 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-[#004ac6] text-white flex items-center justify-center shrink-0">
-            <Scale className="w-4 h-4" />
+          <div className="w-9 h-9 rounded-lg bg-[#1453D6] text-white flex items-center justify-center shrink-0">
+            <Scale className="w-4 h-4" strokeWidth={1.5} />
           </div>
           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar">
             {selected.map((p) => (
               <div
                 key={p.id}
-                className="flex items-center gap-1.5 bg-white/10 rounded-xl pl-2 pr-1 py-1 shrink-0"
+                className="flex items-center gap-1.5 bg-white/10 rounded-lg pl-2 pr-1 py-1 shrink-0"
               >
-                <div className="w-7 h-7 rounded-lg overflow-hidden bg-white shrink-0">
+                <div className="w-7 h-7 rounded-md overflow-hidden bg-white shrink-0">
                   <SmartImage src={p.image} alt={p.nameFa} className="w-full h-full object-cover" />
                 </div>
-                <span className="text-[11px] font-bold max-w-[95px] truncate">{p.nameFa}</span>
+                <span className="text-[11px] font-medium max-w-[95px] truncate">{p.nameFa}</span>
                 <button
                   type="button"
                   onClick={() => toggleCompare(p.id)}
                   aria-label={`حذف ${p.nameFa} از مقایسه`}
-                  className="text-white/70 hover:text-white"
+                  className="text-white/70 hover:text-white transition-colors"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               </div>
             ))}
@@ -52,18 +52,18 @@ export const CompareTray: React.FC = () => {
             type="button"
             onClick={clearCompare}
             aria-label="پاک کردن لیست مقایسه"
-            className="h-9 w-9 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 inline-flex items-center justify-center transition-colors"
+            className="h-9 w-9 rounded-lg bg-white/10 hover:bg-white/20 text-white/80 inline-flex items-center justify-center transition-colors"
           >
-            <Trash2 className="w-4 h-4" />
+            <Trash2 className="w-4 h-4" strokeWidth={1.5} />
           </button>
           <a
             href={buildHref('/compare')}
             onClick={(e) => handleLinkClick(e, '/compare')}
             data-testid="open-compare-page-btn"
-            className="h-9 px-4 rounded-xl bg-[#2563eb] hover:bg-[#004ac6] text-white text-xs font-extrabold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+            className="h-9 px-4 rounded-lg bg-white hover:bg-[#F1F3F6] text-[#11161E] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
           >
             <span>مقایسه ({toPersianDigits(selected.length)} از ۳)</span>
-            <ArrowLeft className="w-3.5 h-3.5" />
+            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={1.5} />
           </a>
         </div>
       </div>

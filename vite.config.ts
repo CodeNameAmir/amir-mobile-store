@@ -9,7 +9,7 @@ function copyIndexTo404Plugin(): Plugin {
   return {
     name: 'copy-index-to-404',
     closeBundle() {
-      const distDir = path.resolve(__dirname, 'dist');
+      const distDir = path.resolve(import.meta.dirname, 'dist');
       const indexFile = path.join(distDir, 'index.html');
       const fallbackFile = path.join(distDir, '404.html');
       if (fs.existsSync(indexFile)) {
@@ -85,7 +85,7 @@ export default defineConfig(() => {
     },
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     server: {

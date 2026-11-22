@@ -104,7 +104,6 @@ export const CatalogPage: React.FC = () => {
     for (const root of roots) {
       appendTree(root, 0);
     }
-    // Append any orphan categories whose parent wasn't active/found
     const included = new Set(items.map((x) => x.cat.id));
     for (const c of activeCategories) {
       if (!included.has(c.id)) {
@@ -215,33 +214,33 @@ export const CatalogPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <SlidersHorizontal className="w-4 h-4 text-[#004ac6]" />
-          <h2 className="text-sm font-extrabold text-[#0b1c30]">فیلترهای تخصصی</h2>
+          <SlidersHorizontal className="w-4 h-4 text-[#4A5464]" strokeWidth={1.5} />
+          <h2 className="text-sm font-semibold text-[#11161E]">فیلترهای تخصصی</h2>
         </div>
         {hasActiveFilters && (
           <button
             type="button"
             data-testid="clear-all-filters-sidebar"
             onClick={resetFilters}
-            className="inline-flex items-center gap-1 text-xs font-bold text-[#b54e00] hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-medium text-[#A84500] hover:underline"
           >
-            <RotateCcw className="w-3.5 h-3.5" />
+            <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.5} />
             پاک کردن همه
           </button>
         )}
       </div>
 
       {/* Nested Category Selector */}
-      <div className="space-y-2 border-t border-[#eff4ff] pt-4">
-        <p className="text-xs font-bold text-[#0b1c30]">دسته‌بندی (تو در تو)</p>
+      <div className="space-y-2 border-t border-[#E4E8EE] pt-4">
+        <p className="text-xs font-semibold text-[#11161E]">دسته‌بندی (تو در تو)</p>
         <div className="flex flex-col gap-1">
           <button
             type="button"
             onClick={() => setFilters((p) => ({ ...p, category: 'all' }))}
-            className={`px-3 py-1.5 rounded-lg text-right text-xs font-semibold transition-colors ${
+            className={`px-3 py-1.5 rounded-lg text-right text-xs font-medium transition-colors ${
               filters.category === 'all'
-                ? 'bg-[#004ac6] text-white'
-                : 'bg-[#f8f9ff] text-[#434655] hover:bg-[#eff4ff]'
+                ? 'bg-[#1453D6] text-white'
+                : 'bg-[#F7F8FA] text-[#4A5464] hover:bg-[#F1F3F6] hover:text-[#11161E]'
             }`}
           >
             همه دسته‌بندی‌ها
@@ -254,10 +253,10 @@ export const CatalogPage: React.FC = () => {
                 type="button"
                 onClick={() => setFilters((p) => ({ ...p, category: cat.slug as CategoryId }))}
                 style={{ paddingRight: `${12 + depth * 14}px` }}
-                className={`py-1.5 pl-3 rounded-lg text-right text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+                className={`py-1.5 pl-3 rounded-lg text-right text-xs font-medium transition-colors flex items-center gap-1.5 ${
                   active
-                    ? 'bg-[#004ac6] text-white'
-                    : 'bg-[#f8f9ff] text-[#434655] hover:bg-[#eff4ff]'
+                    ? 'bg-[#1453D6] text-white'
+                    : 'bg-[#F7F8FA] text-[#4A5464] hover:bg-[#F1F3F6] hover:text-[#11161E]'
                 }`}
               >
                 {depth > 0 && <span className="opacity-60">↳</span>}
@@ -269,61 +268,61 @@ export const CatalogPage: React.FC = () => {
       </div>
 
       {/* Availability & Express Toggles */}
-      <div className="space-y-3 border-t border-[#eff4ff] pt-4">
+      <div className="space-y-3 border-t border-[#E4E8EE] pt-4">
         <label className="flex items-center justify-between gap-3 cursor-pointer">
-          <span className="text-xs font-semibold text-[#0b1c30]">فقط کالاهای موجود</span>
+          <span className="text-xs font-medium text-[#11161E]">فقط کالاهای موجود</span>
           <input
             type="checkbox"
             checked={filters.inStockOnly}
             onChange={(e) => setFilters((p) => ({ ...p, inStockOnly: e.target.checked }))}
-            className="w-4 h-4 accent-[#004ac6] rounded cursor-pointer"
+            className="w-4 h-4 accent-[#1453D6] rounded cursor-pointer"
           />
         </label>
         <label className="flex items-center justify-between gap-3 cursor-pointer">
-          <span className="text-xs font-semibold text-[#0b1c30]">فقط کالاهای تخفیف‌دار</span>
+          <span className="text-xs font-medium text-[#11161E]">فقط کالاهای تخفیف‌دار</span>
           <input
             type="checkbox"
             checked={filters.discountedOnly}
             onChange={(e) => setFilters((p) => ({ ...p, discountedOnly: e.target.checked }))}
-            className="w-4 h-4 accent-[#004ac6] rounded cursor-pointer"
+            className="w-4 h-4 accent-[#1453D6] rounded cursor-pointer"
           />
         </label>
         <label className="flex items-center justify-between gap-3 cursor-pointer">
-          <span className="text-xs font-semibold text-[#0b1c30]">ارسال اکسپرس ۳ ساعته</span>
+          <span className="text-xs font-medium text-[#11161E]">ارسال اکسپرس ۳ ساعته</span>
           <input
             type="checkbox"
             checked={filters.expressOnly}
             onChange={(e) => setFilters((p) => ({ ...p, expressOnly: e.target.checked }))}
-            className="w-4 h-4 accent-[#004ac6] rounded cursor-pointer"
+            className="w-4 h-4 accent-[#1453D6] rounded cursor-pointer"
           />
         </label>
       </div>
 
       {/* Brands */}
-      <div className="space-y-3 border-t border-[#eff4ff] pt-4">
-        <p className="text-xs font-bold text-[#0b1c30]">برند سازنده</p>
+      <div className="space-y-3 border-t border-[#E4E8EE] pt-4">
+        <p className="text-xs font-semibold text-[#11161E]">برند سازنده</p>
         <div className="relative">
           <input
             type="text"
             value={brandSearch}
             onChange={(e) => setBrandSearch(e.target.value)}
-            placeholder="جستجوی برند (مثلاً Huawei)..."
-            className="w-full h-9 pr-8 pl-3 rounded-xl bg-[#f8f9ff] border border-[#e5eeff] text-xs text-[#0b1c30] focus:outline-none focus:border-[#2563eb]"
+            placeholder="جستجوی برند (مثلاً Huawei)"
+            className="w-full h-9 pr-8 pl-3 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-xs text-[#11161E] placeholder:text-[#6E7889] focus:bg-white focus:outline-none focus:border-[#1453D6]"
           />
-          <Search className="w-3.5 h-3.5 text-[#434655] absolute right-2.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-3.5 h-3.5 text-[#6E7889] absolute right-2.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
         </div>
         <div className="space-y-2 max-h-48 overflow-y-auto pl-1">
           {visibleBrands.map((brand) => (
             <label
               key={brand.id}
-              className="flex items-center justify-between gap-2 cursor-pointer text-xs text-[#0b1c30]"
+              className="flex items-center justify-between gap-2 cursor-pointer text-xs text-[#11161E]"
             >
               <span className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={filters.brands.includes(brand.id)}
                   onChange={() => toggleBrand(brand.id)}
-                  className="w-4 h-4 accent-[#004ac6] rounded cursor-pointer"
+                  className="w-4 h-4 accent-[#1453D6] rounded cursor-pointer"
                 />
                 {brand.label}
               </span>
@@ -333,14 +332,14 @@ export const CatalogPage: React.FC = () => {
       </div>
 
       {/* Dual Min / Max Price Range Filter */}
-      <div className="space-y-3 border-t border-[#eff4ff] pt-4">
+      <div className="space-y-3 border-t border-[#E4E8EE] pt-4">
         <div className="flex items-center justify-between">
-          <p className="text-xs font-bold text-[#0b1c30]">محدوده قیمت (تومان)</p>
+          <p className="text-xs font-semibold text-[#11161E]">محدوده قیمت (تومان)</p>
           {isPriceFiltered && (
             <button
               type="button"
               onClick={() => setFilters((p) => ({ ...p, minPrice: 0, maxPrice: Infinity }))}
-              className="text-[11px] font-bold text-[#004ac6] hover:underline"
+              className="text-[11px] font-medium text-[#1453D6] hover:underline"
             >
               بازنشانی
             </button>
@@ -364,7 +363,7 @@ export const CatalogPage: React.FC = () => {
 
         <div className="grid grid-cols-2 gap-2 pt-1">
           <div>
-            <label htmlFor="min-price-input" className="text-[10px] font-bold text-[#434655] block mb-1">
+            <label htmlFor="min-price-input" className="text-[11px] font-medium text-[#4A5464] block mb-1">
               از (تومان)
             </label>
             <input
@@ -374,11 +373,11 @@ export const CatalogPage: React.FC = () => {
               value={sliderMinPrice > 0 ? String(sliderMinPrice) : ''}
               placeholder="0"
               onChange={(e) => handlePriceInput('min', e.target.value)}
-              className="w-full h-8 px-2 rounded-lg bg-[#f8f9ff] border border-[#dce9ff] text-[11px] font-bold text-[#0b1c30]"
+              className="w-full h-8 px-2 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-[11px] font-mono font-medium text-[#11161E] focus:bg-white focus:border-[#1453D6] focus:outline-none"
             />
           </div>
           <div>
-            <label htmlFor="max-price-input" className="text-[10px] font-bold text-[#434655] block mb-1">
+            <label htmlFor="max-price-input" className="text-[11px] font-medium text-[#4A5464] block mb-1">
               تا (تومان)
             </label>
             <input
@@ -388,15 +387,15 @@ export const CatalogPage: React.FC = () => {
               value={isMaxPriceFiltered ? String(sliderMaxPrice) : ''}
               placeholder={String(catalogMaxPrice)}
               onChange={(e) => handlePriceInput('max', e.target.value)}
-              className="w-full h-8 px-2 rounded-lg bg-[#f8f9ff] border border-[#dce9ff] text-[11px] font-bold text-[#0b1c30]"
+              className="w-full h-8 px-2 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-[11px] font-mono font-medium text-[#11161E] focus:bg-white focus:border-[#1453D6] focus:outline-none"
             />
           </div>
         </div>
       </div>
 
       {/* Storage Capacity */}
-      <div className="space-y-2.5 border-t border-[#eff4ff] pt-4">
-        <p className="text-xs font-bold text-[#0b1c30]">ظرفیت حافظه داخلی</p>
+      <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4">
+        <p className="text-xs font-semibold text-[#11161E]">ظرفیت حافظه داخلی</p>
         <div className="flex flex-wrap gap-1.5">
           {STORAGE_CHIPS.map((cap) => (
             <button
@@ -405,10 +404,10 @@ export const CatalogPage: React.FC = () => {
               onClick={() =>
                 setFilters((p) => ({ ...p, storage: p.storage === cap ? null : cap }))
               }
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 filters.storage === cap
-                  ? 'bg-[#004ac6] text-white'
-                  : 'bg-[#f8f9ff] text-[#434655] hover:bg-[#eff4ff]'
+                  ? 'bg-[#1453D6] text-white'
+                  : 'bg-[#F1F3F6] text-[#4A5464] hover:bg-[#EAECEF] hover:text-[#11161E]'
               }`}
             >
               {cap}
@@ -418,18 +417,18 @@ export const CatalogPage: React.FC = () => {
       </div>
 
       {/* RAM Capacity */}
-      <div className="space-y-2.5 border-t border-[#eff4ff] pt-4">
-        <p className="text-xs font-bold text-[#0b1c30]">حافظه رم (RAM)</p>
+      <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4">
+        <p className="text-xs font-semibold text-[#11161E]">حافظه رم (RAM)</p>
         <div className="flex flex-wrap gap-1.5">
           {RAM_CHIPS.map((ram) => (
             <button
               key={ram}
               type="button"
               onClick={() => setFilters((p) => ({ ...p, ram: p.ram === ram ? null : ram }))}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                 filters.ram === ram
-                  ? 'bg-[#004ac6] text-white'
-                  : 'bg-[#f8f9ff] text-[#434655] hover:bg-[#eff4ff]'
+                  ? 'bg-[#1453D6] text-white'
+                  : 'bg-[#F1F3F6] text-[#4A5464] hover:bg-[#EAECEF] hover:text-[#11161E]'
               }`}
             >
               {ram}
@@ -439,14 +438,14 @@ export const CatalogPage: React.FC = () => {
       </div>
 
       {/* Dynamic Available Color Swatches */}
-      <div className="space-y-2.5 border-t border-[#eff4ff] pt-4">
-        <p className="text-xs font-bold text-[#0b1c30]">رنگ بدنه (رنگ‌های موجود)</p>
+      <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4">
+        <p className="text-xs font-semibold text-[#11161E]">رنگ بدنه</p>
         <div className="flex flex-wrap gap-2" data-testid="dynamic-color-filters">
           {productsLoading && availableColors.length === 0 ? (
             <>
-              <SkeletonBox className="h-7 w-20 rounded-xl" />
-              <SkeletonBox className="h-7 w-24 rounded-xl" />
-              <SkeletonBox className="h-7 w-16 rounded-xl" />
+              <SkeletonBox className="h-7 w-20 rounded-lg" />
+              <SkeletonBox className="h-7 w-24 rounded-lg" />
+              <SkeletonBox className="h-7 w-16 rounded-lg" />
             </>
           ) : (
             availableColors.map((c) => {
@@ -460,10 +459,10 @@ export const CatalogPage: React.FC = () => {
                   onClick={() =>
                     setFilters((p) => ({ ...p, colorId: p.colorId === c.id ? null : c.id }))
                   }
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-[11px] font-semibold transition-all ${
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
                     active
-                      ? 'border-[#004ac6] bg-[#eff4ff] text-[#004ac6]'
-                      : 'border-[#dce9ff] bg-white text-[#434655] hover:border-[#2563eb]'
+                      ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6]'
+                      : 'border-[#E4E8EE] bg-white text-[#4A5464] hover:border-[#C5CEDB]'
                   }`}
                 >
                   <span
@@ -483,36 +482,36 @@ export const CatalogPage: React.FC = () => {
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-6 md:py-8 space-y-6">
       {/* Breadcrumb + Header */}
-      <div className="bg-white rounded-2xl border border-[#e5eeff] p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-[#E4E8EE] p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2 text-xs text-[#434655]">
+          <div className="flex items-center gap-2 text-xs text-[#6E7889]">
             <a
               href={buildHref('/')}
               onClick={(e) => handleLinkClick(e, '/')}
-              className="hover:text-[#004ac6]"
+              className="hover:text-[#11161E]"
             >
               فروشگاه موبایل امیر
             </a>
             <span>/</span>
-            <span className="font-bold text-[#004ac6]">{categoryTitle}</span>
+            <span className="font-medium text-[#1453D6]">{categoryTitle}</span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-[#0b1c30]">{categoryTitle}</h1>
+          <h1 className="text-xl sm:text-2xl font-semibold text-[#11161E]">{categoryTitle}</h1>
         </div>
 
         <div className="flex items-center gap-3">
           {productsLoading ? (
-            <SkeletonBox className="h-8 w-24 rounded-xl" />
+            <SkeletonBox className="h-8 w-24 rounded-lg" />
           ) : (
-            <span className="px-3.5 py-2 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold tabular-nums-fa">
+            <span className="px-3.5 py-2 rounded-lg bg-[#F1F3F6] text-[#11161E] text-xs font-medium tabular-nums-fa">
               {toPersianDigits(filteredProducts.length)} کالا یافت شد
             </span>
           )}
           <button
             type="button"
             onClick={() => setMobileFiltersOpen((v) => !v)}
-            className="lg:hidden inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold"
+            className="lg:hidden inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#1453D6] text-white text-xs font-medium"
           >
-            <Filter className="w-4 h-4" />
+            <Filter className="w-4 h-4" strokeWidth={1.5} />
             فیلترها
           </button>
         </div>
@@ -521,21 +520,21 @@ export const CatalogPage: React.FC = () => {
       {/* Main 2-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Desktop Sidebar */}
-        <aside className="hidden lg:block lg:col-span-3 bg-white rounded-2xl border border-[#e5eeff] p-5 sticky top-32">
+        <aside className="hidden lg:block lg:col-span-3 bg-white rounded-2xl border border-[#E4E8EE] p-5 sticky top-32">
           {filterSidebarContent}
         </aside>
 
         {/* Mobile Filter Drawer */}
         {mobileFiltersOpen && (
-          <div className="lg:hidden bg-white rounded-2xl border border-[#e5eeff] p-5">
+          <div className="lg:hidden bg-white rounded-2xl border border-[#E4E8EE] p-5">
             <div className="flex justify-end mb-2">
               <button
                 type="button"
                 onClick={() => setMobileFiltersOpen(false)}
-                className="p-1.5 rounded-lg bg-[#eff4ff] text-[#0b1c30]"
+                className="p-1.5 rounded-lg bg-[#F1F3F6] text-[#11161E]"
                 aria-label="بستن فیلترها"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4" strokeWidth={1.5} />
               </button>
             </div>
             {filterSidebarContent}
@@ -545,7 +544,7 @@ export const CatalogPage: React.FC = () => {
         {/* Product Results Column */}
         <div className="lg:col-span-9 space-y-5">
           {/* Smart Search + Recent Searches + Sort Bar */}
-          <div className="bg-white rounded-2xl border border-[#e5eeff] p-4 space-y-3">
+          <div className="bg-white rounded-2xl border border-[#E4E8EE] p-4 space-y-3">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
               <form onSubmit={handleCatalogSearchSubmit} className="relative flex-1 max-w-md">
                 <input
@@ -556,23 +555,23 @@ export const CatalogPage: React.FC = () => {
                     setLocalSearch(e.target.value);
                     setFilters((p) => ({ ...p, searchQuery: e.target.value }));
                   }}
-                  placeholder="جستجوی هوشمند مدل یا برند (تحمل غلط املایی: مثلاً ifone یا هواوی)..."
-                  className="w-full h-10 pr-9 pl-3 rounded-xl bg-[#eff4ff] text-xs text-[#0b1c30] focus:bg-white border border-transparent focus:border-[#2563eb] focus:outline-none transition-all"
+                  placeholder="جستجوی مدل یا برند در فهرست"
+                  className="w-full h-10 pr-9 pl-3 rounded-lg bg-[#F1F3F6] text-xs text-[#11161E] placeholder:text-[#6E7889] focus:bg-white border border-transparent focus:border-[#1453D6] focus:outline-none transition-colors"
                 />
-                <Search className="w-4 h-4 text-[#434655] absolute right-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-4 h-4 text-[#6E7889] absolute right-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
               </form>
 
-              <div className="flex items-center gap-2 overflow-x-auto pb-1 md:pb-0">
-                <span className="text-xs font-bold text-[#434655] shrink-0">مرتب‌سازی:</span>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+                <span className="text-xs font-medium text-[#4A5464] shrink-0">مرتب‌سازی</span>
                 {SORT_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
                     type="button"
                     onClick={() => setFilters((p) => ({ ...p, sortBy: opt.id }))}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
                       filters.sortBy === opt.id
-                        ? 'bg-[#eff4ff] text-[#004ac6]'
-                        : 'text-[#434655] hover:bg-[#f8f9ff]'
+                        ? 'bg-[#EEF3FC] text-[#1453D6]'
+                        : 'text-[#4A5464] hover:bg-[#F1F3F6] hover:text-[#11161E]'
                     }`}
                   >
                     {opt.label}
@@ -582,15 +581,15 @@ export const CatalogPage: React.FC = () => {
             </div>
 
             {recentSearches.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#eff4ff] text-[11px]">
-                <span className="font-bold text-[#434655] inline-flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-[#004ac6]" />
-                  جستجوهای اخیر:
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#E4E8EE] text-[11px]">
+                <span className="font-medium text-[#4A5464] inline-flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-[#6E7889]" strokeWidth={1.5} />
+                  جستجوهای اخیر
                 </span>
                 {recentSearches.map((item) => (
                   <div
                     key={item}
-                    className="inline-flex items-center rounded-lg bg-[#f8f9ff] border border-[#e5eeff] overflow-hidden"
+                    className="inline-flex items-center rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] overflow-hidden"
                   >
                     <button
                       type="button"
@@ -598,7 +597,7 @@ export const CatalogPage: React.FC = () => {
                         setLocalSearch(item);
                         setFilters((p) => ({ ...p, searchQuery: item }));
                       }}
-                      className="px-2.5 py-1 hover:bg-[#eff4ff] font-semibold text-[#0b1c30]"
+                      className="px-2.5 py-1 hover:bg-[#EAECEF] font-medium text-[#11161E]"
                     >
                       {item}
                     </button>
@@ -606,16 +605,16 @@ export const CatalogPage: React.FC = () => {
                       type="button"
                       aria-label={`حذف ${item} از تاریخچه`}
                       onClick={() => removeRecentSearch(item)}
-                      className="pl-1.5 pr-1 py-1 text-[#434655] hover:text-rose-600"
+                      className="pl-1.5 pr-1 py-1 text-[#6E7889] hover:text-[#B42318]"
                     >
-                      <X className="w-3 h-3" />
+                      <X className="w-3 h-3" strokeWidth={1.5} />
                     </button>
                   </div>
                 ))}
                 <button
                   type="button"
                   onClick={clearRecentSearches}
-                  className="text-rose-600 font-bold hover:underline mr-auto"
+                  className="text-[#B42318] font-medium hover:underline mr-auto"
                 >
                   پاک کردن تاریخچه
                 </button>
@@ -628,15 +627,15 @@ export const CatalogPage: React.FC = () => {
               data-testid="catalog-active-filters"
               className="flex flex-wrap items-center gap-2 px-1"
             >
-              <span className="text-[11px] font-bold text-[#434655]">فیلترهای فعال:</span>
+              <span className="text-[11px] font-medium text-[#4A5464]">فیلترهای فعال</span>
               {filters.category !== 'all' && (
                 <button
                   type="button"
                   onClick={() => setFilters((p) => ({ ...p, category: 'all' }))}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
                 >
                   <span>{categoryTitle}</span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
               {filters.brands.map((brand) => (
@@ -644,84 +643,84 @@ export const CatalogPage: React.FC = () => {
                   key={brand}
                   type="button"
                   onClick={() => toggleBrand(brand)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
                 >
                   <span>برند: {brand}</span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               ))}
               {filters.inStockOnly && (
                 <button
                   type="button"
                   onClick={() => setFilters((p) => ({ ...p, inStockOnly: false }))}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
                 >
                   <span>فقط موجود</span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
               {filters.discountedOnly && (
                 <button
                   type="button"
                   onClick={() => setFilters((p) => ({ ...p, discountedOnly: false }))}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#ffdbca]/60 hover:bg-[#ffdbca] text-[#8e3c00] text-xs font-bold transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FDF1E8] hover:bg-[#FAE3D1] text-[#A84500] text-xs font-medium transition-colors"
                 >
                   <span>دارای تخفیف</span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
               {filters.expressOnly && (
                 <button
                   type="button"
                   onClick={() => setFilters((p) => ({ ...p, expressOnly: false }))}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
                 >
                   <span>ارسال اکسپرس</span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
               {isPriceFiltered && (
                 <button
                   type="button"
                   onClick={() => setFilters((p) => ({ ...p, minPrice: 0, maxPrice: Infinity }))}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold tabular-nums-fa transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium tabular-nums-fa transition-colors"
                 >
                   <span>
                     قیمت: {formatToman(sliderMinPrice)} تا {formatToman(sliderMaxPrice)} تومان
                   </span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
               {filters.storage && (
                 <button
                   type="button"
                   onClick={() => setFilters((p) => ({ ...p, storage: null }))}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
                 >
                   <span>حافظه: {filters.storage}</span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
               {filters.ram && (
                 <button
                   type="button"
                   onClick={() => setFilters((p) => ({ ...p, ram: null }))}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
                 >
                   <span>رم: {filters.ram}</span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
               {filters.colorId && (
                 <button
                   type="button"
                   onClick={() => setFilters((p) => ({ ...p, colorId: null }))}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
                 >
                   <span>
                     رنگ: {availableColors.find((c) => c.id === filters.colorId)?.label ?? filters.colorId}
                   </span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
               {filters.searchQuery.trim() && (
@@ -731,24 +730,24 @@ export const CatalogPage: React.FC = () => {
                     setLocalSearch('');
                     setFilters((p) => ({ ...p, searchQuery: '' }));
                   }}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold transition-colors"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
                 >
                   <span>عبارت: {filters.searchQuery}</span>
-                  <X className="w-3 h-3" />
+                  <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
               <button
                 type="button"
                 data-testid="clear-all-filters-btn"
                 onClick={resetFilters}
-                className="text-[11px] font-bold text-[#b54e00] hover:underline mr-1"
+                className="text-[11px] font-medium text-[#A84500] hover:underline mr-1"
               >
                 حذف همه فیلترها
               </button>
             </div>
           )}
 
-          {/* Product Grid + Pagination / Progressive Load More */}
+          {/* Product Grid + Pagination */}
           {productsLoading ? (
             <div
               role="status"
@@ -772,9 +771,9 @@ export const CatalogPage: React.FC = () => {
               {(paginated.totalPages > 1 || paginated.items.length < filteredProducts.length) && (
                 <div
                   data-testid="catalog-pagination"
-                  className="bg-white rounded-2xl border border-[#e5eeff] p-4 flex flex-col sm:flex-row items-center justify-between gap-4"
+                  className="bg-white rounded-xl border border-[#E4E8EE] p-4 flex flex-col sm:flex-row items-center justify-between gap-4"
                 >
-                  <p className="text-xs font-bold text-[#434655] tabular-nums-fa">
+                  <p className="text-xs font-medium text-[#4A5464] tabular-nums-fa">
                     نمایش {toPersianDigits(paginated.items.length)} از {toPersianDigits(filteredProducts.length)} کالا · صفحه{' '}
                     {toPersianDigits(paginated.page)} از {toPersianDigits(paginated.totalPages)}
                   </p>
@@ -785,7 +784,7 @@ export const CatalogPage: React.FC = () => {
                         type="button"
                         data-testid="catalog-load-more-btn"
                         onClick={() => setExtraVisibleCount((prev) => prev + PAGE_SIZE)}
-                        className="h-9 px-4 rounded-xl bg-[#eff4ff] hover:bg-[#004ac6] text-[#004ac6] hover:text-white text-xs font-extrabold transition-colors"
+                        className="h-9 px-4 rounded-lg bg-[#EEF3FC] hover:bg-[#1453D6] text-[#1453D6] hover:text-white text-xs font-semibold transition-colors"
                       >
                         نمایش {toPersianDigits(Math.min(PAGE_SIZE, filteredProducts.length - paginated.items.length))} کالای بیشتر
                       </button>
@@ -800,7 +799,7 @@ export const CatalogPage: React.FC = () => {
                             setCurrentPage((p) => Math.max(1, p - 1));
                             window.scrollTo({ top: 140, behavior: 'smooth' });
                           }}
-                          className="h-9 px-3 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] disabled:opacity-40 text-xs font-bold text-[#0b1c30]"
+                          className="h-9 px-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] disabled:opacity-40 text-xs font-medium text-[#11161E]"
                         >
                           قبلی
                         </button>
@@ -813,10 +812,10 @@ export const CatalogPage: React.FC = () => {
                               setCurrentPage(pageNum);
                               window.scrollTo({ top: 140, behavior: 'smooth' });
                             }}
-                            className={`w-9 h-9 rounded-xl text-xs font-extrabold tabular-nums-fa transition-colors ${
+                            className={`w-9 h-9 rounded-lg text-xs font-semibold tabular-nums-fa transition-colors ${
                               paginated.page === pageNum
-                                ? 'bg-[#004ac6] text-white'
-                                : 'bg-[#f8f9ff] text-[#434655] hover:bg-[#eff4ff]'
+                                ? 'bg-[#1453D6] text-white'
+                                : 'bg-[#F7F8FA] text-[#4A5464] hover:bg-[#F1F3F6]'
                             }`}
                           >
                             {toPersianDigits(pageNum)}
@@ -829,7 +828,7 @@ export const CatalogPage: React.FC = () => {
                             setCurrentPage((p) => Math.min(paginated.totalPages, p + 1));
                             window.scrollTo({ top: 140, behavior: 'smooth' });
                           }}
-                          className="h-9 px-3 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] disabled:opacity-40 text-xs font-bold text-[#0b1c30]"
+                          className="h-9 px-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] disabled:opacity-40 text-xs font-medium text-[#11161E]"
                         >
                           بعدی
                         </button>
@@ -840,48 +839,48 @@ export const CatalogPage: React.FC = () => {
               )}
             </>
           ) : (
-            <div className="bg-white rounded-3xl border border-[#e5eeff] p-10 text-center space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-[#eff4ff] text-[#004ac6] flex items-center justify-center mx-auto">
-                <Search className="w-7 h-7" />
+            <div className="bg-white rounded-2xl border border-[#E4E8EE] p-10 text-center space-y-4">
+              <div className="w-12 h-12 rounded-xl bg-[#F1F3F6] text-[#4A5464] flex items-center justify-center mx-auto">
+                <Search className="w-6 h-6" strokeWidth={1.5} />
               </div>
-              <h2 className="text-lg font-extrabold text-[#0b1c30]">
+              <h2 className="text-lg font-semibold text-[#11161E]">
                 کالایی با این فیلترها پیدا نشد
               </h2>
-              <p className="text-xs sm:text-sm text-[#434655] max-w-md mx-auto">
+              <p className="text-xs sm:text-sm text-[#4A5464] max-w-md mx-auto">
                 می‌توانید برخی از فیلترها مانند بازه قیمت یا حافظه داخلی را بازنشانی کنید تا تمام کالاهای مشابه نمایش داده شوند.
               </p>
               <button
                 type="button"
                 onClick={resetFilters}
-                className="h-11 px-6 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2 transition-colors"
+                className="h-10 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors"
               >
-                <RotateCcw className="w-4 h-4" />
+                <RotateCcw className="w-4 h-4" strokeWidth={1.5} />
                 <span>بازنشانی تمام فیلترها</span>
               </button>
             </div>
           )}
 
           {/* Category Buying Guide FAQ */}
-          <div className="bg-white rounded-2xl border border-[#e5eeff] p-6 space-y-4">
-            <h2 className="text-base font-extrabold text-[#0b1c30]">
+          <div className="bg-white rounded-2xl border border-[#E4E8EE] p-6 space-y-4">
+            <h2 className="text-base font-semibold text-[#11161E]">
               پرسش‌های متداول پیش از خرید از فروشگاه موبایل امیر
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="p-4 rounded-xl bg-[#f8f9ff] space-y-1.5">
-                <p className="text-xs font-bold text-[#0b1c30] flex items-center justify-between">
+              <div className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1.5">
+                <p className="text-xs font-semibold text-[#11161E] flex items-center justify-between">
                   آیا تمام گوشی‌ها با کد رجیستری همتا ارسال می‌شوند؟
-                  <ChevronDown className="w-4 h-4 text-[#004ac6]" />
+                  <ChevronDown className="w-4 h-4 text-[#6E7889]" strokeWidth={1.5} />
                 </p>
-                <p className="text-xs text-[#434655] leading-6">
+                <p className="text-xs text-[#4A5464] leading-6">
                   بله؛ تمامی گوشی‌های هوشمند فروشگاه با پلمپ کارخانه و کد رجیستری رسمی سامانه همتا عرضه می‌شوند و هنگام تحویل به نام خریدار فعال می‌گردد.
                 </p>
               </div>
-              <div className="p-4 rounded-xl bg-[#f8f9ff] space-y-1.5">
-                <p className="text-xs font-bold text-[#0b1c30] flex items-center justify-between">
+              <div className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1.5">
+                <p className="text-xs font-semibold text-[#11161E] flex items-center justify-between">
                   تفاوت گارانتی ۱۸ ماهه امیر سرویس چیست؟
-                  <ChevronDown className="w-4 h-4 text-[#004ac6]" />
+                  <ChevronDown className="w-4 h-4 text-[#6E7889]" strokeWidth={1.5} />
                 </p>
-                <p className="text-xs text-[#434655] leading-6">
+                <p className="text-xs text-[#4A5464] leading-6">
                   شامل ۷ روز ضمانت تعویض بی‌قید و شرط در صورت مغایرت فنی، پوشش قطعات اصلی و ارائه گوشی جایگزین در زمان تعمیرات تخصصی است.
                 </p>
               </div>

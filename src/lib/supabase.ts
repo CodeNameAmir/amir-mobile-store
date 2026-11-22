@@ -54,10 +54,16 @@ function readStorage<T>(key: string, fallback: T): T {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return fallback;
-    return JSON.parse(raw) as T;
+    const parsed = JSON.parse(raw) as T;
+    return parsed ?? fallback;
   } catch {
     return fallback;
   }
+}
+
+function readStorageArray<T>(key: string): T[] {
+  const parsed = readStorage<unknown>(key, []);
+  return Array.isArray(parsed) ? (parsed as T[]) : [];
 }
 
 function writeStorage<T>(key: string, value: T): void {
@@ -319,7 +325,7 @@ export const storeRepository = {
   },
 
   loadCart(): CartItem[] {
-    return readStorage<CartItem[]>(KEYS.CART, []);
+    return readStorageArray<CartItem>(KEYS.CART);
   },
 
   saveCart(items: CartItem[]): void {
@@ -327,7 +333,7 @@ export const storeRepository = {
   },
 
   loadWishlist(): string[] {
-    return readStorage<string[]>(KEYS.WISHLIST, []);
+    return readStorageArray<string>(KEYS.WISHLIST);
   },
 
   saveWishlist(ids: string[]): void {
@@ -335,7 +341,7 @@ export const storeRepository = {
   },
 
   loadCompare(): string[] {
-    return readStorage<string[]>(KEYS.COMPARE, []);
+    return readStorageArray<string>(KEYS.COMPARE);
   },
 
   saveCompare(ids: string[]): void {
@@ -343,7 +349,7 @@ export const storeRepository = {
   },
 
   loadRecent(): string[] {
-    return readStorage<string[]>(KEYS.RECENT, []);
+    return readStorageArray<string>(KEYS.RECENT);
   },
 
   saveRecent(ids: string[]): void {
@@ -351,7 +357,8 @@ export const storeRepository = {
   },
 
   loadUser(): DemoUser | null {
-    return readStorage<DemoUser | null>(KEYS.USER, null);
+    const parsed = readStorage<DemoUser | null>(KEYS.USER, null);
+    return parsed && typeof parsed === 'object' && typeof parsed.email === 'string' ? parsed : null;
   },
 
   saveUser(user: DemoUser | null): void {
@@ -359,8 +366,8 @@ export const storeRepository = {
   },
 
   loadOrders(): OrderRecord[] {
-    const stored = readStorage<OrderRecord[]>(KEYS.ORDERS, []);
-    return stored.filter((o) => o.orderCode !== DEMO_SAMPLE_ORDER.orderCode);
+    const stored = readStorageArray<OrderRecord>(KEYS.ORDERS);
+    return stored.filter((o) => o && o.orderCode && o.orderCode !== DEMO_SAMPLE_ORDER.orderCode);
   },
 
   async createOrder(
@@ -574,7 +581,7 @@ export const storeRepository = {
   },
 
   loadStockAlerts(): string[] {
-    return readStorage<string[]>(KEYS.NOTIFY_ME, []);
+    return readStorageArray<string>(KEYS.NOTIFY_ME);
   },
 
   toggleStockAlert(productId: string): string[] {

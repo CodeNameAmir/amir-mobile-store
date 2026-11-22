@@ -100,10 +100,18 @@ export interface CreateServerAppOptions {
 export async function createServerApp(options: CreateServerAppOptions = {}) {
   const env = options.env || process.env;
   const isProd = env.NODE_ENV === 'production';
+  const isAiStudioRuntime = Boolean(env.APPLET_ID) && !env.RENDER && !options.env;
+  const isAiStudioPreview =
+    isAiStudioRuntime &&
+    isProd &&
+    !(env.AUTH_SESSION_SECRET && env.CORS_ORIGIN && env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
+  const configEnv: NodeJS.ProcessEnv = isAiStudioPreview
+    ? { ...env, NODE_ENV: 'development' }
+    : env;
 
-  const sessionSecret = resolveSessionSecret(env);
-  const corsCfg = resolveCorsConfig(env);
-  const storage = options.storage || createDefaultAuthStorage(env);
+  const sessionSecret = resolveSessionSecret(configEnv);
+  const corsCfg = resolveCorsConfig(configEnv);
+  const storage = options.storage || createDefaultAuthStorage(configEnv);
   const authService = new AuthService(storage, sessionSecret);
   const dispatchEmail = options.sendEmail || sendEmailWithResend;
 
@@ -134,26 +142,74 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '2mb' }));
 
-  // Strict CORS middleware for cross-origin credentials between GitHub Pages & Render API
+  // Strict CORS middleware for /api/* routes (never block same-origin Vite/static ES module & CSS assets behind reverse proxies)
   app.use((req: Request, res: Response, next: NextFunction) => {
     const origin = typeof req.headers.origin === 'string' ? req.headers.origin : undefined;
-    const host = req.get('host');
+    const rawHost = req.get('host');
+    const forwardedHostHeader = req.get('x-forwarded-host');
+    const forwardedHost = forwardedHostHeader
+      ? forwardedHostHeader.split(',')[0].trim()
+      : undefined;
+    const effectiveHost = forwardedHost || rawHost;
     const proto = isHttpsRequest(req) ? 'https' : req.protocol || 'http';
-    const selfOrigin = host ? `${proto}://${host}` : undefined;
+    const selfOrigin = effectiveHost ? `${proto}://${effectiveHost}` : undefined;
+
+    let originHost = '';
+    if (origin) {
+      try {
+        originHost = new URL(origin).host.toLowerCase();
+      } catch {
+        originHost = '';
+      }
+    }
+
+    let appUrlHost = '';
+    if (env.APP_URL) {
+      try {
+        appUrlHost = new URL(env.APP_URL).host.toLowerCase();
+      } catch {
+        appUrlHost = '';
+      }
+    }
+
+    const isSameHostOrigin = Boolean(
+      originHost &&
+        ((rawHost && originHost === rawHost.toLowerCase()) ||
+          (forwardedHost && originHost === forwardedHost.toLowerCase()) ||
+          (appUrlHost && originHost === appUrlHost))
+    );
+
+    const isAiStudioProxyOrigin = Boolean(
+      isAiStudioRuntime &&
+        originHost &&
+        (/\.run\.app$/i.test(originHost.split(':')[0]) ||
+          /(^|\.)aistudio\.google\.com$/i.test(originHost.split(':')[0]) ||
+          /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(originHost))
+    );
+
+    const isApiRoute = req.path === '/api' || req.path.startsWith('/api/');
 
     if (origin) {
-      if (!isOriginAllowed(origin, corsCfg.allowedOrigins, isProd, selfOrigin)) {
+      const allowed =
+        isSameHostOrigin ||
+        isAiStudioProxyOrigin ||
+        isOriginAllowed(origin, corsCfg.allowedOrigins, isProd && !isAiStudioPreview, selfOrigin);
+
+      if (isApiRoute && !allowed) {
         res.status(403).json({ error: 'Origin not allowed by CORS' });
         return;
       }
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader(
-        'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, X-Order-Tracking-Token'
-      );
+
+      if (allowed || !isApiRoute) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+        res.setHeader(
+          'Access-Control-Allow-Headers',
+          'Content-Type, Authorization, X-Order-Tracking-Token'
+        );
+      }
     }
 
     if (req.method === 'OPTIONS') {
@@ -172,7 +228,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         isProd,
         isHttpsRequest: isHttpsRequest(req),
         maxAgeMs: SESSION_MAX_AGE_MS,
-        cookieDomain: env.COOKIE_DOMAIN,
+        cookieDomain: isAiStudioRuntime ? undefined : env.COOKIE_DOMAIN,
       })
     );
   };
@@ -181,7 +237,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     const opts = getSessionCookieOptions({
       isProd,
       isHttpsRequest: isHttpsRequest(req),
-      cookieDomain: env.COOKIE_DOMAIN,
+      cookieDomain: isAiStudioRuntime ? undefined : env.COOKIE_DOMAIN,
     });
     res.clearCookie(SESSION_COOKIE_NAME, opts);
   };
@@ -2063,30 +2119,43 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   // ============================================================================
   app.use('/api/admin', requireAuth, requireAdmin, createAdminRouter(storage));
 
+  const distDir = path.resolve(process.cwd(), 'dist');
+  const indexPath = path.join(distDir, 'index.html');
   if (!isProd && !options.disableVite) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true, allowedHosts: true },
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        hmr: env.DISABLE_HMR !== 'true',
+      },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else if (fs.existsSync(indexPath)) {
+    app.use(express.static(distDir));
+    app.get('*', (_req, res) => {
+      res.sendFile(indexPath);
+    });
+  } else if (isAiStudioPreview && !options.disableVite) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: {
+        middlewareMode: true,
+        allowedHosts: true,
+        hmr: env.DISABLE_HMR !== 'true',
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
-    const distDir = path.resolve(process.cwd(), 'dist');
-    const indexPath = path.join(distDir, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      app.use(express.static(distDir));
-      app.get('*', (_req, res) => {
-        res.sendFile(indexPath);
+    app.get('/', (_req, res) => {
+      res.json({
+        service: 'amir-mobile-api',
+        ok: true,
+        health: '/api/health',
       });
-    } else {
-      app.get('/', (_req, res) => {
-        res.json({
-          service: 'amir-mobile-api',
-          ok: true,
-          health: '/api/health',
-        });
-      });
-    }
+    });
   }
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

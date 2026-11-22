@@ -94,28 +94,28 @@ export const ComparePage: React.FC = () => {
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-6">
-      <div className="bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="space-y-1.5">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#eff4ff] text-[#004ac6] text-xs font-extrabold">
-            <Scale className="w-4 h-4" />
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-md bg-[#EEF3FC] text-[#1453D6] text-xs font-medium">
+            <Scale className="w-4 h-4" strokeWidth={1.5} />
             <span>مقایسه تخصصی مشخصات فنی</span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-[#0b1c30]">
+          <h1 className="text-xl sm:text-2xl font-semibold text-[#11161E]">
             مقایسه کنار هم محصولات ({toPersianDigits(selectedProducts.length)} از ۳)
           </h1>
-          <p className="text-xs sm:text-sm text-[#434655]">
+          <p className="text-xs sm:text-sm text-[#4A5464]">
             مشخصات نمایشگر، تراشه، دوربین، باتری، مشخصات ویژه و قیمت گوشی‌ها را به‌صورت دقیق مقایسه کنید.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           {selectedProducts.length >= 2 && (
-            <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs font-bold text-[#0b1c30] cursor-pointer">
+            <label className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs font-medium text-[#11161E] cursor-pointer">
               <input
                 type="checkbox"
                 checked={onlyDifferences}
                 onChange={(e) => setOnlyDifferences(e.target.checked)}
-                className="w-4 h-4 accent-[#004ac6]"
+                className="w-4 h-4 accent-[#1453D6]"
               />
               <span>فقط نمایش تفاوت‌ها</span>
             </label>
@@ -124,9 +124,9 @@ export const ComparePage: React.FC = () => {
             <button
               type="button"
               onClick={clearCompare}
-              className="h-10 px-4 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold inline-flex items-center gap-1.5"
+              className="h-10 px-4 rounded-lg bg-[#FEF3F2] hover:bg-[#FEE4E2] text-[#B42318] text-xs font-medium inline-flex items-center gap-1.5 transition-colors"
             >
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-4 h-4" strokeWidth={1.5} />
               <span>پاک کردن لیست</span>
             </button>
           )}
@@ -135,10 +135,10 @@ export const ComparePage: React.FC = () => {
 
       {/* Add product selector if slots remain */}
       {selectedProducts.length < 3 && (
-        <div className="bg-[#eff4ff] rounded-2xl border border-[#dce9ff] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <span className="text-xs font-bold text-[#0b1c30] inline-flex items-center gap-1.5">
-            <Plus className="w-4 h-4 text-[#004ac6]" />
-            افزودن محصول برای مقایسه ({toPersianDigits(3 - selectedProducts.length)} جایگاه خالی):
+        <div className="bg-[#F1F3F6] rounded-xl border border-[#E4E8EE] p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <span className="text-xs font-medium text-[#11161E] inline-flex items-center gap-1.5">
+            <Plus className="w-4 h-4 text-[#4A5464]" strokeWidth={1.5} />
+            افزودن محصول برای مقایسه ({toPersianDigits(3 - selectedProducts.length)} جایگاه خالی)
           </span>
           <select
             aria-label="افزودن محصول به مقایسه"
@@ -146,9 +146,9 @@ export const ComparePage: React.FC = () => {
             onChange={(e) => {
               if (e.target.value) toggleCompare(e.target.value);
             }}
-            className="h-10 px-3 rounded-xl bg-white border border-[#dce9ff] text-xs font-bold text-[#0b1c30] sm:w-80 focus:outline-none focus:border-[#004ac6]"
+            className="h-10 px-3 rounded-lg bg-white border border-[#E4E8EE] text-xs font-medium text-[#11161E] sm:w-80 focus:outline-none focus:border-[#1453D6]"
           >
-            <option value="">انتخاب یک گوشی یا گجت...</option>
+            <option value="">انتخاب یک گوشی یا گجت</option>
             {availableToAdd.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.nameFa} — {formatToman(p.price)} تومان
@@ -159,44 +159,44 @@ export const ComparePage: React.FC = () => {
       )}
 
       {selectedProducts.length === 0 ? (
-        <div className="bg-white rounded-3xl border border-[#e5eeff] p-12 text-center space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-[#eff4ff] text-[#004ac6] flex items-center justify-center mx-auto">
-            <Scale className="w-7 h-7" />
+        <div className="bg-white rounded-2xl border border-[#E4E8EE] p-12 text-center space-y-4">
+          <div className="w-14 h-14 rounded-xl bg-[#F1F3F6] text-[#4A5464] flex items-center justify-center mx-auto">
+            <Scale className="w-7 h-7" strokeWidth={1.5} />
           </div>
-          <h2 className="text-lg font-extrabold text-[#0b1c30]">هنوز محصولی برای مقایسه انتخاب نشده است</h2>
-          <p className="text-xs sm:text-sm text-[#434655] max-w-md mx-auto">
+          <h2 className="text-lg font-semibold text-[#11161E]">هنوز محصولی برای مقایسه انتخاب نشده است</h2>
+          <p className="text-xs sm:text-sm text-[#4A5464] max-w-md mx-auto">
             از منوی بالا محصولات مورد نظر خود را انتخاب کنید یا در صفحه فروشگاه روی دکمه مقایسه کلیک نمایید.
           </p>
           <a
             href={buildHref('/catalog')}
             onClick={(e) => handleLinkClick(e, '/catalog')}
-            className="h-11 px-6 rounded-xl bg-[#004ac6] text-white text-xs sm:text-sm font-bold inline-flex items-center gap-2"
+            className="h-10 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs sm:text-sm font-semibold inline-flex items-center gap-2 transition-colors"
           >
             <span>مشاهده محصولات فروشگاه</span>
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
           </a>
         </div>
       ) : (
-        <div className="bg-white rounded-3xl border border-[#e5eeff] overflow-hidden shadow-sm">
+        <div className="bg-white rounded-2xl border border-[#E4E8EE] overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[680px] text-right border-collapse">
               <thead>
-                <tr className="border-b border-[#eff4ff] bg-[#f8f9ff]">
-                  <th className="w-44 p-5 text-xs font-extrabold text-[#434655] align-top">
+                <tr className="border-b border-[#E4E8EE] bg-[#F7F8FA]">
+                  <th className="w-44 p-5 text-xs font-semibold text-[#4A5464] align-top">
                     مشخصات فنی
                   </th>
                   {selectedProducts.map((product) => (
                     <th key={product.id} className="p-5 align-top min-w-[210px]">
-                      <div className="bg-white rounded-2xl border border-[#e5eeff] p-4 space-y-3 relative">
+                      <div className="bg-white rounded-xl border border-[#E4E8EE] p-4 space-y-3 relative">
                         <button
                           type="button"
                           onClick={() => toggleCompare(product.id)}
                           aria-label={`حذف ${product.nameFa}`}
-                          className="absolute top-2.5 left-2.5 w-7 h-7 rounded-lg bg-[#f8f9ff] hover:bg-rose-50 text-[#434655] hover:text-rose-600 flex items-center justify-center"
+                          className="absolute top-2.5 left-2.5 w-7 h-7 rounded-lg bg-[#F1F3F6] hover:bg-[#FEF3F2] text-[#4A5464] hover:text-[#B42318] flex items-center justify-center transition-colors"
                         >
-                          <X className="w-3.5 h-3.5" />
+                          <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                         </button>
-                        <div className="aspect-[4/3] rounded-xl bg-[#f8f9ff] overflow-hidden">
+                        <div className="aspect-[4/3] rounded-lg bg-[#F3F5F8] overflow-hidden">
                           <SmartImage
                             src={product.image}
                             alt={product.nameFa}
@@ -206,16 +206,16 @@ export const ComparePage: React.FC = () => {
                         <a
                           href={buildHref(`/product/${product.slug}`)}
                           onClick={(e) => handleLinkClick(e, `/product/${product.slug}`)}
-                          className="text-xs font-extrabold text-[#0b1c30] hover:text-[#004ac6] text-right line-clamp-2 leading-5 min-h-[40px] block"
+                          className="text-xs font-semibold text-[#11161E] hover:text-[#1453D6] text-right line-clamp-2 leading-5 min-h-[40px] block"
                         >
                           {product.nameFa}
                         </a>
                         <div className="flex items-center justify-between text-[11px]">
-                          <span className="inline-flex items-center gap-1 font-bold text-[#0b1c30] tabular-nums-fa">
-                            <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                          <span className="inline-flex items-center gap-1 font-medium text-[#11161E] tabular-nums-fa">
+                            <Star className="w-3.5 h-3.5 text-[#A84500] fill-[#A84500]" strokeWidth={1.5} />
                             {toPersianDigits(product.rating)}
                           </span>
-                          <span className="font-black text-[#004ac6] tabular-nums-fa">
+                          <span className="font-semibold text-[#1453D6] tabular-nums-fa">
                             {formatToman(product.price)} تومان
                           </span>
                         </div>
@@ -223,9 +223,9 @@ export const ComparePage: React.FC = () => {
                           type="button"
                           disabled={!product.inStock}
                           onClick={() => addToCart(product)}
-                          className="w-full h-9 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-50 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                          className="w-full h-9 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-50 text-white text-xs font-medium inline-flex items-center justify-center gap-1.5 transition-colors"
                         >
-                          <ShoppingBag className="w-3.5 h-3.5" />
+                          <ShoppingBag className="w-3.5 h-3.5" strokeWidth={1.5} />
                           <span>{product.inStock ? 'افزودن به سبد' : 'ناموجود'}</span>
                         </button>
                       </div>
@@ -233,14 +233,14 @@ export const ComparePage: React.FC = () => {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#eff4ff] text-xs">
+              <tbody className="divide-y divide-[#E4E8EE] text-xs">
                 {visibleRows.map((row) => (
-                  <tr key={row.key} className="hover:bg-[#f8f9ff]/60">
-                    <td className="p-4 font-extrabold text-[#434655] bg-[#f8f9ff]/50">
+                  <tr key={row.key} className="hover:bg-[#F7F8FA]">
+                    <td className="p-4 font-medium text-[#4A5464] bg-[#F7F8FA]/60">
                       {row.label}
                     </td>
                     {selectedProducts.map((p) => (
-                      <td key={p.id} className="p-4 font-bold text-[#0b1c30] tabular-nums-fa leading-6">
+                      <td key={p.id} className="p-4 font-medium text-[#11161E] tabular-nums-fa leading-6">
                         {row.render(p)}
                       </td>
                     ))}

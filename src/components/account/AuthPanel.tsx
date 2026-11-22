@@ -11,7 +11,6 @@ import {
   RefreshCw,
   ShieldCheck,
   Smartphone,
-  Sparkles,
   UserPlus,
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
@@ -281,7 +280,7 @@ export const AuthPanel: React.FC = () => {
       }
       if (res.user) {
         setAuthenticatedUser(res.user);
-        showToast(`خوش آمدید، ${res.user.fullName}!`, 'success');
+        showToast(`خوش آمدید، ${res.user.fullName}`, 'success');
       }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'خطا در ورود به حساب کاربری.');
@@ -405,10 +404,10 @@ export const AuthPanel: React.FC = () => {
         setOtpPending(null);
         showToast(
           otpPending.purpose === 'signup'
-            ? `ثبت‌نام با موفقیت تکمیل شد؛ خوش آمدید ${res.user.fullName}!`
+            ? `ثبت‌نام با موفقیت تکمیل شد؛ خوش آمدید ${res.user.fullName}`
             : otpPending.purpose === 'reset-password'
             ? 'رمز عبور تغییر یافت و وارد حساب کاربری شدید.'
-            : `خوش آمدید، ${res.user.fullName}!`,
+            : `خوش آمدید، ${res.user.fullName}`,
           'success'
         );
       }
@@ -472,17 +471,17 @@ export const AuthPanel: React.FC = () => {
 
   return (
     <section className="max-w-[560px] mx-auto">
-      <div className="bg-white rounded-3xl border border-[#e5eeff] shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-[#E4E8EE] overflow-hidden">
         {/* Clean Branded Header Strip */}
-        <div className="px-6 sm:px-8 pt-7 pb-5 bg-gradient-to-b from-[#f8f9ff] to-white border-b border-[#eff4ff] flex items-center gap-3.5">
-          <div className="w-12 h-12 rounded-2xl bg-[#004ac6] text-white flex items-center justify-center shrink-0 shadow-xs">
-            <Smartphone className="w-6 h-6" />
+        <div className="px-6 sm:px-8 pt-6 pb-5 bg-[#F7F8FA] border-b border-[#E4E8EE] flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl bg-[#13171F] text-white flex items-center justify-center shrink-0">
+            <Smartphone className="w-5 h-5" strokeWidth={1.5} />
           </div>
           <div>
-            <h1 className="text-lg sm:text-xl font-black text-[#0b1c30]">
+            <h1 className="text-lg sm:text-xl font-semibold text-[#11161E]">
               حساب کاربری فروشگاه موبایل امیر
             </h1>
-            <p className="text-xs text-[#434655] mt-1">
+            <p className="text-xs text-[#4A5464] mt-1">
               ورود به پنل خریدار، پیگیری مرسوله‌ها و مدیریت آدرس‌های ارسال
             </p>
           </div>
@@ -494,17 +493,17 @@ export const AuthPanel: React.FC = () => {
             <div
               role="tablist"
               aria-label="روش احراز هویت"
-              className="grid grid-cols-3 gap-1.5 p-1.5 bg-[#eff4ff] rounded-2xl"
+              className="grid grid-cols-3 gap-1 p-1 bg-[#F1F3F6] border border-[#E4E8EE] rounded-xl"
             >
               <button
                 type="button"
                 role="tab"
                 aria-selected={tab === 'password-login' || tab === 'reset-password'}
                 onClick={() => switchTab('password-login')}
-                className={`h-10 px-2.5 rounded-xl text-xs font-extrabold transition-colors whitespace-nowrap ${
+                className={`h-10 px-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
                   tab === 'password-login' || tab === 'reset-password'
-                    ? 'bg-white text-[#004ac6] shadow-xs'
-                    : 'text-[#434655] hover:text-[#0b1c30]'
+                    ? 'bg-white text-[#1453D6] font-semibold border border-[#E4E8EE]'
+                    : 'text-[#4A5464] hover:text-[#11161E]'
                 }`}
               >
                 ورود با رمز عبور
@@ -514,10 +513,10 @@ export const AuthPanel: React.FC = () => {
                 role="tab"
                 aria-selected={tab === 'otp-login'}
                 onClick={() => switchTab('otp-login')}
-                className={`h-10 px-2.5 rounded-xl text-xs font-extrabold transition-colors whitespace-nowrap ${
+                className={`h-10 px-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
                   tab === 'otp-login'
-                    ? 'bg-white text-[#004ac6] shadow-xs'
-                    : 'text-[#434655] hover:text-[#0b1c30]'
+                    ? 'bg-white text-[#1453D6] font-semibold border border-[#E4E8EE]'
+                    : 'text-[#4A5464] hover:text-[#11161E]'
                 }`}
               >
                 ورود با کد ایمیل
@@ -527,10 +526,10 @@ export const AuthPanel: React.FC = () => {
                 role="tab"
                 aria-selected={tab === 'signup'}
                 onClick={() => switchTab('signup')}
-                className={`h-10 px-2.5 rounded-xl text-xs font-extrabold transition-colors whitespace-nowrap ${
+                className={`h-10 px-2.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
                   tab === 'signup'
-                    ? 'bg-white text-[#004ac6] shadow-xs'
-                    : 'text-[#434655] hover:text-[#0b1c30]'
+                    ? 'bg-white text-[#1453D6] font-semibold border border-[#E4E8EE]'
+                    : 'text-[#4A5464] hover:text-[#11161E]'
                 }`}
               >
                 ثبت‌نام جدید
@@ -541,7 +540,7 @@ export const AuthPanel: React.FC = () => {
           {errorMsg && (
             <div
               role="alert"
-              className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700 leading-6 space-y-2"
+              className="p-3.5 rounded-xl bg-[#FEF3F2] border border-[#FECDCA] text-xs font-medium text-[#B42318] leading-6 space-y-2"
             >
               <p>{errorMsg}</p>
               {offerSignupEmail && (
@@ -552,9 +551,9 @@ export const AuthPanel: React.FC = () => {
                     switchTab('signup');
                     setSignupEmail(emailToCopy);
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-rose-200 text-[#004ac6] hover:bg-[#eff4ff] transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-[#FECDCA] text-[#1453D6] hover:bg-[#EEF3FC] transition-colors font-medium"
                 >
-                  <UserPlus className="w-3.5 h-3.5" />
+                  <UserPlus className="w-3.5 h-3.5" strokeWidth={1.5} />
                   <span>ساخت حساب کاربری با همین ایمیل</span>
                 </button>
               )}
@@ -564,17 +563,17 @@ export const AuthPanel: React.FC = () => {
           {/* OTP / 2FA Verification Step */}
           {otpPending ? (
             <form onSubmit={handleVerifyOtp} className="space-y-5" noValidate>
-              <div className="p-4 rounded-2xl bg-[#eff4ff] border border-[#dce9ff] space-y-2">
+              <div className="p-4 rounded-xl bg-[#EEF3FC] border border-[#D4E2FC] space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     {otpPending.purpose === 'login-2fa' && (
-                      <ShieldCheck className="w-4 h-4 text-[#004ac6] shrink-0" />
+                      <ShieldCheck className="w-4 h-4 text-[#1453D6] shrink-0" strokeWidth={1.5} />
                     )}
-                    <span className="text-xs font-extrabold text-[#0b1c30]">
+                    <span className="text-xs font-semibold text-[#11161E]">
                       {otpPending.purpose === 'login-2fa'
                         ? 'تایید دومرحله‌ای (2FA): '
                         : 'تایید ایمیل: '}
-                      <span dir="ltr" className="text-[#004ac6]">
+                      <span dir="ltr" className="text-[#1453D6] font-mono">
                         {otpPending.displayTarget}
                       </span>
                     </span>
@@ -585,13 +584,13 @@ export const AuthPanel: React.FC = () => {
                       setOtpPending(null);
                       setErrorMsg(null);
                     }}
-                    className="text-xs font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                    className="text-xs font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1 whitespace-nowrap shrink-0"
                   >
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    <ArrowRight className="w-3.5 h-3.5" strokeWidth={1.5} />
                     <span>بازگشت</span>
                   </button>
                 </div>
-                <p className="text-xs text-[#434655] leading-6">
+                <p className="text-xs text-[#4A5464] leading-6">
                   {otpPending.provider === 'resend'
                     ? otpPending.purpose === 'login-2fa'
                       ? 'رمز عبور شما تایید شد. کد ۶ رقمی تایید دومرحله‌ای به ایمیلتان ارسال شد؛ لطفاً صندوق ورودی یا پوشه Spam را بررسی کنید.'
@@ -599,13 +598,13 @@ export const AuthPanel: React.FC = () => {
                     : otpPending.warning}
                 </p>
                 {otpPending.provider === 'sandbox-preview' && otpPending.previewCode && (
-                  <div className="mt-2 p-3 rounded-xl bg-white border border-[#dce9ff] flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-xs text-[#0b1c30]">
+                  <div className="mt-2 p-3 rounded-lg bg-white border border-[#E4E8EE] flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-xs text-[#11161E]">
                       کد آزمایشی:{' '}
                       <strong
                         dir="ltr"
                         data-testid="sandbox-otp-code"
-                        className="font-mono text-base text-[#004ac6] tracking-widest"
+                        className="font-mono text-base font-semibold text-[#1453D6]"
                       >
                         {otpPending.previewCode}
                       </strong>
@@ -613,7 +612,7 @@ export const AuthPanel: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setOtpCode(otpPending.previewCode || '')}
-                      className="h-8 px-3 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] text-xs font-bold whitespace-nowrap"
+                      className="h-8 px-3 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium whitespace-nowrap transition-colors"
                     >
                       درج خودکار کد
                     </button>
@@ -622,7 +621,7 @@ export const AuthPanel: React.FC = () => {
               </div>
 
               <div className="space-y-1.5">
-                <label htmlFor="auth-otp-code" className="text-xs font-bold text-[#0b1c30] block">
+                <label htmlFor="auth-otp-code" className="text-xs font-medium text-[#11161E] block">
                   کد تایید ۶ رقمی ارسال‌شده به ایمیل
                 </label>
                 <input
@@ -635,16 +634,16 @@ export const AuthPanel: React.FC = () => {
                   value={otpCode}
                   onChange={(e) => setOtpCode(e.target.value)}
                   placeholder="123456"
-                  className="w-full h-12 px-4 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-center font-mono text-lg tracking-[0.45em] text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                  className="w-full h-12 px-4 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-center font-mono text-lg text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                 />
                 {fieldErrors.otpCode && (
-                  <p className="text-[11px] font-bold text-rose-600">{fieldErrors.otpCode}</p>
+                  <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.otpCode}</p>
                 )}
               </div>
 
               {otpPending.purpose === 'reset-password' && (
                 <div className="space-y-1.5">
-                  <label htmlFor="reset-new-pw" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="reset-new-pw" className="text-xs font-medium text-[#11161E] block">
                     رمز عبور جدید (حداقل ۸ کاراکتر شامل حرف و عدد)
                   </label>
                   <div className="relative">
@@ -655,25 +654,25 @@ export const AuthPanel: React.FC = () => {
                       value={resetNewPassword}
                       onChange={(e) => setResetNewPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full h-11 px-3.5 pl-10 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                      className="w-full h-11 px-3.5 pl-10 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
                     <button
                       type="button"
                       onClick={() => setShowResetPw((v) => !v)}
                       aria-label={showResetPw ? 'مخفی کردن رمز عبور' : 'نمایش رمز عبور'}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-[#434655] hover:text-[#0b1c30]"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4A5464] hover:text-[#11161E]"
                     >
-                      {showResetPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showResetPw ? <EyeOff className="w-4 h-4" strokeWidth={1.5} /> : <Eye className="w-4 h-4" strokeWidth={1.5} />}
                     </button>
                   </div>
                   {resetNewPassword && (
-                    <p className="text-[11px] text-[#434655]">
+                    <p className="text-[11px] text-[#4A5464]">
                       قدرت رمز عبور:{' '}
-                      <strong className="text-[#004ac6]">{resetStrength.labelFa}</strong>
+                      <strong className="text-[#1453D6] font-semibold">{resetStrength.labelFa}</strong>
                     </p>
                   )}
                   {fieldErrors.resetNewPassword && (
-                    <p className="text-[11px] font-bold text-rose-600">
+                    <p className="text-[11px] font-medium text-[#B42318]">
                       {fieldErrors.resetNewPassword}
                     </p>
                   )}
@@ -685,9 +684,9 @@ export const AuthPanel: React.FC = () => {
                   type="submit"
                   disabled={submitting}
                   data-testid="verify-otp-submit"
-                  className="flex-1 h-12 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
+                  className="flex-1 h-11 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
                 >
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-4 h-4" strokeWidth={1.5} />
                   <span>
                     {submitting
                       ? 'در حال بررسی...'
@@ -705,9 +704,9 @@ export const AuthPanel: React.FC = () => {
                   type="button"
                   onClick={handleResendOtp}
                   disabled={submitting || otpPending.cooldown > 0}
-                  className="h-12 px-4 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] disabled:opacity-60 text-[#004ac6] text-xs font-bold inline-flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  className="h-11 px-4 rounded-lg bg-[#F1F3F6] hover:bg-[#E4E8EE] disabled:opacity-60 text-[#11161E] text-xs font-medium inline-flex items-center justify-center gap-1.5 whitespace-nowrap transition-colors"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="w-3.5 h-3.5" strokeWidth={1.5} />
                   <span>
                     {otpPending.cooldown > 0
                       ? `ارسال مجدد (${toPersianDigits(otpPending.cooldown)} ثانیه)`
@@ -719,7 +718,7 @@ export const AuthPanel: React.FC = () => {
           ) : tab === 'password-login' ? (
             <form onSubmit={handlePasswordLogin} className="space-y-4" noValidate>
               <div className="space-y-1.5">
-                <label htmlFor="pw-login-email" className="text-xs font-bold text-[#0b1c30] block">
+                <label htmlFor="pw-login-email" className="text-xs font-medium text-[#11161E] block">
                   ایمیل یا نام کاربری
                 </label>
                 <div className="relative">
@@ -729,20 +728,20 @@ export const AuthPanel: React.FC = () => {
                     dir="ltr"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="name@example.com یا @username"
+                    placeholder="name@example.com / @username"
                     data-testid="pw-login-identifier"
-                    className="w-full h-11 pr-3.5 pl-10 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 pr-3.5 pl-10 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
-                  <AtSign className="w-4 h-4 text-[#434655] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <AtSign className="w-4 h-4 text-[#6E7889] absolute left-3.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
                 </div>
                 {fieldErrors.loginEmail && (
-                  <p className="text-[11px] font-bold text-rose-600">{fieldErrors.loginEmail}</p>
+                  <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.loginEmail}</p>
                 )}
               </div>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label htmlFor="pw-login-password" className="text-xs font-bold text-[#0b1c30]">
+                  <label htmlFor="pw-login-password" className="text-xs font-medium text-[#11161E]">
                     رمز عبور
                   </label>
                   <button
@@ -751,7 +750,7 @@ export const AuthPanel: React.FC = () => {
                       setResetEmail(loginEmail);
                       switchTab('reset-password');
                     }}
-                    className="text-[11px] font-bold text-[#004ac6] hover:underline"
+                    className="text-[11px] font-medium text-[#1453D6] hover:underline"
                   >
                     فراموشی رمز عبور
                   </button>
@@ -764,19 +763,19 @@ export const AuthPanel: React.FC = () => {
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     placeholder="••••••••"
-                    className="w-full h-11 px-3.5 pl-10 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 px-3.5 pl-10 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   <button
                     type="button"
                     onClick={() => setShowLoginPw((v) => !v)}
                     aria-label={showLoginPw ? 'مخفی کردن رمز عبور' : 'نمایش رمز عبور'}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[#434655] hover:text-[#0b1c30]"
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4A5464] hover:text-[#11161E]"
                   >
-                    {showLoginPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showLoginPw ? <EyeOff className="w-4 h-4" strokeWidth={1.5} /> : <Eye className="w-4 h-4" strokeWidth={1.5} />}
                   </button>
                 </div>
                 {fieldErrors.loginPassword && (
-                  <p className="text-[11px] font-bold text-rose-600">
+                  <p className="text-[11px] font-medium text-[#B42318]">
                     {fieldErrors.loginPassword}
                   </p>
                 )}
@@ -786,16 +785,16 @@ export const AuthPanel: React.FC = () => {
                 type="submit"
                 disabled={submitting}
                 data-testid="login-password-submit"
-                className="w-full h-12 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 transition-colors"
+                className="w-full h-11 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors"
               >
-                <Lock className="w-4 h-4" />
+                <Lock className="w-4 h-4" strokeWidth={1.5} />
                 <span>{submitting ? 'در حال ورود...' : 'ورود به حساب کاربری'}</span>
               </button>
             </form>
           ) : tab === 'otp-login' ? (
             <form onSubmit={handleRequestOtpLogin} className="space-y-4" noValidate>
               <div className="space-y-1.5">
-                <label htmlFor="otp-login-email" className="text-xs font-bold text-[#0b1c30] block">
+                <label htmlFor="otp-login-email" className="text-xs font-medium text-[#11161E] block">
                   ایمیل یا نام کاربری ثبت‌شده
                 </label>
                 <div className="relative">
@@ -805,16 +804,16 @@ export const AuthPanel: React.FC = () => {
                     dir="ltr"
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
-                    placeholder="name@example.com یا @username"
+                    placeholder="name@example.com / @username"
                     data-testid="otp-login-identifier"
-                    className="w-full h-11 pr-3.5 pl-10 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 pr-3.5 pl-10 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
-                  <Mail className="w-4 h-4 text-[#434655] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Mail className="w-4 h-4 text-[#6E7889] absolute left-3.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
                 </div>
                 {fieldErrors.loginEmail && (
-                  <p className="text-[11px] font-bold text-rose-600">{fieldErrors.loginEmail}</p>
+                  <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.loginEmail}</p>
                 )}
-                <p className="text-[11px] text-[#434655] leading-5">
+                <p className="text-[11px] text-[#4A5464] leading-5">
                   کد ۶ رقمی یک‌بارمصرف به ایمیل حساب کاربری شما ارسال می‌شود.
                 </p>
               </div>
@@ -823,26 +822,26 @@ export const AuthPanel: React.FC = () => {
                 type="submit"
                 disabled={submitting}
                 data-testid="send-otp-login-btn"
-                className="w-full h-12 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 transition-colors"
+                className="w-full h-11 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors"
               >
-                <Mail className="w-4 h-4" />
+                <Mail className="w-4 h-4" strokeWidth={1.5} />
                 <span>{submitting ? 'در حال ارسال کد...' : 'ارسال کد ورود به ایمیل'}</span>
               </button>
             </form>
           ) : tab === 'reset-password' ? (
             <form onSubmit={handleResetRequest} className="space-y-4" noValidate>
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-black text-[#0b1c30]">بازیابی رمز عبور</h2>
+                <h2 className="text-sm font-semibold text-[#11161E]">بازیابی رمز عبور</h2>
                 <button
                   type="button"
                   onClick={() => switchTab('password-login')}
-                  className="text-xs font-bold text-[#004ac6] hover:underline"
+                  className="text-xs font-medium text-[#1453D6] hover:underline"
                 >
                   بازگشت به ورود
                 </button>
               </div>
               <div className="space-y-1.5">
-                <label htmlFor="reset-email-input" className="text-xs font-bold text-[#0b1c30] block">
+                <label htmlFor="reset-email-input" className="text-xs font-medium text-[#11161E] block">
                   ایمیل یا نام کاربری ثبت‌شده در حساب کاربری
                 </label>
                 <input
@@ -851,20 +850,20 @@ export const AuthPanel: React.FC = () => {
                   dir="ltr"
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
-                  placeholder="name@example.com یا @username"
+                  placeholder="name@example.com / @username"
                   data-testid="reset-identifier-input"
-                  className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                  className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                 />
                 {fieldErrors.resetEmail && (
-                  <p className="text-[11px] font-bold text-rose-600">{fieldErrors.resetEmail}</p>
+                  <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.resetEmail}</p>
                 )}
               </div>
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full h-12 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 transition-colors"
+                className="w-full h-11 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors"
               >
-                <KeyRound className="w-4 h-4" />
+                <KeyRound className="w-4 h-4" strokeWidth={1.5} />
                 <span>{submitting ? 'در حال ارسال...' : 'ارسال کد بازیابی رمز عبور'}</span>
               </button>
             </form>
@@ -873,7 +872,7 @@ export const AuthPanel: React.FC = () => {
             <form onSubmit={handleSignupSubmit} className="space-y-4" noValidate>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label htmlFor="signup-fullname" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="signup-fullname" className="text-xs font-medium text-[#11161E] block">
                     نام و نام خانوادگی
                   </label>
                   <input
@@ -882,15 +881,15 @@ export const AuthPanel: React.FC = () => {
                     value={signupName}
                     onChange={(e) => setSignupName(e.target.value)}
                     placeholder="مثال: امیرحسین کریمی"
-                    className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   {fieldErrors.fullName && (
-                    <p className="text-[11px] font-bold text-rose-600">{fieldErrors.fullName}</p>
+                    <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.fullName}</p>
                   )}
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="signup-phone" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="signup-phone" className="text-xs font-medium text-[#11161E] block">
                     شماره موبایل (اختیاری)
                   </label>
                   <input
@@ -900,16 +899,16 @@ export const AuthPanel: React.FC = () => {
                     value={signupPhone}
                     onChange={(e) => setSignupPhone(e.target.value)}
                     placeholder="09123456789"
-                    className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   {fieldErrors.phone && (
-                    <p className="text-[11px] font-bold text-rose-600">{fieldErrors.phone}</p>
+                    <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.phone}</p>
                   )}
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <label htmlFor="signup-email" className="text-xs font-bold text-[#0b1c30] block">
+                <label htmlFor="signup-email" className="text-xs font-medium text-[#11161E] block">
                   آدرس ایمیل
                 </label>
                 <input
@@ -919,27 +918,27 @@ export const AuthPanel: React.FC = () => {
                   value={signupEmail}
                   onChange={(e) => setSignupEmail(e.target.value)}
                   placeholder="name@example.com"
-                  className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                  className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                 />
                 {fieldErrors.email && (
-                  <p className="text-[11px] font-bold text-rose-600">{fieldErrors.email}</p>
+                  <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.email}</p>
                 )}
               </div>
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <label htmlFor="signup-username" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="signup-username" className="text-xs font-medium text-[#11161E] block">
                     نام کاربری (اختیاری - با حروف انگلیسی)
                   </label>
                   {normalizeUsername(signupUsername) && (
                     <span
                       data-testid="signup-username-status"
-                      className={`text-[11px] font-bold ${
+                      className={`text-[11px] font-medium ${
                         usernameStatus.checking
-                          ? 'text-[#434655]'
+                          ? 'text-[#4A5464]'
                           : usernameStatus.available
-                          ? 'text-emerald-700'
-                          : 'text-rose-600'
+                          ? 'text-[#067647]'
+                          : 'text-[#B42318]'
                       }`}
                     >
                       {usernameStatus.checking
@@ -959,26 +958,23 @@ export const AuthPanel: React.FC = () => {
                     onChange={(e) => setSignupUsername(e.target.value)}
                     placeholder="amir_mobile"
                     data-testid="signup-username-input"
-                    className="w-full h-11 pr-3.5 pl-9 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] font-mono text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 pr-3.5 pl-9 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] font-mono text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
-                  <AtSign className="w-4 h-4 text-[#004ac6] absolute left-3 top-1/2 -translate-y-1/2" />
+                  <AtSign className="w-4 h-4 text-[#1453D6] absolute left-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
                 </div>
                 {fieldErrors.username && (
-                  <p className="text-[11px] font-bold text-rose-600">{fieldErrors.username}</p>
+                  <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.username}</p>
                 )}
                 {quickUsernameSuggestions.length > 0 && !usernameStatus.available && (
                   <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                    <span className="text-[11px] text-[#434655] inline-flex items-center gap-1">
-                      <Sparkles className="w-3 h-3 text-[#004ac6]" />
-                      پیشنهادها:
-                    </span>
+                    <span className="text-[11px] text-[#4A5464]">پیشنهادها:</span>
                     {quickUsernameSuggestions.slice(0, 3).map((sug) => (
                       <button
                         key={sug}
                         type="button"
                         dir="ltr"
                         onClick={() => setSignupUsername(sug)}
-                        className="px-2 py-0.5 rounded-lg bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] font-mono text-[11px] font-bold transition-colors"
+                        className="px-2 py-0.5 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] font-mono text-[11px] font-medium transition-colors"
                       >
                         @{sug}
                       </button>
@@ -989,7 +985,7 @@ export const AuthPanel: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <label htmlFor="signup-password" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="signup-password" className="text-xs font-medium text-[#11161E] block">
                     رمز عبور
                   </label>
                   <div className="relative">
@@ -1000,15 +996,15 @@ export const AuthPanel: React.FC = () => {
                       value={signupPassword}
                       onChange={(e) => setSignupPassword(e.target.value)}
                       placeholder="حداقل ۸ کاراکتر"
-                      className="w-full h-11 px-3.5 pl-10 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                      className="w-full h-11 px-3.5 pl-10 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                     />
                     <button
                       type="button"
                       onClick={() => setShowSignupPw((v) => !v)}
                       aria-label={showSignupPw ? 'مخفی کردن رمز عبور' : 'نمایش رمز عبور'}
-                      className="absolute left-3 top-1/2 -translate-y-1/2 text-[#434655] hover:text-[#0b1c30]"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4A5464] hover:text-[#11161E]"
                     >
-                      {showSignupPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showSignupPw ? <EyeOff className="w-4 h-4" strokeWidth={1.5} /> : <Eye className="w-4 h-4" strokeWidth={1.5} />}
                     </button>
                   </div>
                   {signupPassword && (
@@ -1020,25 +1016,25 @@ export const AuthPanel: React.FC = () => {
                             className={`h-1 rounded-full ${
                               signupStrength.score >= step
                                 ? signupStrength.score >= 3
-                                  ? 'bg-emerald-600'
-                                  : 'bg-amber-500'
-                                : 'bg-[#e5eeff]'
+                                  ? 'bg-[#067647]'
+                                  : 'bg-[#A84500]'
+                                : 'bg-[#E4E8EE]'
                             }`}
                           />
                         ))}
                       </div>
-                      <p className="text-[11px] text-[#434655]">
-                        قدرت رمز عبور: <strong>{signupStrength.labelFa}</strong>
+                      <p className="text-[11px] text-[#4A5464]">
+                        قدرت رمز عبور: <strong className="font-semibold">{signupStrength.labelFa}</strong>
                       </p>
                     </div>
                   )}
                   {fieldErrors.password && (
-                    <p className="text-[11px] font-bold text-rose-600">{fieldErrors.password}</p>
+                    <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.password}</p>
                   )}
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="signup-confirm-pw" className="text-xs font-bold text-[#0b1c30] block">
+                  <label htmlFor="signup-confirm-pw" className="text-xs font-medium text-[#11161E] block">
                     تکرار رمز عبور
                   </label>
                   <input
@@ -1048,10 +1044,10 @@ export const AuthPanel: React.FC = () => {
                     value={signupConfirmPassword}
                     onChange={(e) => setSignupConfirmPassword(e.target.value)}
                     placeholder="تکرار رمز عبور"
-                    className="w-full h-11 px-3.5 rounded-xl bg-[#f8f9ff] border border-[#dce9ff] text-xs sm:text-sm text-left text-[#0b1c30] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-11 px-3.5 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
                   {fieldErrors.confirmPassword && (
-                    <p className="text-[11px] font-bold text-rose-600">
+                    <p className="text-[11px] font-medium text-[#B42318]">
                       {fieldErrors.confirmPassword}
                     </p>
                   )}
@@ -1062,9 +1058,9 @@ export const AuthPanel: React.FC = () => {
                 type="submit"
                 disabled={submitting}
                 data-testid="signup-submit-btn"
-                className="w-full h-12 px-5 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 transition-colors"
+                className="w-full h-11 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors"
               >
-                <UserPlus className="w-4 h-4" />
+                <UserPlus className="w-4 h-4" strokeWidth={1.5} />
                 <span>{submitting ? 'در حال ارسال کد تایید...' : 'ایجاد حساب و ارسال کد تایید'}</span>
               </button>
             </form>
@@ -1072,14 +1068,14 @@ export const AuthPanel: React.FC = () => {
 
           {/* Subtle Footer Switch Link */}
           {!otpPending && (
-            <div className="pt-4 border-t border-[#eff4ff] text-center text-xs text-[#434655]">
+            <div className="pt-4 border-t border-[#E4E8EE] text-center text-xs text-[#4A5464]">
               {tab === 'signup' ? (
                 <span>
                   قبلاً ثبت‌نام کرده‌اید؟{' '}
                   <button
                     type="button"
                     onClick={() => switchTab('password-login')}
-                    className="font-extrabold text-[#004ac6] hover:underline"
+                    className="font-semibold text-[#1453D6] hover:underline"
                   >
                     ورود به حساب کاربری
                   </button>
@@ -1090,7 +1086,7 @@ export const AuthPanel: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => switchTab('signup')}
-                    className="font-extrabold text-[#004ac6] hover:underline"
+                    className="font-semibold text-[#1453D6] hover:underline"
                   >
                     ایجاد حساب جدید
                   </button>

@@ -25,20 +25,20 @@ export const AccountPage: React.FC = () => {
 
           {/* Guest Local Orders & Wishlist Summary */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <section className="lg:col-span-7 bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
-              <h2 className="text-base font-black text-[#0b1c30] flex items-center gap-2">
-                <Package className="w-5 h-5 text-[#004ac6]" />
+            <section className="lg:col-span-7 bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
+              <h2 className="text-base font-semibold text-[#11161E] flex items-center gap-2">
+                <Package className="w-5 h-5 text-[#1453D6]" strokeWidth={1.5} />
                 <span>سفارش‌های این مرورگر ({toPersianDigits(orders.length)})</span>
               </h2>
               {orders.length === 0 ? (
-                <div className="p-6 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
-                  <p className="text-xs text-[#434655] leading-6">
+                <div className="p-6 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-3">
+                  <p className="text-xs text-[#4A5464] leading-6">
                     در این مرورگر هنوز سفارشی ثبت نشده است. پس از ورود به حساب کاربری، سفارش‌های ثبت‌شده در حساب شما نمایش داده می‌شوند.
                   </p>
                   <a
                     href={buildHref('/tracking')}
                     onClick={(e) => handleLinkClick(e, '/tracking')}
-                    className="h-9 px-4 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
+                    className="h-9 px-4 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-medium inline-flex items-center transition-colors"
                   >
                     پیگیری با کد سفارش
                   </a>
@@ -48,18 +48,18 @@ export const AccountPage: React.FC = () => {
                   {orders.map((ord) => (
                     <div
                       key={ord.orderCode}
-                      className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     >
                       <div className="space-y-1">
-                        <p className="text-xs text-[#434655]">
-                          <span dir="ltr" className="text-sm font-black text-[#004ac6]">
+                        <p className="text-xs text-[#4A5464]">
+                          <span dir="ltr" className="text-sm font-semibold font-mono text-[#1453D6]">
                             {ord.orderCode}
                           </span>{' '}
                           · {ord.createdAt}
                         </p>
-                        <p className="text-xs text-[#434655] tabular-nums-fa">
+                        <p className="text-xs text-[#4A5464] tabular-nums-fa">
                           تحویل‌گیرنده: {ord.customerName} ·{' '}
-                          <strong className="text-[#0b1c30]">
+                          <strong className="text-[#11161E] font-semibold">
                             {formatToman(ord.totalAmount)} تومان
                           </strong>
                         </p>
@@ -67,7 +67,7 @@ export const AccountPage: React.FC = () => {
                       <a
                         href={buildHref(`/tracking/${ord.orderCode}`)}
                         onClick={(e) => handleLinkClick(e, `/tracking/${ord.orderCode}`)}
-                        className="px-3.5 py-2 rounded-xl bg-[#004ac6] text-white text-xs font-bold self-start sm:self-auto inline-flex items-center"
+                        className="px-3.5 py-2 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold self-start sm:self-auto inline-flex items-center transition-colors"
                       >
                         رهگیری مرسوله
                       </a>
@@ -77,9 +77,9 @@ export const AccountPage: React.FC = () => {
               )}
             </section>
 
-            <section className="lg:col-span-5 bg-white rounded-3xl border border-[#e5eeff] p-6 sm:p-8 space-y-4">
-              <h2 className="text-base font-black text-[#0b1c30] flex items-center gap-2">
-                <Heart className="w-5 h-5 text-rose-500" />
+            <section className="lg:col-span-5 bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
+              <h2 className="text-base font-semibold text-[#11161E] flex items-center gap-2">
+                <Heart className="w-5 h-5 text-[#B42318]" strokeWidth={1.5} />
                 <span>علاقه‌مندی‌های این مرورگر ({toPersianDigits(wishlistProducts.length)})</span>
               </h2>
               {wishlistProducts.length > 0 ? (
@@ -89,14 +89,14 @@ export const AccountPage: React.FC = () => {
                   ))}
                 </div>
               ) : (
-                <div className="p-6 rounded-2xl bg-[#f8f9ff] text-center space-y-3">
-                  <p className="text-xs text-[#434655]">
+                <div className="p-6 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-3">
+                  <p className="text-xs text-[#4A5464]">
                     هنوز محصولی به علاقه‌مندی‌ها اضافه نکرده‌اید.
                   </p>
                   <a
                     href={buildHref('/catalog')}
                     onClick={(e) => handleLinkClick(e, '/catalog')}
-                    className="h-9 px-4 rounded-xl bg-[#eff4ff] text-[#004ac6] text-xs font-bold inline-flex items-center"
+                    className="h-9 px-4 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-medium inline-flex items-center transition-colors"
                   >
                     مشاهده فروشگاه
                   </a>

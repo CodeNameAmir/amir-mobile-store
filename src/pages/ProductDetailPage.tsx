@@ -104,7 +104,6 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const isCurrentSlugLookup = liveLookup.slug === slug;
   const liveStockChecking = !isCurrentSlugLookup || liveLookup.loading;
   const liveProduct = isCurrentSlugLookup ? liveLookup.product : null;
-  // Never display stale seed data before live catalog hydration finishes
   const product = liveProduct || (!productsLoading ? productFromList : null);
   const productId = product?.id ?? null;
 
@@ -128,7 +127,6 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     }
   }, [user?.fullName]);
 
-  // Reset selections and fetch reviews only when switching to a different product ID
   useEffect(() => {
     if (!productId || !product) return;
     let mounted = true;
@@ -157,7 +155,6 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId, markProductViewed]);
 
-  // Clamp chosen quantity if live DB stock turns out lower than current selection
   useEffect(() => {
     if (!product || !product.inStock) return;
     setQty((prev) => Math.max(1, Math.min(prev, product.stockCount || 1)));
@@ -199,14 +196,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   if (!product) {
     return (
       <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-16 text-center space-y-4">
-        <h1 className="text-2xl font-black text-[#0b1c30]">محصول مورد نظر یافت نشد</h1>
-        <p className="text-sm text-[#434655]">
+        <h1 className="text-2xl font-semibold text-[#11161E]">محصول مورد نظر یافت نشد</h1>
+        <p className="text-sm text-[#4A5464]">
           ممکن است نشانی محصول تغییر کرده یا از فهرست حذف شده باشد.
         </p>
         <a
           href={buildHref('/catalog')}
           onClick={(e) => handleLinkClick(e, '/catalog')}
-          className="h-11 px-6 rounded-xl bg-[#004ac6] text-white text-sm font-bold inline-flex items-center"
+          className="h-10 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-sm font-semibold inline-flex items-center transition-colors"
         >
           بازگشت به فروشگاه
         </a>
@@ -275,7 +272,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         });
         return;
       } catch {
-        // Fallback to clipboard copy if user dismissed native share or unsupported
+        // Fallback to clipboard copy
       }
     }
     try {
@@ -334,11 +331,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-6 md:py-8 space-y-10">
       {/* Breadcrumb */}
-      <nav aria-label="مسیر صفحه" className="flex flex-wrap items-center gap-2 text-xs text-[#434655]">
+      <nav aria-label="مسیر صفحه" className="flex flex-wrap items-center gap-2 text-xs text-[#6E7889]">
         <a
           href={buildHref('/')}
           onClick={(e) => handleLinkClick(e, '/')}
-          className="hover:text-[#004ac6]"
+          className="hover:text-[#11161E]"
         >
           فروشگاه موبایل امیر
         </a>
@@ -351,28 +348,28 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               navigateToCatalog({ category: product.category as CategoryId });
             }
           }}
-          className="hover:text-[#004ac6]"
+          className="hover:text-[#11161E]"
         >
           {categoryLabel}
         </a>
         <span>/</span>
-        <span className="font-bold text-[#0b1c30] line-clamp-1">{product.nameFa}</span>
+        <span className="font-medium text-[#11161E] line-clamp-1">{product.nameFa}</span>
       </nav>
 
       {/* Main 3-Column PDP Grid */}
-      <div className="bg-white rounded-3xl border border-[#e5eeff] p-5 sm:p-8 shadow-[0_14px_40px_rgba(11,28,48,0.05)] grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="bg-white rounded-2xl border border-[#E4E8EE] p-5 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Col 1: Product Multi-Image Gallery Slider */}
         <div className="lg:col-span-4 space-y-3">
-          <div className="relative aspect-square rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] overflow-hidden p-4">
+          <div className="relative aspect-square rounded-xl bg-[#F3F5F8] border border-[#E4E8EE] overflow-hidden p-4">
             <SmartImage
               src={currentGalleryImg}
               alt={`${product.nameFa} - تصویر ${toPersianDigits(activeImageIndex + 1)}`}
               loading="eager"
               data-testid="pdp-main-image"
-              className="w-full h-full object-cover rounded-xl transition-opacity duration-200"
+              className="w-full h-full object-cover rounded-lg transition-opacity duration-200"
             />
             {product.discountPercent && product.inStock && (
-              <span className="absolute top-4 right-4 px-3 py-1 rounded-xl bg-[#b54e00] text-white text-xs font-extrabold tabular-nums-fa shadow-sm">
+              <span className="absolute top-4 right-4 px-2.5 py-1 rounded-md bg-[#FDF1E8] border border-[#F5D6BE] text-[#A84500] text-xs font-medium tabular-nums-fa">
                 {toPersianDigits(product.discountPercent)}٪ تخفیف ویژه
               </span>
             )}
@@ -381,11 +378,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 type="button"
                 onClick={() => toggleWishlist(product.id)}
                 aria-label="افزودن به علاقه‌مندی‌ها"
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm transition-colors ${
-                  isWishlisted ? 'bg-rose-50 text-rose-600' : 'bg-white text-[#434655] hover:text-rose-600'
+                className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-colors ${
+                  isWishlisted
+                    ? 'bg-[#FEF3F2] border-[#FECDCA] text-[#B42318]'
+                    : 'bg-white border-[#E4E8EE] text-[#4A5464] hover:text-[#B42318]'
                 }`}
               >
-                <Heart className={`w-5 h-5 ${isWishlisted ? 'fill-current' : ''}`} />
+                <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-current' : ''}`} strokeWidth={1.5} />
               </button>
               <button
                 type="button"
@@ -393,11 +392,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 onClick={() => toggleCompare(product.id)}
                 aria-label="افزودن به مقایسه"
                 title="مقایسه محصول"
-                className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-sm transition-colors ${
-                  isCompared ? 'bg-[#004ac6] text-white' : 'bg-white text-[#434655] hover:text-[#004ac6]'
+                className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-colors ${
+                  isCompared
+                    ? 'bg-[#1453D6] border-[#1453D6] text-white'
+                    : 'bg-white border-[#E4E8EE] text-[#4A5464] hover:text-[#1453D6]'
                 }`}
               >
-                <Scale className="w-5 h-5" />
+                <Scale className="w-4 h-4" strokeWidth={1.5} />
               </button>
               <button
                 type="button"
@@ -405,9 +406,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 onClick={handleShareProduct}
                 aria-label="اشتراک‌گذاری محصول"
                 title="اشتراک‌گذاری محصول"
-                className="w-10 h-10 rounded-xl bg-white text-[#434655] hover:text-[#004ac6] flex items-center justify-center shadow-sm transition-colors"
+                className="w-9 h-9 rounded-lg bg-white border border-[#E4E8EE] text-[#4A5464] hover:text-[#1453D6] flex items-center justify-center transition-colors"
               >
-                <Share2 className="w-5 h-5" />
+                <Share2 className="w-4 h-4" strokeWidth={1.5} />
               </button>
             </div>
 
@@ -420,20 +421,23 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     setActiveImageIndex((i) => (i - 1 + galleryImages.length) % galleryImages.length)
                   }
                   aria-label="تصویر قبلی"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-[#0b1c30] shadow-md flex items-center justify-center"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-white/95 hover:bg-white border border-[#E4E8EE] text-[#11161E] flex items-center justify-center"
                 >
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight className="w-4 h-4" strokeWidth={1.5} />
                 </button>
                 <button
                   type="button"
                   data-testid="pdp-gallery-next"
                   onClick={() => setActiveImageIndex((i) => (i + 1) % galleryImages.length)}
                   aria-label="تصویر بعدی"
-                  className="absolute left-3 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 hover:bg-white text-[#0b1c30] shadow-md flex items-center justify-center"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg bg-white/95 hover:bg-white border border-[#E4E8EE] text-[#11161E] flex items-center justify-center"
                 >
-                  <ChevronLeft className="w-4 h-4" />
+                  <ChevronLeft className="w-4 h-4" strokeWidth={1.5} />
                 </button>
-                <span className="absolute bottom-3 left-3 px-2.5 py-1 rounded-lg bg-[#0b1c30]/75 text-white text-[11px] font-bold tabular-nums-fa">
+                <span
+                  dir="ltr"
+                  className="absolute bottom-3 left-3 px-2.5 py-1 rounded-md bg-[#13171F]/85 text-white text-[11px] font-medium tabular-nums-fa"
+                >
                   {toPersianDigits(activeImageIndex + 1)} / {toPersianDigits(galleryImages.length)}
                 </span>
               </>
@@ -449,25 +453,30 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   data-testid={`pdp-thumb-${idx}`}
                   onClick={() => setActiveImageIndex(idx)}
                   aria-label={`نمایش تصویر ${toPersianDigits(idx + 1)}`}
-                  className={`w-16 h-16 rounded-xl overflow-hidden border-2 shrink-0 bg-[#f8f9ff] transition-all ${
+                  className={`w-16 h-16 rounded-lg overflow-hidden border shrink-0 bg-[#F3F5F8] transition-colors ${
                     idx === activeImageIndex
-                      ? 'border-[#004ac6] ring-2 ring-[#2563eb]/20'
-                      : 'border-[#e5eeff] opacity-75 hover:opacity-100'
+                      ? 'border-[#1453D6] ring-2 ring-[#1453D6]/20'
+                      : 'border-[#E4E8EE] opacity-75 hover:opacity-100'
                   }`}
                 >
-                  <SmartImage src={imgSrc} alt={`${product.nameFa} ${idx + 1}`} className="w-full h-full object-cover" />
+                  <SmartImage
+                    src={imgSrc}
+                    alt={`${product.nameFa} ${idx + 1}`}
+                    loading="eager"
+                    className="w-full h-full object-cover"
+                  />
                 </button>
               ))}
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="p-3 rounded-xl bg-[#eff4ff] text-[#004ac6] font-bold flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 shrink-0" />
+            <div className="p-3 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-[#11161E] font-medium flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-[#4A5464] shrink-0" strokeWidth={1.5} />
               <span>کد رجیستری همتا</span>
             </div>
-            <div className="p-3 rounded-xl bg-[#f8f9ff] text-[#0b1c30] font-bold flex items-center gap-2">
-              <Truck className="w-4 h-4 text-[#004ac6] shrink-0" />
+            <div className="p-3 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-[#11161E] font-medium flex items-center gap-2">
+              <Truck className="w-4 h-4 text-[#4A5464] shrink-0" strokeWidth={1.5} />
               <span>بسته‌بندی پلمپ ضدضربه</span>
             </div>
           </div>
@@ -475,7 +484,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
         {/* Col 2: Title, Variant Configurator, Quick Specs */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="space-y-2 border-b border-[#eff4ff] pb-5">
+          <div className="space-y-2 border-b border-[#E4E8EE] pb-5">
             <div className="flex items-center justify-between gap-2">
               <a
                 href={buildHref(`/catalog?brand=${encodeURIComponent(product.brand)}`)}
@@ -485,32 +494,32 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     navigateToCatalog({ brand: product.brand });
                   }
                 }}
-                className="text-xs font-extrabold text-[#004ac6] hover:underline uppercase tracking-wider"
+                className="text-xs font-medium text-[#1453D6] hover:underline"
               >
                 {product.brand}
               </a>
-              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#0b1c30] tabular-nums-fa">
-                <Star className="w-4 h-4 text-amber-500 fill-amber-500" />
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-[#11161E] tabular-nums-fa">
+                <Star className="w-4 h-4 text-[#A84500] fill-[#A84500]" strokeWidth={1.5} />
                 {toPersianDigits(product.rating)} از ۵ ({toPersianDigits(reviews.length)} دیدگاه)
               </span>
             </div>
 
-            <h1 className="text-lg sm:text-2xl font-black text-[#0b1c30] leading-9">
+            <h1 className="text-lg sm:text-2xl font-semibold text-[#11161E] leading-9">
               {product.nameFa}
             </h1>
-            <p className="text-xs text-[#434655] font-medium" dir="ltr">
+            <p className="text-xs text-[#6E7889] font-normal" dir="ltr">
               {product.nameEn}
             </p>
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-              <p className="text-xs font-bold text-emerald-700">
-                ✓ {toPersianDigits(product.recommendPercent)}٪ از خریداران این کالا را پیشنهاد کرده‌اند
+              <p className="text-xs font-medium text-[#067647]">
+                {toPersianDigits(product.recommendPercent)}٪ از خریداران این کالا را پیشنهاد کرده‌اند
               </p>
               <button
                 type="button"
                 onClick={handleShareProduct}
-                className="text-xs font-bold text-[#004ac6] hover:underline inline-flex items-center gap-1"
+                className="text-xs font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1"
               >
-                <Share2 className="w-3.5 h-3.5" />
+                <Share2 className="w-3.5 h-3.5" strokeWidth={1.5} />
                 اشتراک‌گذاری محصول
               </button>
             </div>
@@ -518,10 +527,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
           {/* Color Picker */}
           <div className="space-y-2.5">
-            <p className="text-xs font-bold text-[#0b1c30]">
-              رنگ انتخابی: <span className="text-[#004ac6]">{activeColor?.name}</span>
+            <p className="text-xs font-semibold text-[#11161E]">
+              رنگ انتخابی <span className="text-[#1453D6] font-medium">{activeColor?.name}</span>
             </p>
-            <div className="flex flex-wrap gap-2.5">
+            <div className="flex flex-wrap gap-2">
               {product.colors.map((color) => {
                 const selected = color.id === activeColor?.id;
                 return (
@@ -529,10 +538,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     key={color.id}
                     type="button"
                     onClick={() => setSelectedColorId(color.id)}
-                    className={`px-3 py-2 rounded-xl border text-xs font-bold inline-flex items-center gap-2 transition-all ${
+                    className={`px-3 py-2 rounded-lg border text-xs font-medium inline-flex items-center gap-2 transition-colors ${
                       selected
-                        ? 'border-[#004ac6] bg-[#eff4ff] text-[#004ac6]'
-                        : 'border-[#e5eeff] bg-white text-[#434655] hover:border-[#2563eb]'
+                        ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6]'
+                        : 'border-[#E4E8EE] bg-white text-[#4A5464] hover:border-[#C5CEDB]'
                     }`}
                   >
                     <span
@@ -548,7 +557,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
           {/* Storage / Variant Selector */}
           <div className="space-y-2.5">
-            <p className="text-xs font-bold text-[#0b1c30]">ظرفیت و نسخه:</p>
+            <p className="text-xs font-semibold text-[#11161E]">ظرفیت و نسخه</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               {product.storageOptions.map((opt) => {
                 const selected = opt.label === selectedStorage;
@@ -558,14 +567,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     type="button"
                     data-testid={`variant-storage-${opt.label}`}
                     onClick={() => setSelectedStorage(opt.label)}
-                    className={`p-3 rounded-xl border text-right transition-all ${
+                    className={`p-3 rounded-lg border text-right transition-colors ${
                       selected
-                        ? 'border-[#004ac6] bg-[#eff4ff] text-[#004ac6] shadow-sm'
-                        : 'border-[#e5eeff] bg-white text-[#0b1c30] hover:border-[#2563eb]'
+                        ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6]'
+                        : 'border-[#E4E8EE] bg-white text-[#11161E] hover:border-[#C5CEDB]'
                     }`}
                   >
-                    <p className="text-xs font-extrabold">{opt.label}</p>
-                    <p className="text-[11px] text-[#434655] mt-0.5">{opt.subtitle}</p>
+                    <p className="text-xs font-semibold">{opt.label}</p>
+                    <p className="text-[11px] text-[#4A5464] mt-0.5">{opt.subtitle}</p>
                   </button>
                 );
               })}
@@ -576,25 +585,25 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
           {activeVariant && (
             <div
               data-testid="pdp-variant-meta"
-              className="rounded-2xl bg-[#f8f9ff] border border-[#dce9ff] p-3.5 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs"
+              className="rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] p-3.5 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs"
             >
               <div className="space-y-0.5">
-                <p className="text-[11px] text-[#434655] font-semibold">کد تنوع (SKU)</p>
+                <p className="text-[11px] text-[#6E7889] font-normal">کد تنوع (SKU)</p>
                 <p
                   data-testid="pdp-variant-sku"
                   dir="ltr"
-                  className="font-mono font-extrabold text-[#0b1c30] text-[11px] text-right truncate"
+                  className="font-mono font-medium text-[#11161E] text-[11px] text-right truncate"
                 >
                   {activeVariant.sku}
                 </p>
               </div>
               {activeVariant.partNumber && (
                 <div className="space-y-0.5">
-                  <p className="text-[11px] text-[#434655] font-semibold">پارت‌نامبر / ریجن</p>
+                  <p className="text-[11px] text-[#6E7889] font-normal">پارت‌نامبر / ریجن</p>
                   <p
                     data-testid="pdp-variant-part"
                     dir="ltr"
-                    className="font-extrabold text-[#004ac6] text-right"
+                    className="font-mono font-medium text-[#1453D6] text-right"
                   >
                     {activeVariant.partNumber}
                   </p>
@@ -602,8 +611,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               )}
               {activeVariant.simType && (
                 <div className="space-y-0.5 col-span-2 sm:col-span-1">
-                  <p className="text-[11px] text-[#434655] font-semibold">پشتیبانی سیم‌کارت</p>
-                  <p className="font-extrabold text-[#0b1c30]">{activeVariant.simType}</p>
+                  <p className="text-[11px] text-[#6E7889] font-normal">پشتیبانی سیم‌کارت</p>
+                  <p className="font-medium text-[#11161E]">{activeVariant.simType}</p>
                 </div>
               )}
             </div>
@@ -611,58 +620,58 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
           {/* 4 Hardware Highlights */}
           <div className="grid grid-cols-2 gap-3 pt-2">
-            <div className="p-3 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-1">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#434655]">
-                <Smartphone className="w-3.5 h-3.5 text-[#004ac6]" />
+            <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6E7889]">
+                <Smartphone className="w-3.5 h-3.5 text-[#4A5464]" strokeWidth={1.5} />
                 <span>نمایشگر</span>
               </div>
-              <p className="text-xs font-extrabold text-[#0b1c30]">{product.specs.display}</p>
-              <p className="text-[11px] text-[#434655]">{product.specs.displayDetails}</p>
+              <p className="text-xs font-semibold text-[#11161E]">{product.specs.display}</p>
+              <p className="text-[11px] text-[#4A5464]">{product.specs.displayDetails}</p>
             </div>
 
-            <div className="p-3 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-1">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#434655]">
-                <Cpu className="w-3.5 h-3.5 text-[#004ac6]" />
+            <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6E7889]">
+                <Cpu className="w-3.5 h-3.5 text-[#4A5464]" strokeWidth={1.5} />
                 <span>پردازنده</span>
               </div>
-              <p className="text-xs font-extrabold text-[#0b1c30]">{product.specs.chipset}</p>
-              <p className="text-[11px] text-[#434655]">{product.specs.chipsetDetails}</p>
+              <p className="text-xs font-semibold text-[#11161E]">{product.specs.chipset}</p>
+              <p className="text-[11px] text-[#4A5464]">{product.specs.chipsetDetails}</p>
             </div>
 
-            <div className="p-3 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-1">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#434655]">
-                <Camera className="w-3.5 h-3.5 text-[#004ac6]" />
+            <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6E7889]">
+                <Camera className="w-3.5 h-3.5 text-[#4A5464]" strokeWidth={1.5} />
                 <span>دوربین / قابلیت</span>
               </div>
-              <p className="text-xs font-extrabold text-[#0b1c30]">{product.specs.camera}</p>
-              <p className="text-[11px] text-[#434655]">{product.specs.cameraDetails}</p>
+              <p className="text-xs font-semibold text-[#11161E]">{product.specs.camera}</p>
+              <p className="text-[11px] text-[#4A5464]">{product.specs.cameraDetails}</p>
             </div>
 
-            <div className="p-3 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-1">
-              <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#434655]">
-                <Zap className="w-3.5 h-3.5 text-[#004ac6]" />
+            <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6E7889]">
+                <Zap className="w-3.5 h-3.5 text-[#4A5464]" strokeWidth={1.5} />
                 <span>باتری و شارژ</span>
               </div>
-              <p className="text-xs font-extrabold text-[#0b1c30]">{product.specs.battery}</p>
-              <p className="text-[11px] text-[#434655]">{product.specs.batteryDetails}</p>
+              <p className="text-xs font-semibold text-[#11161E]">{product.specs.battery}</p>
+              <p className="text-[11px] text-[#4A5464]">{product.specs.batteryDetails}</p>
             </div>
           </div>
         </div>
 
         {/* Col 3: Sticky Buy Box */}
         <div className="lg:col-span-3">
-          <div className="rounded-2xl bg-[#f8f9ff] border border-[#dce9ff] p-5 space-y-5 sticky top-28">
-            <div className="space-y-2 border-b border-[#dce9ff] pb-4">
+          <div className="rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] p-5 space-y-5 sticky top-28">
+            <div className="space-y-2 border-b border-[#E4E8EE] pb-4">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-[#434655]">فروشنده:</span>
-                <span className="font-extrabold text-[#0b1c30]">فروشگاه موبایل امیر</span>
+                <span className="font-medium text-[#4A5464]">فروشنده</span>
+                <span className="font-semibold text-[#11161E]">فروشگاه موبایل امیر</span>
               </div>
-              <div className="flex items-start gap-2 text-xs text-[#0b1c30] bg-white p-3 rounded-xl border border-[#e5eeff]">
-                <ShieldCheck className="w-4 h-4 text-[#004ac6] shrink-0 mt-0.5" />
+              <div className="flex items-start gap-2 text-xs text-[#11161E] bg-white p-3 rounded-lg border border-[#E4E8EE]">
+                <ShieldCheck className="w-4 h-4 text-[#4A5464] shrink-0 mt-0.5" strokeWidth={1.5} />
                 <div className="space-y-1">
-                  <span className="font-semibold leading-5 block">{baseWarranty}</span>
+                  <span className="font-medium leading-5 block">{baseWarranty}</span>
                   {activeVariant?.warrantyCoverageFa && (
-                    <span className="text-[11px] text-[#434655] leading-5 block">
+                    <span className="text-[11px] text-[#4A5464] leading-5 block">
                       {activeVariant.warrantyCoverageFa}
                     </span>
                   )}
@@ -677,55 +686,55 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 <div className="space-y-1">
                   {effectiveOriginalPrice > effectiveUnitPrice && (
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-[#434655] line-through tabular-nums-fa">
+                      <span className="text-[#6E7889] line-through tabular-nums-fa">
                         {formatToman(effectiveOriginalPrice)} تومان
                       </span>
-                      <span className="px-2 py-0.5 rounded-md bg-[#ffdbca] text-[#8e3c00] font-extrabold text-[11px] tabular-nums-fa">
+                      <span className="px-2 py-0.5 rounded-md bg-[#FDF1E8] border border-[#F5D6BE] text-[#A84500] font-medium text-[11px] tabular-nums-fa">
                         سود شما: {formatToman(effectiveOriginalPrice - effectiveUnitPrice)}
                       </span>
                     </div>
                   )}
                   <p
                     data-testid="pdp-price"
-                    className="text-2xl font-black text-[#0b1c30] tabular-nums-fa pt-1"
+                    className="text-2xl font-semibold text-[#11161E] tabular-nums-fa pt-1"
                   >
                     {formatToman(effectiveUnitPrice)}{' '}
-                    <span className="text-xs font-bold text-[#434655]">تومان</span>
+                    <span className="text-xs font-normal text-[#4A5464]">تومان</span>
                   </p>
-                  <p className="text-[11px] font-bold text-emerald-700">
-                    ● موجود در انبار امیر ({toPersianDigits(effectiveStockCount)} عدد آماده ارسال)
+                  <p className="text-[11px] font-medium text-[#067647]">
+                    موجود در انبار امیر ({toPersianDigits(effectiveStockCount)} عدد آماده ارسال)
                   </p>
                   <p
                     data-testid="pdp-price-updated-at"
-                    className="text-[11px] text-[#434655] inline-flex items-center gap-1 pt-1 tabular-nums-fa"
+                    className="text-[11px] text-[#6E7889] inline-flex items-center gap-1 pt-1 tabular-nums-fa"
                   >
-                    <CalendarClock className="w-3.5 h-3.5 text-[#004ac6]" />
+                    <CalendarClock className="w-3.5 h-3.5 text-[#6E7889]" strokeWidth={1.5} />
                     آخرین به‌روزرسانی قیمت: {formattedPriceDate}
                   </p>
                 </div>
 
-                {/* Amir Care+ Screen & Accident Protection Toggle */}
+                {/* Amir Care+ Toggle */}
                 {carePlusPrice > 0 && (
-                  <label className="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-[#dce9ff] cursor-pointer hover:border-[#004ac6] transition-colors">
+                  <label className="flex items-start gap-2.5 p-3 rounded-lg bg-white border border-[#E4E8EE] cursor-pointer hover:border-[#1453D6] transition-colors">
                     <input
                       type="checkbox"
                       data-testid="pdp-care-plus-toggle"
                       checked={includeCarePlus}
                       onChange={(e) => setIncludeCarePlus(e.target.checked)}
-                      className="mt-1 w-4 h-4 rounded accent-[#004ac6] shrink-0"
+                      className="mt-1 w-4 h-4 rounded accent-[#1453D6] shrink-0"
                     />
                     <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between gap-2 text-xs font-extrabold text-[#0b1c30]">
+                      <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[#11161E]">
                         <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                          <ShieldPlus className="w-3.5 h-3.5 text-[#004ac6] shrink-0" />
+                          <ShieldPlus className="w-3.5 h-3.5 text-[#4A5464] shrink-0" strokeWidth={1.5} />
                           <span>بیمه حوادث</span>
                           <span dir="ltr">Care+</span>
                         </span>
-                        <span dir="ltr" className="text-[#004ac6] tabular-nums-fa whitespace-nowrap">
+                        <span dir="ltr" className="text-[#1453D6] tabular-nums-fa whitespace-nowrap">
                           +{formatToman(carePlusPrice)}
                         </span>
                       </div>
-                      <p className="text-[11px] text-[#434655] leading-5">
+                      <p className="text-[11px] text-[#4A5464] leading-5">
                         پوشش ۱۲ ماهه شکستگی نمایشگر، آب‌خوردگی و نوسان برق
                       </p>
                     </div>
@@ -733,27 +742,27 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 )}
 
                 {/* Quantity stepper */}
-                <div className="flex items-center justify-between bg-white rounded-xl border border-[#e5eeff] p-2">
-                  <span className="text-xs font-bold text-[#434655] pr-2">تعداد:</span>
+                <div className="flex items-center justify-between bg-white rounded-lg border border-[#E4E8EE] p-2">
+                  <span className="text-xs font-medium text-[#4A5464] pr-2">تعداد</span>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setQty((q) => Math.max(1, q - 1))}
                       aria-label="کاهش تعداد"
-                      className="w-8 h-8 rounded-lg bg-[#eff4ff] text-[#004ac6] flex items-center justify-center hover:bg-[#dce9ff]"
+                      className="w-8 h-8 rounded-lg bg-[#F1F3F6] text-[#11161E] flex items-center justify-center hover:bg-[#EAECEF]"
                     >
-                      <Minus className="w-4 h-4" />
+                      <Minus className="w-4 h-4" strokeWidth={1.5} />
                     </button>
-                    <span className="w-6 text-center text-sm font-extrabold tabular-nums-fa">
+                    <span className="w-6 text-center text-sm font-semibold tabular-nums-fa">
                       {toPersianDigits(qty)}
                     </span>
                     <button
                       type="button"
                       onClick={() => setQty((q) => Math.min(effectiveStockCount || 5, q + 1))}
                       aria-label="افزایش تعداد"
-                      className="w-8 h-8 rounded-lg bg-[#eff4ff] text-[#004ac6] flex items-center justify-center hover:bg-[#dce9ff]"
+                      className="w-8 h-8 rounded-lg bg-[#F1F3F6] text-[#11161E] flex items-center justify-center hover:bg-[#EAECEF]"
                     >
-                      <Plus className="w-4 h-4" />
+                      <Plus className="w-4 h-4" strokeWidth={1.5} />
                     </button>
                   </div>
                 </div>
@@ -763,18 +772,18 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     type="button"
                     data-testid="pdp-add-to-cart"
                     onClick={() => handleAddToCart(false)}
-                    className="w-full h-12 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] text-white text-sm font-extrabold inline-flex items-center justify-center gap-2 shadow-md transition-colors"
+                    className="w-full h-11 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors"
                   >
-                    <ShoppingBag className="w-4 h-4" />
+                    <ShoppingBag className="w-4 h-4" strokeWidth={1.5} />
                     <span>افزودن به سبد خرید</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleAddToCart(true)}
-                    className="w-full h-11 rounded-xl bg-white hover:bg-[#eff4ff] border border-[#004ac6] text-[#004ac6] text-xs font-extrabold inline-flex items-center justify-center gap-2 transition-colors"
+                    className="w-full h-10 rounded-lg bg-white hover:bg-[#EEF3FC] border border-[#DCE1E8] text-[#1453D6] text-xs font-medium inline-flex items-center justify-center gap-2 transition-colors"
                   >
                     <span>خرید فوری و مشاهده سبد</span>
-                    <ArrowLeft className="w-4 h-4" />
+                    <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
                   </button>
                 </div>
 
@@ -782,36 +791,36 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 <a
                   href={buildHref('/installments')}
                   onClick={(e) => handleLinkClick(e, '/installments')}
-                  className="w-full p-3 rounded-xl bg-[#eff4ff] hover:bg-[#dce9ff] text-right transition-colors flex items-center justify-between gap-2"
+                  className="w-full p-3 rounded-lg bg-white border border-[#E4E8EE] hover:border-[#1453D6] text-right transition-colors flex items-center justify-between gap-2"
                 >
                   <div className="space-y-0.5">
-                    <p className="text-[11px] font-extrabold text-[#004ac6] inline-flex items-center gap-1">
-                      <Calculator className="w-3.5 h-3.5" />
+                    <p className="text-[11px] font-semibold text-[#1453D6] inline-flex items-center gap-1">
+                      <Calculator className="w-3.5 h-3.5" strokeWidth={1.5} />
                       امکان خرید اقساطی ۱۲ ماهه
                     </p>
-                    <p className="text-[11px] text-[#0b1c30] font-bold tabular-nums-fa">
+                    <p className="text-[11px] text-[#11161E] font-medium tabular-nums-fa">
                       ماهانه حدود {formatToman(installmentPreview.monthlyPayment)} تومان
                     </p>
                   </div>
-                  <ArrowLeft className="w-4 h-4 text-[#004ac6] shrink-0" />
+                  <ArrowLeft className="w-4 h-4 text-[#6E7889] shrink-0" strokeWidth={1.5} />
                 </a>
               </>
             ) : (
               <div className="space-y-4">
-                <p className="text-sm font-extrabold text-[#0b1c30]">این کالا فعلاً ناموجود است</p>
-                <p className="text-xs text-[#434655] leading-6">
+                <p className="text-sm font-semibold text-[#11161E]">این کالا فعلاً ناموجود است</p>
+                <p className="text-xs text-[#4A5464] leading-6">
                   به محض شارژ مجدد انبار، از طریق دکمه زیر به شما اطلاع‌رسانی می‌کنیم.
                 </p>
                 <button
                   type="button"
                   onClick={() => toggleStockAlert(product.id)}
-                  className={`w-full h-12 rounded-xl text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors ${
+                  className={`w-full h-11 rounded-lg text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors ${
                     isAlerted
-                      ? 'bg-[#213145] text-white'
-                      : 'bg-[#004ac6] hover:bg-[#2563eb] text-white'
+                      ? 'bg-[#13171F] text-white'
+                      : 'bg-[#1453D6] hover:bg-[#0F44B5] text-white'
                   }`}
                 >
-                  <Bell className="w-4 h-4" />
+                  <Bell className="w-4 h-4" strokeWidth={1.5} />
                   <span>{isAlerted ? 'اطلاع‌رسانی فعال شد' : 'موجود شد خبرم کن'}</span>
                 </button>
               </div>
@@ -823,36 +832,36 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       {/* Complementary Accessories */}
       {complementaryItems.length > 0 && (
         <section className="space-y-4">
-          <h2 className="text-lg sm:text-xl font-black text-[#0b1c30]">
+          <h2 className="text-lg sm:text-xl font-semibold text-[#11161E]">
             لوازم جانبی پیشنهادی همراه این کالا
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {complementaryItems.map((acc) => (
               <div
                 key={acc.id}
-                className="bg-white rounded-2xl border border-[#e5eeff] p-4 flex items-center gap-4"
+                className="bg-white rounded-xl border border-[#E4E8EE] p-4 flex items-center gap-4"
               >
-                <div className="w-20 h-20 rounded-xl bg-[#f8f9ff] overflow-hidden shrink-0">
+                <div className="w-20 h-20 rounded-lg bg-[#F3F5F8] overflow-hidden shrink-0">
                   <SmartImage src={acc.image} alt={acc.nameFa} className="w-full h-full object-cover" />
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
                   <a
                     href={buildHref(`/product/${acc.slug}`)}
                     onClick={(e) => handleLinkClick(e, `/product/${acc.slug}`)}
-                    className="text-xs font-extrabold text-[#0b1c30] hover:text-[#004ac6] line-clamp-2 text-right block"
+                    className="text-xs font-semibold text-[#11161E] hover:text-[#1453D6] line-clamp-2 text-right block"
                   >
                     {acc.nameFa}
                   </a>
-                  <p className="text-xs font-extrabold text-[#004ac6] tabular-nums-fa">
+                  <p className="text-xs font-semibold text-[#1453D6] tabular-nums-fa">
                     {formatToman(acc.price)} تومان
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={() => addToCart(acc)}
-                  className="px-3 py-2 rounded-xl bg-[#eff4ff] hover:bg-[#004ac6] text-[#004ac6] hover:text-white text-xs font-bold shrink-0 transition-colors"
+                  className="px-3 py-2 rounded-lg bg-[#F1F3F6] hover:bg-[#1453D6] text-[#11161E] hover:text-white text-xs font-medium shrink-0 transition-colors"
                 >
-                  + افزودن
+                  افزودن
                 </button>
               </div>
             ))}
@@ -860,9 +869,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         </section>
       )}
 
-      {/* Detailed Tabs: Specs (incl. customSpecs), Expert Review, Customer Reviews */}
-      <section className="bg-white rounded-3xl border border-[#e5eeff] overflow-hidden">
-        <div className="flex items-center gap-2 border-b border-[#eff4ff] px-5 pt-4 overflow-x-auto">
+      {/* Detailed Tabs */}
+      <section className="bg-white rounded-2xl border border-[#E4E8EE] overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-[#E4E8EE] px-5 pt-4 overflow-x-auto">
           {(
             [
               { id: 'specs', label: 'مشخصات فنی تخصصی' },
@@ -874,10 +883,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-3 text-xs sm:text-sm font-extrabold border-b-2 transition-colors whitespace-nowrap ${
+              className={`px-4 py-3 text-xs sm:text-sm font-semibold border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.id
-                  ? 'border-[#004ac6] text-[#004ac6]'
-                  : 'border-transparent text-[#434655] hover:text-[#0b1c30]'
+                  ? 'border-[#1453D6] text-[#1453D6]'
+                  : 'border-transparent text-[#4A5464] hover:text-[#11161E]'
               }`}
             >
               {tab.label}
@@ -899,28 +908,28 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 ].map((row) => (
                   <div
                     key={row.k}
-                    className="p-4 rounded-xl bg-[#f8f9ff] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                    className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                   >
-                    <span className="font-bold text-[#434655]">{row.k}</span>
-                    <span className="font-extrabold text-[#0b1c30]">{row.v}</span>
+                    <span className="font-medium text-[#4A5464]">{row.k}</span>
+                    <span className="font-semibold text-[#11161E]">{row.v}</span>
                   </div>
                 ))}
               </div>
 
               {product.attributeValues && product.attributeValues.length > 0 && (
                 <div
-                  className="space-y-3 border-t border-[#eff4ff] pt-5"
+                  className="space-y-3 border-t border-[#E4E8EE] pt-5"
                   data-testid="pdp-structured-attributes"
                 >
-                  <h3 className="text-sm font-black text-[#0b1c30]">جدول ویژگی‌های فنی استاندارد</h3>
+                  <h3 className="text-sm font-semibold text-[#11161E]">جدول ویژگی‌های فنی استاندارد</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs sm:text-sm">
                     {product.attributeValues.map((attr) => (
                       <div
                         key={attr.attributeId || attr.code}
-                        className="p-4 rounded-xl bg-[#f8f9ff] border border-[#e5eeff] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                        className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                       >
-                        <span className="font-bold text-[#434655]">{attr.nameFa}</span>
-                        <span className="font-extrabold text-[#0b1c30] tabular-nums-fa">
+                        <span className="font-medium text-[#4A5464]">{attr.nameFa}</span>
+                        <span className="font-semibold text-[#11161E] tabular-nums-fa">
                           {attr.displayValue}
                         </span>
                       </div>
@@ -930,16 +939,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               )}
 
               {product.customSpecs && product.customSpecs.length > 0 && (
-                <div className="space-y-3 border-t border-[#eff4ff] pt-5" data-testid="pdp-custom-specs">
-                  <h3 className="text-sm font-black text-[#0b1c30]">مشخصات ویژه و تخصصی محصول</h3>
+                <div className="space-y-3 border-t border-[#E4E8EE] pt-5" data-testid="pdp-custom-specs">
+                  <h3 className="text-sm font-semibold text-[#11161E]">مشخصات ویژه و تخصصی محصول</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs sm:text-sm">
                     {product.customSpecs.map((spec, idx) => (
                       <div
                         key={`${spec.label}-${idx}`}
-                        className="p-4 rounded-xl bg-[#eff4ff]/60 border border-[#dce9ff] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                        className="p-4 rounded-xl bg-[#EEF3FC]/60 border border-[#D4E2FA] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
                       >
-                        <span className="font-bold text-[#004ac6]">{spec.label}</span>
-                        <span className="font-extrabold text-[#0b1c30]">{spec.value}</span>
+                        <span className="font-medium text-[#1453D6]">{spec.label}</span>
+                        <span className="font-semibold text-[#11161E]">{spec.value}</span>
                       </div>
                     ))}
                   </div>
@@ -949,21 +958,21 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
           )}
 
           {activeTab === 'review' && (
-            <div className="space-y-4 text-sm text-[#0b1c30] leading-8 max-w-3xl">
-              <h3 className="text-base font-black">تحلیل تیم فنی فروشگاه موبایل امیر</h3>
-              <p className="text-[#434655]">
-                محصول <strong className="text-[#0b1c30]">{product.nameFa}</strong> یکی از ارزشمندترین گزینه‌های رده خود در بازار ایران است. واحد کنترل کیفیت ۱۸ مرحله‌ای امیر پیش از پلمپ و ارسال نهایی، اصالت پارت‌نامبر، سلامت بسته‌بندی و وضعیت استعلام در سامانه همتا را تایید می‌کند.
+            <div className="space-y-4 text-sm text-[#11161E] leading-8 max-w-3xl">
+              <h3 className="text-base font-semibold">تحلیل تیم فنی فروشگاه موبایل امیر</h3>
+              <p className="text-[#4A5464]">
+                محصول <span className="font-semibold text-[#11161E]">{product.nameFa}</span> یکی از ارزشمندترین گزینه‌های رده خود در بازار ایران است. واحد کنترل کیفیت ۱۸ مرحله‌ای امیر پیش از پلمپ و ارسال نهایی، اصالت پارت‌نامبر، سلامت بسته‌بندی و وضعیت استعلام در سامانه همتا را تایید می‌کند.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                <div className="p-4 rounded-xl bg-emerald-50 text-emerald-900 space-y-1">
-                  <p className="font-extrabold text-xs">نقاط قوت کلیدی</p>
+                <div className="p-4 rounded-xl bg-[#ECFDF3] border border-[#ABEFC6] text-[#067647] space-y-1">
+                  <p className="font-semibold text-xs">نقاط قوت کلیدی</p>
                   <p className="text-xs leading-6">
-                    کیفیت ساخت پریمیوم، پایداری نرم‌افزاری طولانی‌مدت، گارانتی ۱۸ ماهه امیر سرویس و ارزش خرید بالا.
+                    کیفیت ساخت بالا، پایداری نرم‌افزاری طولانی‌مدت، گارانتی ۱۸ ماهه امیر سرویس و ارزش خرید مناسب.
                   </p>
                 </div>
-                <div className="p-4 rounded-xl bg-[#eff4ff] text-[#0b1c30] space-y-1">
-                  <p className="font-extrabold text-xs">پیشنهاد کارشناسان</p>
-                  <p className="text-xs leading-6">
+                <div className="p-4 rounded-xl bg-[#F1F3F6] border border-[#E4E8EE] text-[#11161E] space-y-1">
+                  <p className="font-semibold text-xs">پیشنهاد کارشناسان</p>
+                  <p className="text-xs leading-6 text-[#4A5464]">
                     برای حفظ سلامت باتری در بلندمدت حتماً از آداپتورهای استاندارد GaN انکر یا اپل استفاده نمایید.
                   </p>
                 </div>
@@ -983,37 +992,37 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   reviews.map((rev) => (
                     <div
                       key={rev.id}
-                      className="p-4 rounded-2xl bg-[#f8f9ff] border border-[#eff4ff] space-y-2"
+                      className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-2"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-xs font-extrabold text-[#0b1c30]">{rev.author}</span>
+                          <span className="text-xs font-semibold text-[#11161E]">{rev.author}</span>
                           {rev.authorUsername && (
                             <a
                               href={buildHref(`/u/${rev.authorUsername}`)}
                               onClick={(e) => handleLinkClick(e, `/u/${rev.authorUsername}`)}
                               dir="ltr"
                               data-testid="review-author-username"
-                              className="px-2 py-0.5 rounded-md bg-[#eff4ff] hover:bg-[#dce9ff] text-[#004ac6] font-mono text-[11px] font-bold transition-colors"
+                              className="px-2 py-0.5 rounded-md bg-white border border-[#E4E8EE] hover:border-[#1453D6] text-[#1453D6] font-mono text-[11px] font-medium transition-colors"
                             >
                               @{rev.authorUsername}
                             </a>
                           )}
                           {rev.verified && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                              <CheckCircle2 className="w-3 h-3" />
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#ECFDF3] text-[#067647] text-[10px] font-medium">
+                              <CheckCircle2 className="w-3 h-3" strokeWidth={1.5} />
                               خریدار تاییدشده
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-[#434655]">{rev.dateLabel}</span>
+                        <span className="text-[11px] text-[#6E7889]">{rev.dateLabel}</span>
                       </div>
                       <div className="flex items-center gap-0.5">
                         {Array.from({ length: rev.rating }).map((_, idx) => (
-                          <Star key={idx} className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                          <Star key={idx} className="w-3.5 h-3.5 text-[#A84500] fill-[#A84500]" strokeWidth={1.5} />
                         ))}
                       </div>
-                      <p className="text-xs text-[#0b1c30] leading-6">{rev.comment}</p>
+                      <p className="text-xs text-[#11161E] leading-6">{rev.comment}</p>
                     </div>
                   ))
                 )}
@@ -1021,30 +1030,30 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
               <form
                 onSubmit={handleSubmitReview}
-                className="lg:col-span-5 p-5 rounded-2xl bg-[#eff4ff] space-y-4 self-start"
+                className="lg:col-span-5 p-5 rounded-xl bg-[#F1F3F6] border border-[#E4E8EE] space-y-4 self-start"
               >
-                <h3 className="text-sm font-extrabold text-[#0b1c30]">ثبت دیدگاه جدید</h3>
+                <h3 className="text-sm font-semibold text-[#11161E]">ثبت دیدگاه جدید</h3>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-[#0b1c30] block">نام شما</label>
+                  <label className="text-xs font-medium text-[#11161E] block">نام شما</label>
                   <input
                     type="text"
                     value={reviewAuthor}
                     onChange={(e) => setReviewAuthor(e.target.value)}
                     placeholder="مثال: علی حسینی"
-                    className="w-full h-10 px-3 rounded-xl bg-white text-xs text-[#0b1c30] border border-[#dce9ff] focus:outline-none focus:border-[#004ac6]"
+                    className="w-full h-10 px-3 rounded-lg bg-white text-xs text-[#11161E] border border-[#E4E8EE] focus:outline-none focus:border-[#1453D6]"
                   />
                 </div>
                 {user?.username && (
-                  <label className="flex items-center gap-2 text-xs text-[#0b1c30] cursor-pointer">
+                  <label className="flex items-center gap-2 text-xs text-[#11161E] cursor-pointer">
                     <input
                       type="checkbox"
                       checked={useReviewUsername}
                       onChange={(e) => setUseReviewUsername(e.target.checked)}
-                      className="w-4 h-4 accent-[#004ac6]"
+                      className="w-4 h-4 accent-[#1453D6]"
                     />
                     <span>
                       نمایش نام کاربری{' '}
-                      <span dir="ltr" className="font-mono font-bold text-[#004ac6]">
+                      <span dir="ltr" className="font-mono font-medium text-[#1453D6]">
                         @{user.username}
                       </span>{' '}
                       در کنار دیدگاه
@@ -1052,11 +1061,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   </label>
                 )}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-[#0b1c30] block">امتیاز شما</label>
+                  <label className="text-xs font-medium text-[#11161E] block">امتیاز شما</label>
                   <select
                     value={reviewRating}
                     onChange={(e) => setReviewRating(Number(e.target.value))}
-                    className="w-full h-10 px-3 rounded-xl bg-white text-xs text-[#0b1c30] border border-[#dce9ff] focus:outline-none"
+                    className="w-full h-10 px-3 rounded-lg bg-white text-xs text-[#11161E] border border-[#E4E8EE] focus:outline-none focus:border-[#1453D6]"
                   >
                     <option value={5}>۵ ستاره — عالی</option>
                     <option value={4}>۴ ستاره — خوب</option>
@@ -1064,19 +1073,19 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-[#0b1c30] block">متن دیدگاه</label>
+                  <label className="text-xs font-medium text-[#11161E] block">متن دیدگاه</label>
                   <textarea
                     rows={3}
                     value={reviewText}
                     onChange={(e) => setReviewText(e.target.value)}
-                    placeholder="تجربه کاربری یا نظر خود درباره کیفیت و ارسال..."
-                    className="w-full p-3 rounded-xl bg-white text-xs text-[#0b1c30] border border-[#dce9ff] focus:outline-none focus:border-[#004ac6]"
+                    placeholder="تجربه کاربری یا نظر خود درباره کیفیت و ارسال"
+                    className="w-full p-3 rounded-lg bg-white text-xs text-[#11161E] border border-[#E4E8EE] focus:outline-none focus:border-[#1453D6]"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={submittingReview}
-                  className="w-full h-10 rounded-xl bg-[#004ac6] hover:bg-[#2563eb] disabled:opacity-60 text-white text-xs font-bold transition-colors"
+                  className="w-full h-10 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-xs font-semibold transition-colors"
                 >
                   {submittingReview ? 'در حال ثبت دیدگاه...' : 'ارسال دیدگاه'}
                 </button>
@@ -1089,7 +1098,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       {/* Recently Viewed Products */}
       {recentOtherProducts.length > 0 && (
         <section className="space-y-4">
-          <h2 className="text-lg sm:text-xl font-black text-[#0b1c30]">محصولات اخیراً مشاهده‌شده</h2>
+          <h2 className="text-lg sm:text-xl font-semibold text-[#11161E]">محصولات اخیراً مشاهده‌شده</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
             {recentOtherProducts.map((item) => (
               <ProductCard key={item.id} product={item} compact />

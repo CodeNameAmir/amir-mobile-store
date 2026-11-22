@@ -37,15 +37,15 @@ export const DualPriceRangeSlider: React.FC<DualPriceRangeSliderProps> = ({
     <div className="space-y-3" data-testid="dual-price-slider">
       <div className="flex items-center justify-between text-[11px] gap-2">
         <div className="flex flex-col text-right">
-          <span className="text-[#434655]">از</span>
-          <span className="font-extrabold text-[#0b1c30] tabular-nums-fa">
-            {formatToman(clampedMin)} <span className="font-medium text-[#434655]">تومان</span>
+          <span className="text-[#6E7889]">از</span>
+          <span className="font-semibold text-[#11161E] tabular-nums-fa">
+            {formatToman(clampedMin)} <span className="font-normal text-[#4A5464]">تومان</span>
           </span>
         </div>
         <div className="flex flex-col text-left">
-          <span className="text-[#434655]">تا</span>
-          <span className="font-extrabold text-[#004ac6] tabular-nums-fa">
-            {formatToman(clampedMax)} <span className="font-medium text-[#434655]">تومان</span>
+          <span className="text-[#6E7889]">تا</span>
+          <span className="font-semibold text-[#1453D6] tabular-nums-fa">
+            {formatToman(clampedMax)} <span className="font-normal text-[#4A5464]">تومان</span>
           </span>
         </div>
       </div>
@@ -53,11 +53,11 @@ export const DualPriceRangeSlider: React.FC<DualPriceRangeSliderProps> = ({
       {/* Single unified track with two draggable thumbs (RTL: min starts on right, max on left) */}
       <div className="relative h-7 flex items-center select-none" dir="rtl">
         {/* Base rail */}
-        <div className="absolute inset-x-0 h-1.5 rounded-full bg-[#dce9ff]" />
+        <div className="absolute inset-x-0 h-1.5 rounded-full bg-[#DCE1E8]" />
 
         {/* Active selected range segment */}
         <div
-          className="absolute h-1.5 rounded-full bg-[#004ac6] transition-[right,width] duration-75"
+          className="absolute h-1.5 rounded-full bg-[#1453D6] transition-[right,width] duration-75"
           style={{
             right: `${minPercent}%`,
             width: `${Math.max(0, maxPercent - minPercent)}%`,
@@ -101,7 +101,7 @@ export const DualPriceRangeSlider: React.FC<DualPriceRangeSliderProps> = ({
         />
       </div>
 
-      <div className="flex items-center justify-between text-[10px] font-semibold text-[#434655]">
+      <div className="flex items-center justify-between text-[11px] font-normal text-[#6E7889] tabular-nums-fa">
         <span>ارزان‌ترین ({formatToman(min)})</span>
         <span>گران‌ترین ({formatToman(safeMax)})</span>
       </div>
