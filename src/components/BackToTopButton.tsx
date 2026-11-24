@@ -37,7 +37,7 @@ export const BackToTopButton: React.FC = () => {
           whileHover={{ y: -2 }}
           whileTap={{ scale: 0.94 }}
           transition={{ duration: 0.2, ease: UI_EASE }}
-          className="fixed bottom-5 right-5 z-40 h-10 px-3.5 rounded-lg bg-[#13171F] hover:bg-[#1453D6] text-white border border-white/10 text-xs font-medium shadow-md inline-flex items-center gap-2 transition-colors no-print"
+          className="fixed bottom-5 left-5 z-40 h-10 px-3.5 rounded-lg bg-[#13171F] hover:bg-[#1453D6] text-white border border-white/10 text-xs font-medium shadow-md inline-flex items-center gap-2 transition-colors no-print"
         >
           <ArrowUp className="w-4 h-4" strokeWidth={1.5} />
           <span className="hidden sm:inline">بازگشت به بالا</span>

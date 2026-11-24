@@ -66,6 +66,8 @@ export const CatalogPage: React.FC = () => {
   } = useStore();
   const [brandSearch, setBrandSearch] = useState('');
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [showAllColors, setShowAllColors] = useState(false);
+  const [showAllTechSpecs, setShowAllTechSpecs] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [extraVisibleCount, setExtraVisibleCount] = useState(0);
   const [localSearch, setLocalSearch] = useState(filters.searchQuery || '');
@@ -279,6 +281,20 @@ export const CatalogPage: React.FC = () => {
   const isPriceFiltered = isMinPriceFiltered || isMaxPriceFiltered;
 
   const availableColors = useMemo(() => extractAvailableColors(products), [products]);
+  const visibleColors = useMemo(() => {
+    if (showAllColors || availableColors.length <= 12) return availableColors;
+    const base = availableColors.slice(0, 12);
+    if (
+      filters.colorId &&
+      !base.some((c) => c.label === filters.colorId || c.id === filters.colorId)
+    ) {
+      const selected = availableColors.find(
+        (c) => c.label === filters.colorId || c.id === filters.colorId
+      );
+      if (selected) return [...base, selected];
+    }
+    return base;
+  }, [availableColors, filters.colorId, showAllColors]);
   const availableStorageChips = useMemo(
     () => extractAvailableStorageOptions(products),
     [products]
@@ -320,6 +336,19 @@ export const CatalogPage: React.FC = () => {
       ),
     [filters.attributeFilters]
   );
+
+  const visibleTechAttributes = useMemo(() => {
+    if (showAllTechSpecs || dynamicAttributes.length <= 5) {
+      return dynamicAttributes;
+    }
+    const booleans = dynamicAttributes.filter((a) => a.dataType === 'boolean');
+    const nonBooleans = dynamicAttributes.filter((a) => a.dataType !== 'boolean');
+    const selectedNonBool = nonBooleans.slice(0, 4);
+    const activeExtra = nonBooleans
+      .slice(4)
+      .filter((a) => Boolean(filters.attributeFilters?.[a.code]?.trim()));
+    return [...selectedNonBool, ...booleans.slice(0, 1), ...activeExtra];
+  }, [dynamicAttributes, filters.attributeFilters, showAllTechSpecs]);
 
   const hasActiveFilters =
     filters.category !== 'all' ||
@@ -593,8 +622,21 @@ export const CatalogPage: React.FC = () => {
 
       {/* Dynamic Available Color Swatches */}
       <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4">
-        <p className="text-xs font-semibold text-[#11161E]">رنگ بدنه</p>
-        <div className="flex flex-wrap gap-2" data-testid="dynamic-color-filters">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold text-[#11161E]">رنگ بدنه</p>
+          {availableColors.length > 12 && (
+            <button
+              type="button"
+              onClick={() => setShowAllColors((prev) => !prev)}
+              className="text-[11px] font-medium text-[#1453D6] hover:underline"
+            >
+              {showAllColors
+                ? 'نمایش کمتر'
+                : `همه (${toPersianDigits(availableColors.length)})`}
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5" data-testid="dynamic-color-filters">
           {productsLoading && availableColors.length === 0 ? (
             <>
               <SkeletonBox className="h-7 w-20 rounded-lg" />
@@ -602,16 +644,20 @@ export const CatalogPage: React.FC = () => {
               <SkeletonBox className="h-7 w-16 rounded-lg" />
             </>
           ) : (
-            availableColors.map((c) => {
-              const active = filters.colorId === c.id;
+            visibleColors.map((c) => {
+              const active = filters.colorId === c.label || filters.colorId === c.id;
               return (
                 <button
-                  key={c.id}
+                  key={`${c.label}-${c.id}`}
                   type="button"
                   title={`${c.label} (${toPersianDigits(c.count)} کالا)`}
                   aria-label={c.label}
                   onClick={() =>
-                    setFilters((p) => ({ ...p, colorId: p.colorId === c.id ? null : c.id }))
+                    setFilters((p) => ({
+                      ...p,
+                      colorId:
+                        p.colorId === c.label || p.colorId === c.id ? null : c.label,
+                    }))
                   }
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
                     active
@@ -620,7 +666,7 @@ export const CatalogPage: React.FC = () => {
                   }`}
                 >
                   <span
-                    className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
+                    className="w-3 h-3 rounded-full border border-black/15 shrink-0"
                     style={{ backgroundColor: c.hex }}
                   />
                   <span>{c.label}</span>
@@ -631,19 +677,41 @@ export const CatalogPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Dynamic Attribute Filters (EAV) */}
+      {/* Dynamic Attribute Filters (EAV) - Compact Always-Visible 2-Column Grid */}
       {dynamicAttributes.length > 0 && (
-        <div className="space-y-3 border-t border-[#E4E8EE] pt-4" data-testid="dynamic-attribute-filters">
-          <p className="text-xs font-semibold text-[#11161E]">ویژگی‌های فنی</p>
-          <div className="space-y-2.5">
-            {dynamicAttributes.map((attr) => {
+        <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4" data-testid="dynamic-attribute-filters">
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-2">
+              <span className="text-xs font-semibold text-[#11161E]">ویژگی‌های فنی</span>
+              {activeAttributeEntries.length > 0 && (
+                <span className="px-1.5 py-0.5 rounded bg-[#EEF3FC] text-[#1453D6] text-[10px] font-medium tabular-nums-fa">
+                  {toPersianDigits(activeAttributeEntries.length)} فعال
+                </span>
+              )}
+            </span>
+            {dynamicAttributes.length > 5 && (
+              <button
+                type="button"
+                aria-expanded={showAllTechSpecs}
+                onClick={() => setShowAllTechSpecs((prev) => !prev)}
+                className="text-[11px] font-medium text-[#1453D6] hover:underline"
+              >
+                {showAllTechSpecs
+                  ? 'نمایش کمتر'
+                  : `همه (${toPersianDigits(dynamicAttributes.length)})`}
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {visibleTechAttributes.map((attr) => {
               const currentVal = filters.attributeFilters?.[attr.code] || '';
               if (attr.dataType === 'boolean') {
                 const isChecked = currentVal === 'true';
                 return (
                   <label
                     key={attr.id}
-                    className="flex items-center justify-between gap-2 cursor-pointer text-xs text-[#11161E]"
+                    className="col-span-2 flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-[#F7F8FA] cursor-pointer text-[11px] font-medium text-[#11161E]"
                   >
                     <span>{attr.nameFa}</span>
                     <input
@@ -662,7 +730,7 @@ export const CatalogPage: React.FC = () => {
                           return { ...prev, attributeFilters: nextAttrs };
                         });
                       }}
-                      className="w-4 h-4 accent-[#1453D6] rounded cursor-pointer"
+                      className="w-3.5 h-3.5 accent-[#1453D6] rounded cursor-pointer"
                     />
                   </label>
                 );
@@ -671,10 +739,10 @@ export const CatalogPage: React.FC = () => {
                 <div key={attr.id} className="space-y-1">
                   <label
                     htmlFor={`attr-input-${attr.code}`}
-                    className="text-[11px] font-medium text-[#4A5464] flex items-center justify-between"
+                    title={attr.unit ? `${attr.nameFa} (${attr.unit})` : attr.nameFa}
+                    className="text-[11px] font-medium text-[#4A5464] block truncate"
                   >
-                    <span>{attr.nameFa}</span>
-                    {attr.unit && <span className="text-[10px] text-[#6E7889]">{attr.unit}</span>}
+                    {attr.nameFa}
                   </label>
                   <input
                     id={`attr-input-${attr.code}`}
@@ -693,8 +761,8 @@ export const CatalogPage: React.FC = () => {
                         return { ...prev, attributeFilters: nextAttrs };
                       });
                     }}
-                    placeholder={attr.unit ? `مثلاً ${attr.unit}` : 'فیلتر مقدار...'}
-                    className="w-full h-8 px-2.5 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-[11px] text-[#11161E] placeholder:text-[#6E7889] focus:bg-white focus:border-[#1453D6] focus:outline-none"
+                    placeholder={attr.unit ? `مثلاً ${attr.unit}` : 'مقدار...'}
+                    className="w-full h-8 px-2 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-[11px] text-[#11161E] placeholder:text-[#6E7889] focus:bg-white focus:border-[#1453D6] focus:outline-none"
                   />
                 </div>
               );
@@ -749,7 +817,7 @@ export const CatalogPage: React.FC = () => {
       {/* Main 2-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Desktop Sidebar */}
-        <aside className="hidden lg:block lg:col-span-3 bg-white rounded-2xl border border-[#E4E8EE] p-5 sticky top-32">
+        <aside className="hidden lg:block lg:col-span-3 bg-white rounded-2xl border border-[#E4E8EE] p-5 sticky top-32 lg:max-h-[calc(100vh-8.5rem)] lg:overflow-y-auto">
           {filterSidebarContent}
         </aside>
 
@@ -965,7 +1033,7 @@ export const CatalogPage: React.FC = () => {
                   className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
                 >
                   <span>
-                    رنگ: {availableColors.find((c) => c.id === filters.colorId)?.label ?? filters.colorId}
+                    رنگ: {availableColors.find((c) => c.label === filters.colorId || c.id === filters.colorId)?.label ?? filters.colorId}
                   </span>
                   <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>

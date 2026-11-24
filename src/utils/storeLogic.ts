@@ -363,19 +363,26 @@ export function filterAndSortProducts(
     }
 
     if (filters.storage) {
+      const targetStorage = normalizeCapacityKey(filters.storage);
       const hasStorage =
-        p.specs.storageDefault === filters.storage ||
-        p.storageOptions.some((s) => s.label === filters.storage);
+        normalizeCapacityKey(p.specs.storageDefault) === targetStorage ||
+        p.storageOptions.some((s) => normalizeCapacityKey(s.label) === targetStorage);
       if (!hasStorage) return false;
     }
 
-    if (filters.ram && p.specs.ram !== filters.ram) {
+    if (filters.ram && normalizeCapacityKey(p.specs.ram) !== normalizeCapacityKey(filters.ram)) {
       return false;
     }
 
     if (filters.colorId) {
+      const colorFilterLower = filters.colorId.trim().toLowerCase();
+      const colorFilterNorm = normalizeColorKey(filters.colorId);
       const hasColor = p.colors.some(
-        (c) => c.id === filters.colorId || c.hex.toLowerCase() === filters.colorId?.toLowerCase()
+        (c) =>
+          c.id.toLowerCase() === colorFilterLower ||
+          c.hex.toLowerCase() === colorFilterLower ||
+          c.name.toLowerCase() === colorFilterLower ||
+          (colorFilterNorm.length > 0 && normalizeColorKey(c.name) === colorFilterNorm)
       );
       if (!hasColor) return false;
     }
@@ -462,28 +469,43 @@ export interface AvailableColorOption {
   count: number;
 }
 
+export function normalizeColorLabel(rawName: string): string {
+  return String(rawName || '')
+    .split('(')[0]
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/\u200c/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function normalizeColorKey(rawName: string): string {
+  return normalizeColorLabel(rawName).replace(/\s+/g, '').toLowerCase();
+}
+
 export function extractAvailableColors(products: Product[]): AvailableColorOption[] {
-  const byId = new Map<string, AvailableColorOption>();
+  const byKey = new Map<string, AvailableColorOption>();
   for (const p of products) {
     const seenInProd = new Set<string>();
     for (const c of p.colors || []) {
-      const key = String(c.id || c.hex || c.name).trim();
+      const cleanLabel = normalizeColorLabel(c.name) || String(c.id || c.hex || '').trim();
+      const key = normalizeColorKey(c.name) || String(c.id || c.hex || '').trim().toLowerCase();
       if (!key || seenInProd.has(key)) continue;
       seenInProd.add(key);
-      const existing = byId.get(key);
+      const existing = byKey.get(key);
       if (existing) {
         existing.count += 1;
       } else {
-        byId.set(key, {
-          id: key,
-          label: c.name.split('(')[0].trim() || c.name,
+        byKey.set(key, {
+          id: String(c.id || key).trim(),
+          label: cleanLabel,
           hex: c.hex || '#1e293b',
           count: 1,
         });
       }
     }
   }
-  return [...byId.values()];
+  return [...byKey.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'fa'));
 }
 
 export function extractAvailableBrands(products: Product[], configuredBrands: BrandItem[] = []): BrandId[] {
@@ -822,17 +844,32 @@ export function generateOrderCode(seed?: number): string {
   return `AMIR-${num}`;
 }
 
+export function normalizeCapacityKey(raw?: string | null): string {
+  const clean = toEnglishDigits(String(raw || ''))
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[\s\u200c]+/g, '')
+    .toLowerCase();
+  return clean
+    .replace(/گیگابایت/g, 'gb')
+    .replace(/گیگ/g, 'gb')
+    .replace(/ترابایت/g, 'tb');
+}
+
 export function extractAvailableStorageOptions(products: Product[]): string[] {
   const seen = new Map<string, { label: string; gbScore: number }>();
   const register = (raw?: string | null) => {
     const label = String(raw || '').trim();
     if (!label || label === 'ندارد' || label === '-' || label === '—') return;
     if (!/(گیگ|ترابایت|gb|tb)/i.test(label)) return;
-    const norm = toEnglishDigits(label).toLowerCase().replace(/\s+/g, '');
+    const norm = normalizeCapacityKey(label);
     const numMatch = toEnglishDigits(label).match(/(\d+(?:\.\d+)?)/);
     let score = numMatch ? Number(numMatch[1]) : 0;
     if (/ترابایت|tb/i.test(label)) score *= 1024;
-    if (!seen.has(norm)) {
+    const existing = seen.get(norm);
+    if (!existing) {
+      seen.set(norm, { label, gbScore: score });
+    } else if (/گیگابایت|ترابایت/.test(label) && !/گیگابایت|ترابایت/.test(existing.label)) {
       seen.set(norm, { label, gbScore: score });
     }
   };
@@ -856,10 +893,13 @@ export function extractAvailableRamOptions(products: Product[]): string[] {
     const label = String(raw || '').trim();
     if (!label || label === 'ندارد' || label === '-' || label === '—') return;
     if (!/(گیگ|gb)/i.test(label)) return;
-    const norm = toEnglishDigits(label).toLowerCase().replace(/\s+/g, '');
+    const norm = normalizeCapacityKey(label);
     const numMatch = toEnglishDigits(label).match(/(\d+(?:\.\d+)?)/);
     const score = numMatch ? Number(numMatch[1]) : 0;
-    if (!seen.has(norm)) {
+    const existing = seen.get(norm);
+    if (!existing) {
+      seen.set(norm, { label, gbScore: score });
+    } else if (/گیگابایت/.test(label) && !/گیگابایت/.test(existing.label)) {
       seen.set(norm, { label, gbScore: score });
     }
   };

@@ -607,6 +607,67 @@ test('Phase 3: biggest_discount sort, OOS-last natural order, dynamic storage/RA
   assert.equal(winners['attr:battery_mah'], 'p-big-discount');
 });
 
+test('extractAvailableColors, extractAvailableStorageOptions, extractAvailableRamOptions deduplicate equivalent variants and filterAndSortProducts matches them', () => {
+  const dupCatalog: Product[] = [
+    {
+      ...sampleProducts[0],
+      id: 'dup-1',
+      colors: [
+        { id: 'blue-1', name: 'آبی', hex: '#0000FF' },
+        { id: 'black-1', name: 'مشکی', hex: '#000000' },
+        { id: 'navy-1', name: 'سرمه ای', hex: '#002171' },
+      ],
+      specs: { ...sampleProducts[0].specs, storageDefault: '۵۱۲ گیگ', ram: '۸ گیگ' },
+      storageOptions: [{ label: '۵۱۲ گیگ', subtitle: 'پایه', priceDelta: 0 }],
+    },
+    {
+      ...sampleProducts[1],
+      id: 'dup-2',
+      colors: [
+        { id: 'blue-4', name: 'آبی', hex: '#0000FF' },
+        { id: 'midnight', name: 'مشکی', hex: '#1e293b' },
+        { id: 'navy-3', name: 'سرمه‌ای', hex: '#002171' },
+      ],
+      specs: { ...sampleProducts[1].specs, storageDefault: '۵۱۲ گیگابایت', ram: '۸ گیگابایت' },
+      storageOptions: [{ label: '۵۱۲ گیگابایت', subtitle: 'استاندارد', priceDelta: 0 }],
+    },
+    {
+      ...sampleProducts[2],
+      id: 'dup-3',
+      colors: [{ id: 'blue-2', name: 'آبی', hex: '#0000FF' }],
+      specs: { ...sampleProducts[2].specs, storageDefault: '۲۵۶ گیگابایت', ram: '۱۲ گیگ' },
+      storageOptions: [{ label: '۲۵۶ گیگابایت', subtitle: 'استاندارد', priceDelta: 0 }],
+    },
+  ];
 
+  const colors = extractAvailableColors(dupCatalog);
+  assert.equal(colors.filter((c) => c.label === 'آبی').length, 1);
+  assert.equal(colors.find((c) => c.label === 'آبی')?.count, 3);
+  assert.equal(colors.filter((c) => c.label === 'مشکی').length, 1);
+  assert.equal(colors.find((c) => c.label === 'مشکی')?.count, 2);
+  assert.equal(colors.filter((c) => c.label.replace(/\s+/g, '') === 'سرمهای').length, 1);
 
+  const storages = extractAvailableStorageOptions(dupCatalog);
+  assert.deepEqual(storages, ['۲۵۶ گیگابایت', '۵۱۲ گیگابایت']);
 
+  const rams = extractAvailableRamOptions(dupCatalog);
+  assert.deepEqual(rams, ['۸ گیگابایت', '۱۲ گیگ']);
+
+  const blueFiltered = filterAndSortProducts(dupCatalog, { ...defaultFilters, colorId: 'آبی' });
+  assert.equal(blueFiltered.length, 3);
+
+  const blackFiltered = filterAndSortProducts(dupCatalog, { ...defaultFilters, colorId: 'مشکی' });
+  assert.equal(blackFiltered.length, 2);
+
+  const storageFiltered = filterAndSortProducts(dupCatalog, {
+    ...defaultFilters,
+    storage: '۵۱۲ گیگابایت',
+  });
+  assert.equal(storageFiltered.length, 2);
+
+  const ramFiltered = filterAndSortProducts(dupCatalog, {
+    ...defaultFilters,
+    ram: '۸ گیگابایت',
+  });
+  assert.equal(ramFiltered.length, 2);
+});

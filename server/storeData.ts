@@ -1934,6 +1934,27 @@ function matchesServerAttributeFilter(
   return candidates.some((c) => c === expected || c.includes(expected));
 }
 
+function normalizeCapacityKeyServer(raw?: string | null): string {
+  return toEnglishDigitsServer(String(raw || ''))
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[\s\u200c]+/g, '')
+    .toLowerCase()
+    .replace(/گیگابایت/g, 'gb')
+    .replace(/گیگ/g, 'gb')
+    .replace(/ترابایت/g, 'tb');
+}
+
+function normalizeColorKeyServer(raw?: string | null): string {
+  return String(raw || '')
+    .split('(')[0]
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[\s\u200c]+/g, '')
+    .trim()
+    .toLowerCase();
+}
+
 export function filterAndSortProducts(
   products: ProductDTO[],
   query: ProductQueryParams = {}
@@ -1948,9 +1969,10 @@ export function filterAndSortProducts(
     .split(',')
     .map((b) => b.trim().toLowerCase())
     .filter(Boolean);
-  const storageFilter = query.storage ? toEnglishDigitsServer(query.storage).trim().toLowerCase() : '';
-  const ramFilter = query.ram ? toEnglishDigitsServer(query.ram).trim().toLowerCase() : '';
+  const storageFilter = query.storage ? normalizeCapacityKeyServer(query.storage) : '';
+  const ramFilter = query.ram ? normalizeCapacityKeyServer(query.ram) : '';
   const colorFilter = query.colorId ? query.colorId.trim().toLowerCase() : '';
+  const colorFilterNorm = query.colorId ? normalizeColorKeyServer(query.colorId) : '';
   const attrEntries = query.attributes
     ? Object.entries(query.attributes).filter(([, val]) => String(val || '').trim().length > 0)
     : [];
@@ -1988,9 +2010,9 @@ export function filterAndSortProducts(
     }
 
     if (storageFilter) {
-      const defStorage = toEnglishDigitsServer(p.specs.storageDefault || '').trim().toLowerCase();
+      const defStorage = normalizeCapacityKeyServer(p.specs.storageDefault);
       const optMatch = (p.storageOptions || []).some(
-        (s) => toEnglishDigitsServer(s.label).trim().toLowerCase() === storageFilter
+        (s) => normalizeCapacityKeyServer(s.label) === storageFilter
       );
       if (defStorage !== storageFilter && !optMatch) {
         return false;
@@ -1998,7 +2020,7 @@ export function filterAndSortProducts(
     }
 
     if (ramFilter) {
-      const prodRam = toEnglishDigitsServer(p.specs.ram || '').trim().toLowerCase();
+      const prodRam = normalizeCapacityKeyServer(p.specs.ram);
       if (prodRam !== ramFilter) {
         return false;
       }
@@ -2009,7 +2031,8 @@ export function filterAndSortProducts(
         (c) =>
           c.id.toLowerCase() === colorFilter ||
           c.hex.toLowerCase() === colorFilter ||
-          c.name.toLowerCase() === colorFilter
+          c.name.toLowerCase() === colorFilter ||
+          (colorFilterNorm.length > 0 && normalizeColorKeyServer(c.name) === colorFilterNorm)
       );
       if (!hasColor) return false;
     }

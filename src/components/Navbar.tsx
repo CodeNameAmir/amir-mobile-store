@@ -159,18 +159,14 @@ export const Navbar: React.FC = () => {
   }, [searchFocused, searchValue]);
 
   const navLinks = useMemo<NavEntry[]>(() => {
-    const activeRoots = categories
-      .filter((c) => c.isActive !== false && !c.parentId)
-      .sort((a, b) => a.sortOrder - b.sortOrder);
-
     return [
       { key: 'home', label: 'صفحه اصلی', href: '/' },
-      ...activeRoots.slice(0, 8).map((cat) => ({
-        key: `cat-${cat.id}`,
-        label: cat.label,
-        href: `/catalog?cat=${encodeURIComponent(cat.slug)}`,
-        category: cat.slug as CategoryId,
-      })),
+      {
+        key: 'shop',
+        label: 'فروشگاه',
+        href: '/catalog',
+        category: 'all' as CategoryId,
+      },
       {
         key: 'offers',
         label: 'پیشنهادات طلایی',
@@ -180,8 +176,11 @@ export const Navbar: React.FC = () => {
       },
       { key: 'installments', label: 'خرید اقساطی', href: '/installments', icon: 'installments' },
       { key: 'compare', label: 'مقایسه', href: '/compare', icon: 'compare' },
+      { key: 'blog', label: 'مجله تخصصی', href: '/blog' },
+      { key: 'tracking', label: 'پیگیری سفارش', href: '/tracking' },
+      { key: 'faq', label: 'پرسش‌های متداول', href: '/faq' },
     ];
-  }, [categories]);
+  }, []);
 
   const suggestions = useMemo(() => {
     const q = searchValue.trim();
@@ -249,7 +248,15 @@ export const Navbar: React.FC = () => {
     if (item.href === '/' && route.page === 'home') return true;
     if (item.href === '/installments' && route.page === 'installments') return true;
     if (item.href === '/compare' && route.page === 'compare') return true;
-    if (item.category && route.page === 'catalog' && filters.category === item.category) return true;
+    if (item.href === '/blog' && (route.page === 'blog' || route.page === 'blog-detail')) return true;
+    if (item.href === '/tracking' && route.page === 'tracking') return true;
+    if (item.href === '/faq' && route.page === 'faq') return true;
+    if (item.key === 'shop' && route.page === 'catalog') {
+      return filters.category !== 'offers' && !filters.discountedOnly;
+    }
+    if (item.category === 'offers' && route.page === 'catalog') {
+      return filters.category === 'offers' || filters.discountedOnly;
+    }
     return false;
   };
 
@@ -865,29 +872,31 @@ export const Navbar: React.FC = () => {
               })}
             </ul>
 
-            <div className="flex items-center gap-3.5 text-xs font-medium text-[#4A5464] shrink-0">
+            <div className="flex items-center gap-4 text-xs font-medium text-[#4A5464] shrink-0">
               <a
-                href={buildHref('/blog')}
-                onClick={(e) => handleLinkClick(e, '/blog')}
+                href={buildHref('/terms')}
+                onClick={(e) => handleLinkClick(e, '/terms')}
                 className={`transition-colors whitespace-nowrap ${
-                  route.page === 'blog' || route.page === 'blog-detail'
-                    ? 'text-[#1453D6] font-semibold'
-                    : 'hover:text-[#11161E]'
+                  route.page === 'terms' ? 'text-[#1453D6] font-semibold' : 'hover:text-[#11161E]'
                 }`}
               >
-                مجله تخصصی
+                شرایط گارانتی
               </a>
               <a
                 href={buildHref('/about')}
                 onClick={(e) => handleLinkClick(e, '/about')}
-                className="hover:text-[#11161E] transition-colors whitespace-nowrap"
+                className={`transition-colors whitespace-nowrap ${
+                  route.page === 'about' ? 'text-[#1453D6] font-semibold' : 'hover:text-[#11161E]'
+                }`}
               >
                 درباره ما
               </a>
               <a
                 href={buildHref('/contact')}
                 onClick={(e) => handleLinkClick(e, '/contact')}
-                className="hover:text-[#11161E] transition-colors whitespace-nowrap"
+                className={`transition-colors whitespace-nowrap ${
+                  route.page === 'contact' ? 'text-[#1453D6] font-semibold' : 'hover:text-[#11161E]'
+                }`}
               >
                 تماس با ما
               </a>
@@ -936,22 +945,27 @@ export const Navbar: React.FC = () => {
               )}
 
               <div className="grid grid-cols-2 gap-2">
-                {navLinks.map((item) => (
-                  <a
-                    key={item.key}
-                    href={buildHref(item.href)}
-                    onClick={(e) => handleNavClick(e, item)}
-                    className={`text-right px-3 py-2.5 rounded-lg text-xs font-medium transition-colors ${
-                      isNavItemActive(item)
-                        ? 'bg-[#1453D6] text-white'
-                        : item.accent
-                        ? 'bg-[#FDF1E8] text-[#A84500]'
-                        : 'bg-[#F1F3F6] text-[#11161E]'
-                    }`}
-                  >
-                    {item.label}
-                  </a>
-                ))}
+                {navLinks.map((item, idx) => {
+                  const isOddTrailing = navLinks.length % 2 === 1 && idx === navLinks.length - 1;
+                  return (
+                    <a
+                      key={item.key}
+                      href={buildHref(item.href)}
+                      onClick={(e) => handleNavClick(e, item)}
+                      className={`text-right px-3 py-2.5 rounded-lg text-xs font-medium transition-colors ${
+                        isOddTrailing ? 'col-span-2' : ''
+                      } ${
+                        isNavItemActive(item)
+                          ? 'bg-[#1453D6] text-white'
+                          : item.accent
+                          ? 'bg-[#FDF1E8] text-[#A84500]'
+                          : 'bg-[#F1F3F6] text-[#11161E]'
+                      }`}
+                    >
+                      {item.label}
+                    </a>
+                  );
+                })}
                 {user?.role === 'admin' && (
                   <a
                     href="https://admin-panel-ams.codenameamir.ir/#/"
@@ -967,16 +981,10 @@ export const Navbar: React.FC = () => {
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#E4E8EE] text-xs font-medium text-[#4A5464]">
                 <a
-                  href={buildHref('/blog')}
-                  onClick={(e) => handleLinkClick(e, '/blog', () => setMobileMenuOpen(false))}
+                  href={buildHref('/terms')}
+                  onClick={(e) => handleLinkClick(e, '/terms', () => setMobileMenuOpen(false))}
                 >
-                  مجله تخصصی
-                </a>
-                <a
-                  href={buildHref('/tracking')}
-                  onClick={(e) => handleLinkClick(e, '/tracking', () => setMobileMenuOpen(false))}
-                >
-                  رهگیری سفارش
+                  شرایط گارانتی
                 </a>
                 <a
                   href={buildHref('/about')}
