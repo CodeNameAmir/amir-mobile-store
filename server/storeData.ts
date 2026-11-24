@@ -1,6 +1,12 @@
 export type UserRole = 'customer' | 'admin';
 
-export type OrderStatus = 'paid' | 'preparing' | 'shipped' | 'delivered' | 'cancelled';
+export type OrderStatus =
+  | 'pending_payment'
+  | 'paid'
+  | 'preparing'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled';
 
 export type CategoryId = 'all' | 'offers' | (string & {});
 
@@ -220,6 +226,7 @@ export interface ProductDTO {
   nameEn: string;
   modelName?: string;
   descriptionFa?: string;
+  editorialReview?: string;
   brand: string;
   category: ProductCategory;
   price: number;
@@ -284,6 +291,7 @@ export interface ProductReviewDTO {
 
 export interface SupportTicketDTO {
   id?: string;
+  userId?: string | null;
   ticketCode: string;
   fullName: string;
   phone: string;
@@ -293,6 +301,56 @@ export interface SupportTicketDTO {
   status: 'open' | 'in_progress' | 'resolved';
   adminReply?: string;
   createdAt: string;
+}
+
+export interface StockAlertDTO {
+  id: string;
+  userId?: string | null;
+  email: string;
+  productId: string;
+  variantId?: string | null;
+  notifiedAt?: string | null;
+  createdAt: string;
+}
+
+export interface UserNotificationDTO {
+  id: string;
+  userId: string;
+  type: 'back_in_stock' | 'order_update' | 'ticket_reply' | 'system' | string;
+  title: string;
+  message: string;
+  link?: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface ProductQuestionDTO {
+  id: string;
+  productId: string;
+  userId?: string | null;
+  authorName: string;
+  question: string;
+  answer?: string | null;
+  answeredAt?: string | null;
+  isApproved: boolean;
+  createdAt: string;
+}
+
+export interface BlogPostDTO {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  content: string;
+  coverImage: string;
+  category: string;
+  tags: string[];
+  authorName: string;
+  readingTimeMinutes: number;
+  isPublished: boolean;
+  publishedAt: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface OrderSummaryDTO {
@@ -356,7 +414,39 @@ export interface AdminStatsDTO {
 }
 
 export const FREE_SHIPPING_THRESHOLD_DEFAULT = 1_000_000;
-export const STANDARD_SHIPPING_FEE_DEFAULT = 150_000;
+export const TEHRAN_EXPRESS_SHIPPING_FEE_DEFAULT = 150_000;
+export const NATIONAL_POST_SHIPPING_FEE_DEFAULT = 95_000;
+export const STANDARD_SHIPPING_FEE_DEFAULT = TEHRAN_EXPRESS_SHIPPING_FEE_DEFAULT;
+
+export function isTehranCityServer(city?: string): boolean {
+  const clean = toEnglishDigitsServer(String(city ?? '')).trim().toLowerCase();
+  if (!clean) return false;
+  return (
+    clean === 'تهران' ||
+    clean === 'tehran' ||
+    clean === 'استان تهران' ||
+    clean === 'تهران بزرگ' ||
+    /^تهران(\s|[-،,]|$)/.test(clean)
+  );
+}
+
+export function resolveShippingServer(
+  afterDiscounts: number,
+  freeShippingThreshold: number,
+  city?: string,
+  deliverySlot?: 'express' | 'standard'
+): { deliverySlot: 'express' | 'standard'; shippingCost: number } {
+  const resolvedSlot: 'express' | 'standard' =
+    isTehranCityServer(city) && deliverySlot !== 'standard' ? 'express' : 'standard';
+  if (afterDiscounts >= freeShippingThreshold) {
+    return { deliverySlot: resolvedSlot, shippingCost: 0 };
+  }
+  const shippingCost =
+    resolvedSlot === 'express'
+      ? TEHRAN_EXPRESS_SHIPPING_FEE_DEFAULT
+      : NATIONAL_POST_SHIPPING_FEE_DEFAULT;
+  return { deliverySlot: resolvedSlot, shippingCost };
+}
 
 export const DEFAULT_DEV_CATEGORIES: CategoryDTO[] = [
   {
@@ -1663,7 +1753,14 @@ export function normalizeRole(raw: unknown): UserRole {
 
 export function normalizeOrderStatus(raw: unknown): OrderStatus {
   const s = String(raw ?? '').trim().toLowerCase();
-  if (s === 'paid' || s === 'preparing' || s === 'shipped' || s === 'delivered' || s === 'cancelled') {
+  if (
+    s === 'pending_payment' ||
+    s === 'paid' ||
+    s === 'preparing' ||
+    s === 'shipped' ||
+    s === 'delivered' ||
+    s === 'cancelled'
+  ) {
     return s;
   }
   return 'preparing';
@@ -1803,8 +1900,38 @@ export interface ProductQueryParams {
   express?: boolean;
   minPrice?: number;
   maxPrice?: number;
+  storage?: string;
+  ram?: string;
+  colorId?: string;
+  attributes?: Record<string, string>;
+  productAttributesMap?: Map<string, ProductAttributeValueDTO[]>;
   sort?: string;
   categories?: CategoryDTO[];
+}
+
+function matchesServerAttributeFilter(
+  productAttrs: ProductAttributeValueDTO[] | undefined,
+  code: string,
+  expectedRaw: string
+): boolean {
+  const expected = toEnglishDigitsServer(expectedRaw).trim().toLowerCase();
+  if (!expected) return true;
+  if (!productAttrs || productAttrs.length === 0) return false;
+  const match = productAttrs.find((a) => a.code.toLowerCase() === code.toLowerCase());
+  if (!match) return false;
+  const candidates = [
+    match.displayValue,
+    match.valueText ?? '',
+    match.valueNumber !== null && match.valueNumber !== undefined ? String(match.valueNumber) : '',
+    typeof match.valueBoolean === 'boolean'
+      ? match.valueBoolean
+        ? 'true دارد بله'
+        : 'false ندارد خیر'
+      : '',
+  ]
+    .map((v) => toEnglishDigitsServer(String(v)).trim().toLowerCase())
+    .filter(Boolean);
+  return candidates.some((c) => c === expected || c.includes(expected));
 }
 
 export function filterAndSortProducts(
@@ -1821,6 +1948,12 @@ export function filterAndSortProducts(
     .split(',')
     .map((b) => b.trim().toLowerCase())
     .filter(Boolean);
+  const storageFilter = query.storage ? toEnglishDigitsServer(query.storage).trim().toLowerCase() : '';
+  const ramFilter = query.ram ? toEnglishDigitsServer(query.ram).trim().toLowerCase() : '';
+  const colorFilter = query.colorId ? query.colorId.trim().toLowerCase() : '';
+  const attrEntries = query.attributes
+    ? Object.entries(query.attributes).filter(([, val]) => String(val || '').trim().length > 0)
+    : [];
 
   const filtered = products.filter((p) => {
     const prodCategory = String(p.category || '').trim().toLowerCase();
@@ -1854,6 +1987,42 @@ export function filterAndSortProducts(
       return false;
     }
 
+    if (storageFilter) {
+      const defStorage = toEnglishDigitsServer(p.specs.storageDefault || '').trim().toLowerCase();
+      const optMatch = (p.storageOptions || []).some(
+        (s) => toEnglishDigitsServer(s.label).trim().toLowerCase() === storageFilter
+      );
+      if (defStorage !== storageFilter && !optMatch) {
+        return false;
+      }
+    }
+
+    if (ramFilter) {
+      const prodRam = toEnglishDigitsServer(p.specs.ram || '').trim().toLowerCase();
+      if (prodRam !== ramFilter) {
+        return false;
+      }
+    }
+
+    if (colorFilter) {
+      const hasColor = (p.colors || []).some(
+        (c) =>
+          c.id.toLowerCase() === colorFilter ||
+          c.hex.toLowerCase() === colorFilter ||
+          c.name.toLowerCase() === colorFilter
+      );
+      if (!hasColor) return false;
+    }
+
+    if (attrEntries.length > 0) {
+      const prodAttrs = p.attributeValues ?? query.productAttributesMap?.get(p.id);
+      for (const [code, val] of attrEntries) {
+        if (!matchesServerAttributeFilter(prodAttrs, code, val)) {
+          return false;
+        }
+      }
+    }
+
     if (searchRaw) {
       const customText = (p.customSpecs || []).map((s) => `${s.label} ${s.value}`).join(' ');
       const haystack = toEnglishDigitsServer(
@@ -1870,6 +2039,16 @@ export function filterAndSortProducts(
     return true;
   });
 
+  const stockOrder = (p: ProductDTO) => (p.inStock && p.stockCount > 0 ? 0 : 1);
+  const discountMagnitude = (p: ProductDTO) => {
+    const pct = p.discountPercent ?? 0;
+    if (pct > 0) return pct;
+    if (p.originalPrice && p.originalPrice > p.price) {
+      return Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
+    }
+    return 0;
+  };
+
   const sorted = [...filtered];
   switch (query.sort) {
     case 'cheapest':
@@ -1879,14 +2058,24 @@ export function filterAndSortProducts(
       sorted.sort((a, b) => b.price - a.price);
       break;
     case 'bestselling':
-      sorted.sort((a, b) => a.salesRank - b.salesRank);
+      sorted.sort((a, b) => stockOrder(a) - stockOrder(b) || a.salesRank - b.salesRank);
       break;
     case 'popular':
-      sorted.sort((a, b) => b.rating - a.rating || b.reviewCount - a.reviewCount);
+      sorted.sort(
+        (a, b) => stockOrder(a) - stockOrder(b) || b.rating - a.rating || b.reviewCount - a.reviewCount
+      );
+      break;
+    case 'biggest_discount':
+      sorted.sort(
+        (a, b) =>
+          stockOrder(a) - stockOrder(b) ||
+          discountMagnitude(b) - discountMagnitude(a) ||
+          compareNewestProductsServer(a, b)
+      );
       break;
     case 'newest':
     default:
-      sorted.sort(compareNewestProductsServer);
+      sorted.sort((a, b) => stockOrder(a) - stockOrder(b) || compareNewestProductsServer(a, b));
       break;
   }
 
@@ -1997,11 +2186,14 @@ export function calculateOrderTotalsServer(params: {
   couponCode?: string | null;
   couponRules?: CouponRuleDTO[];
   freeShippingThreshold?: number;
+  city?: string;
+  deliverySlot?: 'express' | 'standard';
 }):
   | {
       ok: true;
       items: ComputedOrderItem[];
       couponCode: string | null;
+      deliverySlot: 'express' | 'standard';
       subtotal: number;
       productDiscount: number;
       couponDiscount: number;
@@ -2179,7 +2371,12 @@ export function calculateOrderTotalsServer(params: {
 
   const threshold = params.freeShippingThreshold ?? FREE_SHIPPING_THRESHOLD_DEFAULT;
   const afterDiscounts = Math.max(0, subtotal - couponDiscount);
-  const shippingCost = afterDiscounts >= threshold ? 0 : STANDARD_SHIPPING_FEE_DEFAULT;
+  const { deliverySlot, shippingCost } = resolveShippingServer(
+    afterDiscounts,
+    threshold,
+    params.city ?? 'تهران',
+    params.deliverySlot ?? 'express'
+  );
   const totalAmount = afterDiscounts + shippingCost;
 
   const stockDecrements: Array<{ productId: string; variantId?: string; qty: number }> = [];
@@ -2206,6 +2403,7 @@ export function calculateOrderTotalsServer(params: {
     ok: true,
     items: computedItems,
     couponCode,
+    deliverySlot,
     subtotal,
     productDiscount,
     couponDiscount,
@@ -2420,4 +2618,111 @@ export function maskEmailServer(email: string): string {
   }
   return `${local.slice(0, 2)}***@${domain}`;
 }
+
+const BLOG_NOW = Date.now();
+const blogDaysAgo = (days: number) => new Date(BLOG_NOW - days * 86_400_000).toISOString();
+
+export const DEFAULT_DEV_BLOG_POSTS: BlogPostDTO[] = [
+  {
+    id: 'blog-post-1',
+    slug: 'iphone-16-pro-max-vs-s24-ultra-camera',
+    title: 'مقایسه دوربین پرچمداران: آیفون ۱۶ پرو مکس در برابر گلکسی S24 اولترا',
+    excerpt:
+      'کدام گوشی در شب عکس‌های طبیعی‌تری ثبت می‌کند؟ بررسی دقیق سنسورهای پریسکوپی، داینامیک رنج و قدرت پردازش هوش مصنوعی.',
+    content: [
+      'انتخاب بین دو غول دنیای عکاسی موبایل یعنی آیفون ۱۶ پرو مکس و گلکسی S24 اولترا، بیش از هر زمان دیگری به سبک عکاسی و نیاز فیلم‌برداری شما وابسته است. در آزمایش‌های میدانی تحریریه موبایل امیر، هر دو دستگاه را در شرایط نوری سخت، عکاسی پرتره و زوم اپتیکال ۵ برابری زیر ذره‌بین قرار دادیم.',
+      '## عملکرد در نور روز و بازتولید رنگ',
+      'اپل با نسل جدید پردازش تصویر Photonic Engine و پروفایل‌های رنگی جدید، جزئیات سایه‌ها را بدون اغراق در کنتراست حفظ می‌کند و رنگ پوست را بسیار نزدیک به واقعیت ثبت می‌کند. در مقابل، گلکسی S24 اولترا با سنسور ۲۰۰ مگاپیکسلی اصلی خود، وضوح لبه‌ها و شفافیت بافت‌ها را در ثبت مناظر شهری و معماری به اوج می‌رساند.',
+      '## عکاسی در شب و زوم تله‌فوتو',
+      'هر دو گوشی به لنز تله‌فوتو پریسکوپی ۵ برابر مجهز هستند. در محیط‌های کم‌نور، آیفون به دلیل گشودگی دیافراگم مناسب‌تر و زمان نوردهی هوشمند، نویز کمتری ایجاد می‌کند؛ اما سامسونگ با قابلیت زوم ۱۰ و ۱۰۰ برابری دیجیتال مبتنی بر هوش مصنوعی، در فواصل بسیار دور دست بالا را دارد.',
+      '## فیلم‌برداری و جمع‌بندی خرید',
+      'اگر تولید محتوای ویدیویی، پشتیبانی از فرمت ProRes 4K با نرخ ۱۲۰ فریم بر ثانیه و کلید اختصاصی Camera Control برایتان اولویت دارد، آیفون ۱۶ پرو مکس انتخاب بی‌رقیب است. اما برای کاربرانی که نمایشگر ضدبازتاب، قلم S-Pen و زوم برد بلند می‌خواهند، گلکسی S24 اولترا ارزش خرید فوق‌العاده‌ای دارد.',
+    ].join('\n\n'),
+    coverImage: 'asset:iphoneCamera',
+    category: 'مقایسه تخصصی',
+    tags: ['آیفون ۱۶ پرو مکس', 'گلکسی S24 اولترا', 'مقایسه دوربین'],
+    authorName: 'امیرحسین مرادی',
+    readingTimeMinutes: 7,
+    isPublished: true,
+    publishedAt: blogDaysAgo(2),
+    createdAt: blogDaysAgo(2),
+    updatedAt: blogDaysAgo(2),
+  },
+  {
+    id: 'blog-post-2',
+    slug: 'fast-charging-gan-cable-buying-guide',
+    title: 'راهنمای جامع خرید آداپتور و کابل فست شارژ؛ تشخیص شارژر اصلی از تقلبی',
+    excerpt:
+      'معرفی استانداردهای PD و PPS و نحوه تشخیص شارژرهای تقلبی که سلامت باتری گوشی گران‌قیمت شما را به خطر می‌اندازند.',
+    content: [
+      'بسیاری از کاربران پس از خرید گوشی‌های پرچمدار، برای تهیه آداپتور شارژ سریع با نمونه‌های غیر‌اصلی و مشابه روبه‌رو می‌شوند که نه‌تنها سرعت واقعی شارژ را ارائه نمی‌دهند، بلکه در درازمدت به مدار تغذیه (IC شارژ) و سلامت باتری آسیب جدی می‌زنند.',
+      '## فناوری GaN چیست و چه تفاوتی ایجاد می‌کند؟',
+      'شارژرهای مبتنی بر نیترید گالیوم (GaN) در مقایسه با نمونه‌های سیلیکونی قدیمی، حرارت بسیار کمتری تولید می‌کنند و در ابعادی کوچک‌تر، توان خروجی بالا مانند ۴۵ تا ۶۵ وات را به صورت پایدار تحویل می‌دهند. برندهایی نظیر انکر (Anker) و آداپتورهای رسمی اپل و سامسونگ از محافظ‌های چندلایه نوسان برق و کنترل دمای لحظه‌ای بهره می‌برند.',
+      '## استانداردهای PD و PPS را بشناسید',
+      'برای گوشی‌های آیفون سری ۱۵ و ۱۶، پشتیبانی آداپتور از پروتکل USB Power Delivery (PD 3.0) حیاتی است. در سوی دیگر، پرچمداران سامسونگ برای دستیابی به شارژ فوق‌سریع ۴۵ واتی نیازمند پروتکل PPS (تنظیم هوشمند ولتاژ و جریان) هستند تا دمای باتری در حین شارژ تحت کنترل بماند.',
+      '## چطور شارژر اصل را تشخیص دهیم؟',
+      'وزن متناسب و غیرعادی سبک نبودن بدنه، کیفیت چاپ لیزری شماره سریال، بسته‌بندی پلمپ با هولوگرام اصالت و خرید از فروشگاه دارای گارانتی تعویض واقعی، مهم‌ترین معیارها برای اطمینان از اصالت آداپتور و کابل Type-C هستند.',
+    ].join('\n\n'),
+    coverImage: 'asset:ankerCharger',
+    category: 'راهنمای خرید',
+    tags: ['فست شارژ', 'فناوری GaN', 'شارژر انکر', 'سلامت باتری'],
+    authorName: 'سارا کاظمی',
+    readingTimeMinutes: 5,
+    isPublished: true,
+    publishedAt: blogDaysAgo(4),
+    createdAt: blogDaysAgo(4),
+    updatedAt: blogDaysAgo(4),
+  },
+  {
+    id: 'blog-post-3',
+    slug: 'best-smartwatches-fitness-health-guide',
+    title: 'بهترین ساعت‌های هوشمند برای پایش سلامت و ورزش در سال ۱۴۰۳',
+    excerpt:
+      'تحلیل دقت سنسورهای ضربان قلب، نوار قلب ECG و دوام باتری در ساعت‌های هوشمند اپل و سامسونگ برای استفاده روزمره و حرفه‌ای.',
+    content: [
+      'ساعت‌های هوشمند امروزی فراتر از نمایش اعلان‌های گوشی عمل می‌کنند و به یک دستیار دقیق پایش سلامت، کیفیت خواب و تحلیل تمرینات ورزشی تبدیل شده‌اند. در این راهنما معیارهای کلیدی انتخاب بهترین ساعت هوشمند متناسب با گوشی شما را بررسی می‌کنیم.',
+      '## سازگاری اکوسیستم؛ اولین شرط انتخاب',
+      'پیش از هر چیز باید توجه داشت که اپل واچ‌ها تنها با گوشی‌های آیفون جفت می‌شوند و بهترین هماهنگی را با iOS دارند. اگر از گوشی‌های اندرویدی استفاده می‌کنید، سری گلکسی واچ سامسونگ یا ساعت‌های مجهز به Wear OS امکانات کامل‌تری در پاسخ به پیام‌ها و پایش بدن ارائه می‌دهند.',
+      '## دقت سنسورها و پایداری GPS',
+      'برای ورزشکاران فضای باز، دوچرخه‌سواران و کوهنوردان، پشتیبانی از GPS دوفرکانسه (L1+L5) در مدل‌هایی مانند اپل واچ اولترا ۲ دقت ثبت مسیر را به شکل چشمگیری افزایش می‌دهد. همچنین وجود سنسور اکسیژن خون، نوار قلب و تشخیص سقوط می‌تواند در شرایط اضطراری بسیار کاربردی باشد.',
+      '## باتری و مقاومت بدنه',
+      'بسته به سبک استفاده، اگر دوام باتری چندروزه و بدنه تیتانیومی مقاوم در برابر ضربه و عمق آب برایتان مهم است، مدل‌های اولترا بهترین گزینه‌اند؛ در حالی که سری‌های استاندارد وزن سبک‌تر و راحتی بیشتری برای پایش خواب شبانه دارند.',
+    ].join('\n\n'),
+    coverImage: 'asset:audioWearables',
+    category: 'بررسی گجت',
+    tags: ['ساعت هوشمند', 'اپل واچ اولترا ۲', 'پایش سلامت'],
+    authorName: 'کیوان رستگار',
+    readingTimeMinutes: 8,
+    isPublished: true,
+    publishedAt: blogDaysAgo(7),
+    createdAt: blogDaysAgo(7),
+    updatedAt: blogDaysAgo(7),
+  },
+  {
+    id: 'blog-post-4',
+    slug: 'hamta-registry-and-original-seal-checklist',
+    title: 'راهنمای کامل استعلام رجیستری همتا و تشخیص پلمپ اصلی پیش از خرید موبایل',
+    excerpt:
+      'چک‌لیست گام‌به‌گام برای اطمینان از آکبند بودن دستگاه، تطابق IMEI روی جعبه با سامانه همتا و نکات مهم فعال‌سازی.',
+    content: [
+      'یکی از دغدغه‌های اصلی هنگام خرید گوشی موبایل آنلاین یا حضوری، اطمینان از پلمپ کارخانه‌ای دستگاه و قانونی بودن رجیستری آن در شبکه ارتباطی کشور است. رعایت چند نکته ساده پیش از باز کردن پلمپ جعبه، ریسک خرید را به صفر می‌رساند.',
+      '## تطابق شناسه IMEI روی جعبه و استعلام همتا',
+      'پیش از باز کردن پلمپ، کد ۱۵ رقمی IMEI درج‌شده پشت جعبه را در سامانه همتا (از طریق کد دستوری #۷۷۷۷* یا اپلیکیشن همتا) استعلام بگیرید. در وضعیت قانونی باید مدل دقیق دستگاه و نام شرکت واردکننده رسمی نمایش داده شود.',
+      '## بررسی پلمپ کارخانه و شماره سریال برند',
+      'در آیفون‌های جدید، اپل به جای سلفون پلاستیکی از نوار کاغذی کشیدنی با برچسب امنیتی ماوراءبنفش استفاده می‌کند. همچنین شماره سریال روی جعبه را می‌توانید پیش از فعال‌سازی در وب‌سایت رسمی اپل یا سامسونگ بررسی کنید تا مطمئن شوید دستگاه قبلاً اکتیو نشده است.',
+      '## انتقال مالکیت قانونی پس از تحویل',
+      'در فروشگاه موبایل امیر، تمامی گوشی‌ها همراه با کد فعال‌سازی معتبر روی فاکتور رسمی و گارانتی ۱۸ ماهه امیر سرویس ارسال می‌شوند تا پس از دریافت بسته، بلافاصله دستگاه را به نام سیم‌کارت خود فعال کنید.',
+    ].join('\n\n'),
+    coverImage: 'asset:promoShowcase',
+    category: 'آموزش و رجیستری',
+    tags: ['رجیستری همتا', 'تشخیص پلمپ', 'خرید امن موبایل'],
+    authorName: 'تحریریه موبایل امیر',
+    readingTimeMinutes: 6,
+    isPublished: true,
+    publishedAt: blogDaysAgo(10),
+    createdAt: blogDaysAgo(10),
+    updatedAt: blogDaysAgo(10),
+  },
+];
+
 

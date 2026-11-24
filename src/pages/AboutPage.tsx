@@ -144,17 +144,17 @@ export const AboutPage: React.FC = () => {
         <div className="lg:col-span-5 bg-white rounded-xl border border-[#E4E8EE] p-6 space-y-4">
           <div className="flex items-center gap-2 text-[#1453D6] font-semibold text-sm">
             <Award className="w-5 h-5" strokeWidth={1.5} />
-            <span>تاییدیه‌ها و استانداردهای فنی</span>
+            <span>تعهد به اصالت و رضایت خریدار</span>
           </div>
           <p className="text-xs text-[#4A5464] leading-6">
-            طراحی این پلتفرم به‌صورت استاتیک، سبک و سریع انجام شده تا ضمن میزبانی در GitHub Pages و توزیع از طریق شبکه CDN ابراروان، داده‌های محصولات و سفارش‌ها را از طریق PostgreSQL/Supabase مدیریت کند.
+            تمامی کالاهای ارائه‌شده در فروشگاه موبایل امیر پیش از ارسال از نظر سلامت پلمپ، کد رجیستری همتا و مشخصات فنی بررسی می‌شوند و با ضمانت‌نامه رسمی و پشتیبانی مستمر به دست شما می‌رسند.
           </p>
           <a
-            href={buildHref('/status')}
-            onClick={(e) => handleLinkClick(e, '/status')}
+            href={buildHref('/contact')}
+            onClick={(e) => handleLinkClick(e, '/contact')}
             className="w-full h-10 rounded-lg bg-[#F1F3F6] hover:bg-[#E4E8EE] text-[#11161E] text-xs font-semibold transition-colors inline-flex items-center justify-center"
           >
-            مشاهده وضعیت زیرساخت فنی
+            گفتگو با کارشناسان پشتیبانی
           </a>
         </div>
       </section>

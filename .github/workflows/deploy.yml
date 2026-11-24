@@ -36,8 +36,6 @@ jobs:
 
       - name: Build static bundle for GitHub Pages & ArvanCloud CDN
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_API_URL: ${{ vars.VITE_API_URL || secrets.VITE_API_URL || 'https://api.codenameamir.ir' }}
           VITE_BASE_PATH: "/"
           VITE_GIT_COMMIT_SHA: ${{ github.sha }}

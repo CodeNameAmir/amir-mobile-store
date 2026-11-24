@@ -782,20 +782,32 @@ export const INITIAL_REVIEWS: ProductReview[] = [
   },
 ];
 
+export function resolveBlogCoverImage(coverImage?: string | null): string {
+  const clean = String(coverImage || '').trim();
+  if (!clean) return STORE_ASSETS.heroIphone;
+  if (clean.startsWith('asset:')) {
+    const key = clean.slice('asset:'.length) as keyof typeof STORE_ASSETS;
+    return STORE_ASSETS[key] || STORE_ASSETS.heroIphone;
+  }
+  return clean;
+}
+
 export const TECH_ARTICLES = [
   {
     id: 'art-1',
+    slug: 'iphone-16-pro-max-vs-s24-ultra-camera',
     tag: 'مقایسه تخصصی',
     date: '۲ روز پیش · زمان مطالعه: ۷ دقیقه',
-    title: 'مقایسه دوربین پرچمداران: آیفون ۱۶ پرو مکس در برابر اس ۲۴ اولترا',
-    excerpt: 'کدام گوشی در شب عکس‌های طبیعی‌تری ثبت می‌کند؟ بررسی دقیق سنسورهای پریسکوپی و قدرت پردازش هوش مصنوعی.',
-    image: STORE_ASSETS.heroIphone,
+    title: 'مقایسه دوربین پرچمداران: آیفون ۱۶ پرو مکس در برابر گلکسی S24 اولترا',
+    excerpt: 'کدام گوشی در شب عکس‌های طبیعی‌تری ثبت می‌کند؟ بررسی دقیق سنسورهای پریسکوپی، داینامیک رنج و قدرت پردازش هوش مصنوعی.',
+    image: STORE_ASSETS.iphoneCamera,
     targetSlug: 'iphone-16-pro-max',
   },
   {
     id: 'art-2',
+    slug: 'fast-charging-gan-cable-buying-guide',
     tag: 'راهنمای خرید',
-    date: '۳ روز پیش · زمان مطالعه: ۵ دقیقه',
+    date: '۴ روز پیش · زمان مطالعه: ۵ دقیقه',
     title: 'راهنمای جامع خرید آداپتور و کابل فست شارژ؛ تشخیص شارژر اصلی از تقلبی',
     excerpt: 'معرفی استانداردهای PD و PPS و نحوه تشخیص شارژرهای تقلبی که سلامت باتری گوشی گران‌قیمت شما را به خطر می‌اندازند.',
     image: STORE_ASSETS.ankerCharger,
@@ -803,10 +815,11 @@ export const TECH_ARTICLES = [
   },
   {
     id: 'art-3',
+    slug: 'best-smartwatches-fitness-health-guide',
     tag: 'بررسی گجت',
-    date: '۱ هفته پیش · زمان مطالعه: ۹ دقیقه',
+    date: '۱ هفته پیش · زمان مطالعه: ۸ دقیقه',
     title: 'بهترین ساعت‌های هوشمند برای پایش سلامت و ورزش در سال ۱۴۰۳',
-    excerpt: 'تحلیل دقت سنسورهای ضربان قلب، نوار قلب ECG و باتری در ساعت‌های هوشمند اپل، سامسونگ و شیائومی.',
+    excerpt: 'تحلیل دقت سنسورهای ضربان قلب، نوار قلب ECG و دوام باتری در ساعت‌های هوشمند اپل و سامسونگ.',
     image: STORE_ASSETS.audioWearables,
     targetSlug: 'apple-watch-ultra-2',
   },

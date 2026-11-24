@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
+  Bell,
   Calculator,
+  CheckCheck,
   Clock,
   Layers,
   Menu,
@@ -19,10 +21,13 @@ import {
   X,
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
-import type { CategoryId } from '../types/store';
+import { hydrateProduct } from '../data/catalog';
+import { storeApi } from '../lib/authApi';
+import type { CategoryId, Product } from '../types/store';
 import { UI_EASE } from '../utils/motionHelpers';
 import {
   buildSearchSuggestions,
+  formatPersianDate,
   formatToman,
   toPersianDigits,
 } from '../utils/storeLogic';
@@ -57,12 +62,27 @@ export const Navbar: React.FC = () => {
     storeSettings,
     user,
     filters,
+    notifications,
+    unreadNotificationCount,
+    notificationsLoading,
+    refreshNotifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    deleteNotification,
   } = useStore();
   const [searchValue, setSearchValue] = useState(filters.searchQuery || '');
   const [searchFocused, setSearchFocused] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [cartPulsing, setCartPulsing] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [remoteSearchState, setRemoteSearchState] = useState<{
+    query: string;
+    items: Product[];
+    loading: boolean;
+    failed: boolean;
+  }>({ query: '', items: [], loading: false, failed: false });
   const blurTimerRef = useRef<number | null>(null);
+  const notifWrapRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setSearchValue(filters.searchQuery || '');
@@ -74,6 +94,69 @@ export const Navbar: React.FC = () => {
     const timer = window.setTimeout(() => setCartPulsing(false), 450);
     return () => window.clearTimeout(timer);
   }, [cartPulseTick]);
+
+  // Close notifications dropdown on outside click or Escape
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (notifWrapRef.current && !notifWrapRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [notifOpen]);
+
+  // Debounced server-side quick search query
+  useEffect(() => {
+    const trimmed = searchValue.trim();
+    if (!searchFocused || trimmed.length < 2) {
+      return;
+    }
+    let active = true;
+    setRemoteSearchState((prev) => ({
+      query: trimmed,
+      items: prev.query === trimmed ? prev.items : [],
+      loading: true,
+      failed: false,
+    }));
+    const timer = window.setTimeout(() => {
+      storeApi
+        .getProductsPaginated({ q: trimmed, limit: 6, page: 1 })
+        .then((res) => {
+          if (!active) return;
+          setRemoteSearchState({
+            query: trimmed,
+            items: res.products.map(hydrateProduct),
+            loading: false,
+            failed: false,
+          });
+        })
+        .catch(() => {
+          if (!active) return;
+          setRemoteSearchState({
+            query: trimmed,
+            items: [],
+            loading: false,
+            failed: true,
+          });
+        });
+    }, 250);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [searchFocused, searchValue]);
 
   const navLinks = useMemo<NavEntry[]>(() => {
     const activeRoots = categories
@@ -108,13 +191,23 @@ export const Navbar: React.FC = () => {
     return buildSearchSuggestions(q, products, categories, brands);
   }, [brands, categories, products, searchValue]);
 
+  const trimmedQuery = searchValue.trim();
+  const isRemoteSearchCurrent = remoteSearchState.query === trimmedQuery;
+  const searchDropdownProducts =
+    isRemoteSearchCurrent && !remoteSearchState.failed
+      ? remoteSearchState.items.length > 0 || !remoteSearchState.loading
+        ? remoteSearchState.items
+        : suggestions.products
+      : suggestions.products;
+  const searchDropdownLoading = isRemoteSearchCurrent && remoteSearchState.loading;
+
   const hasSuggestionResults =
-    suggestions.products.length > 0 ||
+    searchDropdownProducts.length > 0 ||
     suggestions.brands.length > 0 ||
     suggestions.categories.length > 0;
 
-  const showRecentPanel = searchFocused && searchValue.trim().length < 2;
-  const showSuggestionsPanel = searchFocused && searchValue.trim().length >= 2;
+  const showRecentPanel = searchFocused && trimmedQuery.length < 2;
+  const showSuggestionsPanel = searchFocused && trimmedQuery.length >= 2;
 
   const POPULAR_SEARCHES = ['آیفون ۱۶', 'هواوی', 'سامسونگ', 'پاوربانک انکر'];
 
@@ -417,10 +510,14 @@ export const Navbar: React.FC = () => {
                   </div>
                 )}
 
-                {hasSuggestionResults ? (
-                  suggestions.products.length > 0 && (
+                {searchDropdownLoading && searchDropdownProducts.length === 0 ? (
+                  <p className="p-3 text-xs text-[#4A5464]" data-testid="live-search-loading">
+                    در حال جستجو در کاتالوگ فروشگاه...
+                  </p>
+                ) : hasSuggestionResults ? (
+                  searchDropdownProducts.length > 0 && (
                     <div className="divide-y divide-[#E4E8EE]">
-                      {suggestions.products.map((item) => (
+                      {searchDropdownProducts.map((item) => (
                         <a
                           key={item.id}
                           href={buildHref(`/product/${item.slug}`)}
@@ -519,6 +616,139 @@ export const Navbar: React.FC = () => {
               پیگیری مرسوله
             </a>
 
+            {user && (
+              <div ref={notifWrapRef} className="relative shrink-0">
+                <button
+                  type="button"
+                  data-testid="navbar-notifications-btn"
+                  aria-label="اعلان‌ها و پیام‌ها"
+                  aria-expanded={notifOpen}
+                  onClick={() => {
+                    const next = !notifOpen;
+                    setNotifOpen(next);
+                    if (next) {
+                      void refreshNotifications();
+                    }
+                  }}
+                  className="relative inline-flex items-center justify-center w-10 h-10 rounded-lg bg-[#F1F3F6] hover:bg-[#EAECEF] text-[#11161E] transition-colors"
+                >
+                  <Bell className="w-4 h-4 text-[#4A5464]" strokeWidth={1.5} />
+                  {unreadNotificationCount > 0 && (
+                    <span
+                      data-testid="notifications-unread-badge"
+                      className="absolute -top-1 -left-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#B42318] text-white text-[10px] font-semibold inline-flex items-center justify-center tabular-nums-fa"
+                    >
+                      {toPersianDigits(unreadNotificationCount)}
+                    </span>
+                  )}
+                </button>
+
+                <AnimatePresence>
+                  {notifOpen && (
+                    <motion.div
+                      data-testid="navbar-notifications-dropdown"
+                      initial={{ opacity: 0, y: -6, scale: 0.985 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -4, scale: 0.985 }}
+                      transition={{ duration: 0.16, ease: UI_EASE }}
+                      className="absolute left-0 top-12 w-80 sm:w-96 bg-white rounded-xl border border-[#E4E8EE] shadow-lg z-50 overflow-hidden"
+                    >
+                      <div className="px-4 py-3 bg-[#F7F8FA] border-b border-[#E4E8EE] flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-[#11161E]">
+                          اعلان‌ها و پیام‌ها
+                        </span>
+                        {unreadNotificationCount > 0 && (
+                          <button
+                            type="button"
+                            data-testid="notifications-mark-all-btn"
+                            onClick={() => void markAllNotificationsRead()}
+                            className="text-[11px] font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1"
+                          >
+                            <CheckCheck className="w-3.5 h-3.5" strokeWidth={1.5} />
+                            <span>خواندن همه</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="max-h-80 overflow-y-auto divide-y divide-[#E4E8EE]">
+                        {notificationsLoading && notifications.length === 0 ? (
+                          <p className="p-4 text-xs text-[#4A5464] text-center">
+                            در حال دریافت اعلان‌ها...
+                          </p>
+                        ) : notifications.length === 0 ? (
+                          <p className="p-6 text-xs text-[#6E7889] text-center">
+                            هنوز اعلانی برای حساب شما ثبت نشده است.
+                          </p>
+                        ) : (
+                          notifications.slice(0, 8).map((notif) => {
+                            const safeInternalLink =
+                              typeof notif.link === 'string' && notif.link.startsWith('/')
+                                ? notif.link
+                                : null;
+                            return (
+                              <div
+                                key={notif.id}
+                                className={`p-3.5 flex items-start gap-2.5 transition-colors ${
+                                  notif.isRead ? 'bg-white' : 'bg-[#EEF3FC]/45'
+                                }`}
+                              >
+                                <span
+                                  className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${
+                                    notif.isRead ? 'bg-[#DCE1E8]' : 'bg-[#1453D6]'
+                                  }`}
+                                />
+                                <div className="flex-1 min-w-0 space-y-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!notif.isRead) {
+                                        void markNotificationRead(notif.id);
+                                      }
+                                      if (safeInternalLink) {
+                                        setNotifOpen(false);
+                                        navigate(safeInternalLink);
+                                      }
+                                    }}
+                                    className="text-right w-full block space-y-0.5"
+                                  >
+                                    <p className="text-xs font-semibold text-[#11161E] leading-5">
+                                      {notif.title}
+                                    </p>
+                                    <p className="text-[11px] text-[#4A5464] leading-5">
+                                      {notif.message}
+                                    </p>
+                                  </button>
+                                  <p className="text-[10px] text-[#6E7889] tabular-nums-fa">
+                                    {formatPersianDate(notif.createdAt)}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  aria-label={`حذف اعلان ${notif.title}`}
+                                  onClick={() => void deleteNotification(notif.id)}
+                                  className="p-1 rounded-md text-[#6E7889] hover:text-[#B42318] hover:bg-[#FEF3F2] shrink-0 transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />
+                                </button>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      <a
+                        href={buildHref('/account')}
+                        onClick={(e) => handleLinkClick(e, '/account', () => setNotifOpen(false))}
+                        className="block py-2.5 px-4 bg-[#F7F8FA] hover:bg-[#F1F3F6] border-t border-[#E4E8EE] text-center text-[11px] font-semibold text-[#1453D6] transition-colors"
+                      >
+                        مدیریت اعلان‌ها در حساب کاربری
+                      </a>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+
             <a
               href={buildHref('/account')}
               onClick={(e) => handleLinkClick(e, '/account')}
@@ -595,8 +825,8 @@ export const Navbar: React.FC = () => {
           aria-label="دسته‌بندی محصولات"
           className="hidden lg:block border-t border-[#E4E8EE] bg-white"
         >
-          <div className="max-w-[1440px] mx-auto px-4 lg:px-8 h-11 flex items-center justify-between gap-4">
-            <ul className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+          <div className="max-w-[1440px] mx-auto px-4 lg:px-8 h-11 flex items-center justify-between gap-3">
+            <ul className="flex items-center gap-0.5 overflow-x-auto no-scrollbar">
               {navLinks.map((item) => {
                 const active = isNavItemActive(item);
                 return (
@@ -604,7 +834,7 @@ export const Navbar: React.FC = () => {
                     <a
                       href={buildHref(item.href)}
                       onClick={(e) => handleNavClick(e, item)}
-                      className={`relative px-3 py-1.5 rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
+                      className={`relative px-2.5 py-1.5 rounded-lg text-[13px] font-medium transition-colors whitespace-nowrap shrink-0 inline-flex items-center gap-1.5 ${
                         active
                           ? 'text-[#1453D6]'
                           : item.accent
@@ -635,13 +865,17 @@ export const Navbar: React.FC = () => {
               })}
             </ul>
 
-            <div className="flex items-center gap-4 text-xs font-medium text-[#4A5464] shrink-0">
+            <div className="flex items-center gap-3.5 text-xs font-medium text-[#4A5464] shrink-0">
               <a
-                href={buildHref('/tracking')}
-                onClick={(e) => handleLinkClick(e, '/tracking')}
-                className="hover:text-[#11161E] transition-colors whitespace-nowrap"
+                href={buildHref('/blog')}
+                onClick={(e) => handleLinkClick(e, '/blog')}
+                className={`transition-colors whitespace-nowrap ${
+                  route.page === 'blog' || route.page === 'blog-detail'
+                    ? 'text-[#1453D6] font-semibold'
+                    : 'hover:text-[#11161E]'
+                }`}
               >
-                پیگیری سفارش
+                مجله تخصصی
               </a>
               <a
                 href={buildHref('/about')}
@@ -731,7 +965,13 @@ export const Navbar: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex items-center justify-between pt-2 border-t border-[#E4E8EE] text-xs font-medium text-[#4A5464]">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#E4E8EE] text-xs font-medium text-[#4A5464]">
+                <a
+                  href={buildHref('/blog')}
+                  onClick={(e) => handleLinkClick(e, '/blog', () => setMobileMenuOpen(false))}
+                >
+                  مجله تخصصی
+                </a>
                 <a
                   href={buildHref('/tracking')}
                   onClick={(e) => handleLinkClick(e, '/tracking', () => setMobileMenuOpen(false))}

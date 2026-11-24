@@ -6,16 +6,24 @@ import {
   calculateCartSummary,
   calculateInstallmentPlan,
   computeCatalogMaxPrice,
+  computeCompareWinners,
   evaluateCoupon,
   extractAvailableBrands,
   extractAvailableColors,
+  extractAvailableRamOptions,
+  extractAvailableStorageOptions,
+  extractFirstNumericSpec,
   filterAndSortProducts,
   formatToman,
   getDescendantCategoryIds,
   getOrderFlowStage,
   getVariantPrice,
+  isTehranCity,
   matchesProductSearch,
+  NATIONAL_POST_SHIPPING_FEE,
   paginateItems,
+  resolveDeliverySlot,
+  TEHRAN_EXPRESS_SHIPPING_FEE,
   toEnglishDigits,
   toPersianDigits,
   validateCheckoutForm,
@@ -409,7 +417,9 @@ test('typo-tolerant search, nested category filtering, dual price range, dynamic
   assert.equal(page1.totalPages, 2);
   assert.equal(page2.items.length, 2);
 
-  // Invoice / Tracking 5-status stage calculation
+  // Invoice / Tracking status stage calculation
+  assert.equal(getOrderFlowStage('pending_payment').activeStageIndex, 0);
+  assert.equal(getOrderFlowStage('pending_payment').isCancelled, false);
   assert.equal(getOrderFlowStage('paid').activeStageIndex, 0);
   assert.equal(getOrderFlowStage('preparing').activeStageIndex, 1);
   assert.equal(getOrderFlowStage('shipped').activeStageIndex, 2);
@@ -418,5 +428,185 @@ test('typo-tolerant search, nested category filtering, dual price range, dynamic
   assert.equal(getOrderFlowStage('cancelled').isCancelled, true);
   assert.equal(getOrderFlowStage('cancelled').activeStageIndex, -1);
 });
+
+test('city-based shipping differentiates Tehran express vs National Post and auto-falls back outside Tehran', () => {
+  assert.equal(isTehranCity('تهران'), true);
+  assert.equal(isTehranCity('تهران / شمیرانات'), true);
+  assert.equal(isTehranCity('Tehran'), true);
+  assert.equal(isTehranCity('شیراز'), false);
+  assert.equal(isTehranCity('اصفهان'), false);
+
+  assert.equal(resolveDeliverySlot('تهران', 'express'), 'express');
+  assert.equal(resolveDeliverySlot('شیراز', 'express'), 'standard');
+
+  const lowCart: CartItem[] = [
+    {
+      key: 'cable',
+      productId: 'c1',
+      slug: 'cable',
+      nameFa: 'کابل',
+      brand: 'Anker',
+      image: '',
+      colorName: 'مشکی',
+      colorHex: '#111',
+      storageLabel: '۱.۸ متر',
+      warranty: '۱۲ ماهه',
+      unitPrice: 600_000,
+      originalUnitPrice: 600_000,
+      qty: 1,
+      stockCount: 10,
+    },
+  ];
+
+  const tehranExpress = calculateCartSummary(lowCart, null, undefined, 1_000_000, {
+    city: 'تهران',
+    deliverySlot: 'express',
+  });
+  assert.equal(tehranExpress.shippingCost, TEHRAN_EXPRESS_SHIPPING_FEE);
+
+  const shirazForcedStandard = calculateCartSummary(lowCart, null, undefined, 1_000_000, {
+    city: 'شیراز',
+    deliverySlot: 'express',
+  });
+  assert.equal(shirazForcedStandard.shippingCost, NATIONAL_POST_SHIPPING_FEE);
+
+  const tehranStandard = calculateCartSummary(lowCart, null, undefined, 1_000_000, {
+    city: 'تهران',
+    deliverySlot: 'standard',
+  });
+  assert.equal(tehranStandard.shippingCost, NATIONAL_POST_SHIPPING_FEE);
+});
+
+test('validateCheckoutForm validates optional guest receipt email only when provided', () => {
+  const invalidEmailErrors = validateCheckoutForm({
+    fullName: 'علیرضا محمدی',
+    phone: '09123456789',
+    email: 'invalid-email',
+    city: 'تهران',
+    address: 'زعفرانیه، خیابان مقدس اردبیلی، پلاک ۸۴',
+    postalCode: '1988233145',
+    deliverySlot: 'express',
+  });
+  assert.ok(invalidEmailErrors.email);
+
+  const validEmailErrors = validateCheckoutForm({
+    fullName: 'علیرضا محمدی',
+    phone: '09123456789',
+    email: 'guest@codenameamir.ir',
+    city: 'شیراز',
+    address: 'بلوار چمران، پلاک ۱۰، واحد ۲',
+    postalCode: '7194612345',
+    deliverySlot: 'standard',
+  });
+  assert.deepEqual(validEmailErrors, {});
+});
+
+test('Phase 3: biggest_discount sort, OOS-last natural order, dynamic storage/RAM chips, attribute filtering & compare winners', () => {
+  const highDiscountInStock: Product = {
+    ...sampleProducts[1],
+    id: 'p-big-discount',
+    slug: 'p-big-discount',
+    price: 40_000_000,
+    originalPrice: 50_000_000,
+    discountPercent: 20,
+    inStock: true,
+    stockCount: 4,
+    specs: { ...sampleProducts[1].specs, ram: '۱۶ گیگ', storageDefault: '۱ ترابایت' },
+    storageOptions: [{ label: '۱ ترابایت', subtitle: 'حرفه‌ای', priceDelta: 0 }],
+    attributeValues: [
+      { attributeId: 'a1', productId: 'p-big-discount', code: 'screen_hz', nameFa: 'نرخ نوسازی', nameEn: 'Refresh Rate', dataType: 'number', valueNumber: 144, displayValue: '۱۴۴ Hz' },
+      { attributeId: 'a2', productId: 'p-big-discount', code: 'battery_mah', nameFa: 'ظرفیت باتری', nameEn: 'Battery', dataType: 'number', valueNumber: 5500, displayValue: '۵۵۰۰ mAh' },
+      { attributeId: 'a3', productId: 'p-big-discount', code: 'nfc', nameFa: 'NFC', nameEn: 'NFC', dataType: 'boolean', valueBoolean: true, displayValue: 'دارد' },
+    ],
+  };
+  const oosHighDiscount: Product = {
+    ...sampleProducts[2],
+    id: 'p-oos-discount',
+    slug: 'p-oos-discount',
+    price: 30_000_000,
+    originalPrice: 60_000_000,
+    discountPercent: 50,
+    inStock: false,
+    stockCount: 0,
+    attributeValues: [
+      { attributeId: 'a1', productId: 'p-oos-discount', code: 'screen_hz', nameFa: 'نرخ نوسازی', nameEn: 'Refresh Rate', dataType: 'number', valueNumber: 120, displayValue: '۱۲۰ Hz' },
+      { attributeId: 'a2', productId: 'p-oos-discount', code: 'battery_mah', nameFa: 'ظرفیت باتری', nameEn: 'Battery', dataType: 'number', valueNumber: 4000, displayValue: '۴۰۰۰ mAh' },
+    ],
+  };
+
+  const catalog = [...sampleProducts, highDiscountInStock, oosHighDiscount];
+
+  // biggest_discount keeps in-stock before out-of-stock, then descending discount %
+  const byDiscount = filterAndSortProducts(catalog, {
+    ...defaultFilters,
+    sortBy: 'biggest_discount',
+  });
+  assert.equal(byDiscount[0]?.id, 'p-big-discount');
+  assert.equal(byDiscount[byDiscount.length - 1]?.inStock, false);
+
+  // cheapest stays pure ascending price
+  const byCheapest = filterAndSortProducts(catalog, {
+    ...defaultFilters,
+    sortBy: 'cheapest',
+  });
+  assert.equal(byCheapest[0]?.id, 'p-oos-discount');
+
+  // Dynamic attribute filtering
+  const filteredByHz = filterAndSortProducts(catalog, {
+    ...defaultFilters,
+    attributeFilters: { screen_hz: '144', nfc: 'true' },
+  });
+  assert.deepEqual(
+    filteredByHz.map((p) => p.id),
+    ['p-big-discount']
+  );
+
+  // Dynamic storage & RAM extraction
+  const storages = extractAvailableStorageOptions(catalog);
+  assert.ok(storages.includes('۱۲۸ گیگابایت'));
+  assert.ok(storages.includes('۲۵۶ گیگابایت'));
+  assert.ok(storages.includes('۵۱۲ گیگابایت'));
+  assert.ok(storages.includes('۱ ترابایت'));
+
+  const rams = extractAvailableRamOptions([
+    ...catalog,
+    {
+      ...sampleProducts[0],
+      id: 'charger-no-ram',
+      specs: { ...sampleProducts[0].specs, ram: 'ندارد', storageDefault: 'ندارد' },
+    },
+  ]);
+  assert.ok(rams.includes('۸ گیگ'));
+  assert.ok(rams.includes('۱۲ گیگ'));
+  assert.ok(rams.includes('۱۶ گیگ'));
+  assert.equal(rams.includes('ندارد'), false);
+
+  // Numeric parser & compare winners
+  assert.equal(extractFirstNumericSpec('۵٬۰۰۰ میلی‌آمپر'), 5000);
+  assert.equal(extractFirstNumericSpec('ندارد'), null);
+
+  const sampleWithBatteryAttr: Product = {
+    ...sampleProducts[0],
+    attributeValues: [
+      {
+        attributeId: 'a2',
+        productId: 'p1',
+        code: 'battery_mah',
+        nameFa: 'ظرفیت باتری',
+        nameEn: 'Battery',
+        dataType: 'number',
+        valueNumber: 4685,
+        displayValue: '۴۶۸۵ mAh',
+      },
+    ],
+  };
+  const winners = computeCompareWinners([sampleWithBatteryAttr, highDiscountInStock]);
+  assert.equal(winners.price, 'p-big-discount');
+  assert.equal(winners.ram, 'p-big-discount');
+  assert.equal(winners.battery, 'p-big-discount');
+  assert.equal(winners['attr:battery_mah'], 'p-big-discount');
+});
+
+
 
 

@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /account
+Disallow: /cart
+Disallow: /checkout
+Disallow: /status
+
+Sitemap: https://amir-mobile-store.codenameamir.ir/sitemap.xml

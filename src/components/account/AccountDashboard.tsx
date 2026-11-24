@@ -4,6 +4,7 @@ import {
   AtSign,
   Bell,
   Camera,
+  CheckCheck,
   CheckCircle2,
   Copy,
   ExternalLink,
@@ -13,6 +14,7 @@ import {
   LogOut,
   Mail,
   MapPin,
+  MessageSquare,
   Package,
   Pencil,
   Plus,
@@ -23,7 +25,7 @@ import {
 } from 'lucide-react';
 import { useStore } from '../../context/StoreContext';
 import { authApi } from '../../lib/authApi';
-import type { DemoUser, OrderRecord, UserAddress } from '../../types/store';
+import type { DemoUser, OrderRecord, SupportTicket, UserAddress } from '../../types/store';
 import {
   generateUsernameSuggestions,
   getPasswordStrength,
@@ -36,13 +38,22 @@ import {
   validateProfileForm,
   validateUsername,
 } from '../../utils/authLogic';
-import { formatToman, toPersianDigits } from '../../utils/storeLogic';
+import { formatPersianDate, formatToman, toPersianDigits } from '../../utils/storeLogic';
 import { ProductCard } from '../ProductCard';
 import { OrderRowSkeleton, SkeletonBox } from '../Skeleton';
 
-type DashboardTab = 'overview' | 'profile' | 'addresses' | 'orders' | 'wishlist' | 'security';
+type DashboardTab =
+  | 'overview'
+  | 'profile'
+  | 'addresses'
+  | 'orders'
+  | 'wishlist'
+  | 'notifications'
+  | 'tickets'
+  | 'security';
 
 const STATUS_LABELS: Record<OrderRecord['status'], string> = {
+  pending_payment: 'در انتظار پرداخت',
   paid: 'پرداخت موفق',
   preparing: 'در حال آماده‌سازی',
   shipped: 'تحویل به پیک / پست',
@@ -102,9 +113,17 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
     wishlist,
     stockAlerts,
     toggleStockAlert,
+    notifications,
+    unreadNotificationCount,
+    notificationsLoading,
+    refreshNotifications,
+    markNotificationRead,
+    markAllNotificationsRead,
+    deleteNotification,
     products,
     buildHref,
     handleLinkClick,
+    navigate,
     logoutDemoUser,
     updateUserProfile,
     updateUserUsername,
@@ -114,6 +133,8 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
     setDefaultUserAddress,
     deleteUserAddress,
     setAuthenticatedUser,
+    cancelCustomerOrder,
+    reorderFromOrder,
     showToast,
   } = useStore();
 
@@ -170,8 +191,11 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   const [addressErrors, setAddressErrors] = useState<Record<string, string>>({});
   const [savingAddress, setSavingAddress] = useState(false);
 
-  // Orders filter
+  // Orders filter & actions
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | OrderRecord['status']>('all');
+  const [confirmCancelCode, setConfirmCancelCode] = useState<string | null>(null);
+  const [cancellingOrderCode, setCancellingOrderCode] = useState<string | null>(null);
+  const [reorderingCode, setReorderingCode] = useState<string | null>(null);
 
   // Security / Password change & 2FA & Account Deletion
   const [currentPassword, setCurrentPassword] = useState('');
@@ -188,6 +212,39 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Support ticket history state
+  const [myTickets, setMyTickets] = useState<SupportTicket[]>([]);
+  const [ticketsLoading, setTicketsLoading] = useState(false);
+  const [ticketsError, setTicketsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      void refreshNotifications();
+    }
+  }, [activeTab, refreshNotifications]);
+
+  useEffect(() => {
+    if (activeTab !== 'tickets') return;
+    let active = true;
+    setTicketsLoading(true);
+    setTicketsError(null);
+    authApi
+      .getMySupportTickets()
+      .then((res) => {
+        if (!active) return;
+        setMyTickets(Array.isArray(res.tickets) ? res.tickets : []);
+        setTicketsLoading(false);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setTicketsError(err instanceof Error ? err.message : 'خطا در دریافت تیکت‌های پشتیبانی.');
+        setTicketsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [activeTab, user.id]);
 
   useEffect(() => {
     setFullName(user.fullName);
@@ -590,7 +647,16 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
     { id: 'profile', label: 'اطلاعات فردی و ایمیل', icon: <UserCheck className="w-4 h-4" strokeWidth={1.5} /> },
     { id: 'addresses', label: 'دفترچه آدرس‌ها', icon: <MapPin className="w-4 h-4" strokeWidth={1.5} /> },
     { id: 'orders', label: 'سفارش‌های من', icon: <Package className="w-4 h-4" strokeWidth={1.5} /> },
-    { id: 'wishlist', label: 'علاقه‌مندی‌ها و اعلان‌ها', icon: <Heart className="w-4 h-4" strokeWidth={1.5} /> },
+    { id: 'wishlist', label: 'علاقه‌مندی‌ها و اعلان موجودی', icon: <Heart className="w-4 h-4" strokeWidth={1.5} /> },
+    {
+      id: 'notifications',
+      label:
+        unreadNotificationCount > 0
+          ? `اعلان‌ها و پیام‌ها (${toPersianDigits(unreadNotificationCount)})`
+          : 'اعلان‌ها و پیام‌ها',
+      icon: <Bell className="w-4 h-4" strokeWidth={1.5} />,
+    },
+    { id: 'tickets', label: 'تیکت‌های پشتیبانی', icon: <MessageSquare className="w-4 h-4" strokeWidth={1.5} /> },
     { id: 'security', label: 'امنیت و رمز عبور', icon: <Shield className="w-4 h-4" strokeWidth={1.5} /> },
   ];
 
@@ -1528,6 +1594,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 {(
                   [
                     { id: 'all', label: 'همه' },
+                    { id: 'paid', label: 'پرداخت موفق' },
                     { id: 'preparing', label: 'در حال آماده‌سازی' },
                     { id: 'shipped', label: 'ارسال‌شده' },
                     { id: 'delivered', label: 'تحویل‌شده' },
@@ -1603,7 +1670,73 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        disabled={reorderingCode === ord.orderCode}
+                        onClick={async () => {
+                          setReorderingCode(ord.orderCode);
+                          try {
+                            await reorderFromOrder(ord);
+                          } finally {
+                            setReorderingCode(null);
+                          }
+                        }}
+                        data-testid={`reorder-btn-${ord.orderCode}`}
+                        className="px-3.5 py-2 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-xs font-medium text-[#1453D6] hover:bg-[#1453D6] hover:text-white disabled:opacity-60 inline-flex items-center transition-colors"
+                      >
+                        {reorderingCode === ord.orderCode ? 'در حال بررسی...' : 'تکرار خرید'}
+                      </button>
+
+                      {(ord.status === 'pending_payment' ||
+                        ord.status === 'paid' ||
+                        ord.status === 'preparing') &&
+                        (confirmCancelCode === ord.orderCode ? (
+                          <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[#FEF3F2] border border-[#FECDCA]">
+                            <button
+                              type="button"
+                              disabled={cancellingOrderCode === ord.orderCode}
+                              data-testid={`confirm-cancel-${ord.orderCode}`}
+                              onClick={async () => {
+                                setCancellingOrderCode(ord.orderCode);
+                                try {
+                                  await cancelCustomerOrder(ord.orderCode);
+                                  setConfirmCancelCode(null);
+                                } catch (err) {
+                                  showToast(
+                                    err instanceof Error
+                                      ? err.message
+                                      : 'لغو سفارش امکان‌پذیر نیست.',
+                                    'error'
+                                  );
+                                } finally {
+                                  setCancellingOrderCode(null);
+                                }
+                              }}
+                              className="px-2.5 py-1 rounded bg-[#B42318] text-white text-[11px] font-semibold disabled:opacity-60"
+                            >
+                              {cancellingOrderCode === ord.orderCode ? '...' : 'تایید لغو'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={cancellingOrderCode === ord.orderCode}
+                              onClick={() => setConfirmCancelCode(null)}
+                              className="px-2 py-1 rounded bg-white border border-[#E4E8EE] text-[#4A5464] text-[11px]"
+                            >
+                              انصراف
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmCancelCode(ord.orderCode)}
+                            data-testid={`cancel-order-${ord.orderCode}`}
+                            className="px-3.5 py-2 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] text-xs font-medium text-[#B42318] hover:bg-[#FEE4E2] inline-flex items-center transition-colors"
+                          >
+                            لغو سفارش
+                          </button>
+                        ))}
+
                       <a
                         href={buildHref(`/order-confirmed/${ord.orderCode}`)}
                         onClick={(e) => handleLinkClick(e, `/order-confirmed/${ord.orderCode}`)}
@@ -1695,6 +1828,232 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
               )}
             </section>
           </div>
+        )}
+
+        {activeTab === 'notifications' && (
+          <section
+            data-testid="account-notifications-panel"
+            className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-5"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h1 className="text-lg sm:text-xl font-semibold text-[#11161E] flex items-center gap-2">
+                  <Bell className="w-5 h-5 text-[#1453D6]" strokeWidth={1.5} />
+                  <span>مرکز اعلان‌ها و پیام‌ها</span>
+                </h1>
+                <p className="text-xs text-[#4A5464] mt-1">
+                  اطلاع‌رسانی شارژ مجدد کالاهای ناموجود، وضعیت سفارش‌ها و پیام‌های سیستم در این بخش ثبت می‌شوند.
+                </p>
+              </div>
+              {unreadNotificationCount > 0 && (
+                <button
+                  type="button"
+                  data-testid="account-mark-all-read-btn"
+                  onClick={() => void markAllNotificationsRead()}
+                  className="h-10 px-4 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
+                >
+                  <CheckCheck className="w-4 h-4" strokeWidth={1.5} />
+                  <span>علامت‌گذاری همه به‌عنوان خوانده‌شده</span>
+                </button>
+              )}
+            </div>
+
+            {notificationsLoading && notifications.length === 0 ? (
+              <div className="space-y-3" aria-busy="true">
+                <OrderRowSkeleton />
+                <OrderRowSkeleton />
+              </div>
+            ) : notifications.length === 0 ? (
+              <div className="p-8 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-2">
+                <p className="text-xs sm:text-sm text-[#4A5464]">
+                  هنوز اعلانی برای حساب کاربری شما ثبت نشده است.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {notifications.map((notif) => {
+                  const safeInternalLink =
+                    typeof notif.link === 'string' && notif.link.startsWith('/') ? notif.link : null;
+                  return (
+                    <div
+                      key={notif.id}
+                      data-testid={`notification-item-${notif.id}`}
+                      className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
+                        notif.isRead
+                          ? 'bg-[#F7F8FA] border-[#E4E8EE]'
+                          : 'bg-[#EEF3FC]/60 border-[#D4E2FC]'
+                      }`}
+                    >
+                      <div className="space-y-1 flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {!notif.isRead && <span className="w-2 h-2 rounded-full bg-[#1453D6] shrink-0" />}
+                          <h2 className="text-xs sm:text-sm font-semibold text-[#11161E]">
+                            {notif.title}
+                          </h2>
+                          <span className="text-[11px] text-[#6E7889] tabular-nums-fa">
+                            · {formatPersianDate(notif.createdAt)}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#4A5464] leading-6">{notif.message}</p>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {safeInternalLink && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!notif.isRead) void markNotificationRead(notif.id);
+                              navigate(safeInternalLink);
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-medium transition-colors"
+                          >
+                            مشاهده
+                          </button>
+                        )}
+                        {!notif.isRead && (
+                          <button
+                            type="button"
+                            onClick={() => void markNotificationRead(notif.id)}
+                            className="px-3 py-1.5 rounded-lg bg-white border border-[#E4E8EE] hover:border-[#1453D6] text-xs font-medium text-[#11161E] transition-colors"
+                          >
+                            خوانده شد
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          aria-label={`حذف اعلان ${notif.title}`}
+                          onClick={() => void deleteNotification(notif.id)}
+                          className="p-2 rounded-lg bg-white border border-[#E4E8EE] text-[#B42318] hover:bg-[#FEF3F2] transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {activeTab === 'tickets' && (
+          <section
+            data-testid="account-tickets-panel"
+            className="bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-5"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h1 className="text-lg sm:text-xl font-semibold text-[#11161E] flex items-center gap-2">
+                  <MessageSquare className="w-5 h-5 text-[#1453D6]" strokeWidth={1.5} />
+                  <span>تاریخچه تیکت‌های پشتیبانی</span>
+                </h1>
+                <p className="text-xs text-[#4A5464] mt-1">
+                  تمام درخواست‌های ثبت‌شده با حساب کاربری یا شماره موبایل شما همراه با پاسخ کارشناسان نمایش داده می‌شوند.
+                </p>
+              </div>
+              <a
+                href={buildHref('/contact')}
+                onClick={(e) => handleLinkClick(e, '/contact')}
+                className="h-10 px-4 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors"
+              >
+                <Plus className="w-4 h-4" strokeWidth={1.5} />
+                <span>ثبت تیکت جدید</span>
+              </a>
+            </div>
+
+            {ticketsError && (
+              <p className="p-3 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] text-[#B42318] text-xs font-medium">
+                {ticketsError}
+              </p>
+            )}
+
+            {ticketsLoading ? (
+              <div className="space-y-3" aria-busy="true">
+                <OrderRowSkeleton />
+                <OrderRowSkeleton />
+              </div>
+            ) : myTickets.length === 0 ? (
+              <div className="p-8 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-3">
+                <p className="text-xs sm:text-sm text-[#4A5464]">
+                  هنوز تیکت پشتیبانی برای حساب شما ثبت نشده است.
+                </p>
+                <a
+                  href={buildHref('/contact')}
+                  onClick={(e) => handleLinkClick(e, '/contact')}
+                  className="h-10 px-5 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-medium inline-flex items-center transition-colors"
+                >
+                  ارسال اولین پیام پشتیبانی
+                </a>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {myTickets.map((ticket) => {
+                  const statusInfo =
+                    ticket.status === 'resolved'
+                      ? {
+                          label: 'پاسخ‌داده‌شده / بسته',
+                          cls: 'bg-[#ECFDF3] text-[#067647] border-[#ABEFC6]',
+                        }
+                      : ticket.status === 'in_progress'
+                      ? {
+                          label: 'در حال بررسی کارشناس',
+                          cls: 'bg-[#EEF3FC] text-[#1453D6] border-[#D4E2FC]',
+                        }
+                      : {
+                          label: 'باز · در صف پاسخ‌گویی',
+                          cls: 'bg-[#FDF1E8] text-[#A84500] border-[#F5D6BE]',
+                        };
+
+                  return (
+                    <div
+                      key={ticket.ticketCode}
+                      data-testid={`ticket-card-${ticket.ticketCode}`}
+                      className="p-5 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2 text-xs">
+                          <span dir="ltr" className="font-mono font-semibold text-[#1453D6]">
+                            {ticket.ticketCode}
+                          </span>
+                          <span className="text-[#4A5464]">· {ticket.department}</span>
+                          {ticket.orderCode && (
+                            <span dir="ltr" className="font-mono text-[11px] px-2 py-0.5 rounded bg-white border border-[#E4E8EE] text-[#11161E]">
+                              سفارش {ticket.orderCode}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-md border text-[11px] font-medium ${statusInfo.cls}`}
+                          >
+                            {statusInfo.label}
+                          </span>
+                          <span className="text-[11px] text-[#6E7889] tabular-nums-fa">
+                            {formatPersianDate(ticket.createdAt)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-xs text-[#11161E] leading-6 whitespace-pre-line">
+                        {ticket.message}
+                      </p>
+
+                      {ticket.adminReply && (
+                        <div className="p-3.5 rounded-lg bg-[#ECFDF3]/70 border border-[#ABEFC6] space-y-1">
+                          <p className="text-[11px] font-semibold text-[#067647]">
+                            پاسخ پشتیبانی فروشگاه امیر:
+                          </p>
+                          <p className="text-xs text-[#11161E] leading-6 whitespace-pre-line">
+                            {ticket.adminReply}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         )}
 
         {activeTab === 'security' && (

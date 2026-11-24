@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ArrowLeft,
@@ -13,9 +13,11 @@ import {
 import { ComparePageSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
+import { hydrateProduct } from '../data/catalog';
+import { storeApi } from '../lib/authApi';
 import type { Product } from '../types/store';
 import { UI_EASE } from '../utils/motionHelpers';
-import { formatToman, toPersianDigits } from '../utils/storeLogic';
+import { computeCompareWinners, formatToman, toPersianDigits } from '../utils/storeLogic';
 import { useTemporarilyAdded } from '../utils/useTemporarilyAdded';
 
 interface CompareProductHeaderCardProps {
@@ -156,10 +158,47 @@ export const ComparePage: React.FC = () => {
     handleLinkClick,
   } = useStore();
   const [onlyDifferences, setOnlyDifferences] = useState(false);
+  const [detailedById, setDetailedById] = useState<Record<string, Product>>({});
 
-  const selectedProducts = useMemo(
+  const baseSelectedProducts = useMemo(
     () => products.filter((p) => compareIds.includes(p.id)),
     [products, compareIds]
+  );
+
+  // Hydrate structured attributeValues from PDP endpoint for compared products
+  useEffect(() => {
+    let active = true;
+    const missing = baseSelectedProducts.filter(
+      (p) => !detailedById[p.id] && !(p.attributeValues && p.attributeValues.length > 0)
+    );
+    if (missing.length === 0) return;
+
+    Promise.allSettled(missing.map((p) => storeApi.getProductBySlug(p.slug))).then((results) => {
+      if (!active) return;
+      const patch: Record<string, Product> = {};
+      results.forEach((res) => {
+        if (res.status === 'fulfilled' && res.value?.product) {
+          const hydrated = hydrateProduct(res.value.product);
+          patch[hydrated.id] = hydrated;
+        }
+      });
+      if (Object.keys(patch).length > 0) {
+        setDetailedById((prev) => ({ ...prev, ...patch }));
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [baseSelectedProducts, detailedById]);
+
+  const selectedProducts = useMemo(
+    () =>
+      baseSelectedProducts.map((p) => {
+        const detailed = detailedById[p.id];
+        return detailed ? { ...p, ...detailed } : p;
+      }),
+    [baseSelectedProducts, detailedById]
   );
 
   const availableToAdd = useMemo(
@@ -168,6 +207,20 @@ export const ComparePage: React.FC = () => {
   );
 
   const allRows = useMemo(() => {
+    const attrMeta = new Map<string, string>();
+    for (const p of selectedProducts) {
+      for (const attr of p.attributeValues || []) {
+        if (attr.code && !attrMeta.has(attr.code)) {
+          attrMeta.set(attr.code, attr.nameFa || attr.nameEn || attr.code);
+        }
+      }
+    }
+    const attrRows: CompareRow[] = Array.from(attrMeta.entries()).map(([code, label]) => ({
+      key: `attr:${code}`,
+      label,
+      render: (p) => p.attributeValues?.find((a) => a.code === code)?.displayValue || '—',
+    }));
+
     const customLabels: string[] = [];
     const seen = new Set<string>();
     for (const p of selectedProducts) {
@@ -184,7 +237,7 @@ export const ComparePage: React.FC = () => {
       label: lbl,
       render: (p) => p.customSpecs?.find((s) => s.label.trim() === lbl)?.value || '—',
     }));
-    return [...CORE_COMPARE_ROWS, ...customRows];
+    return [...CORE_COMPARE_ROWS, ...attrRows, ...customRows];
   }, [selectedProducts]);
 
   const visibleRows = useMemo(() => {
@@ -194,6 +247,11 @@ export const ComparePage: React.FC = () => {
       return new Set(values).size > 1;
     });
   }, [allRows, onlyDifferences, selectedProducts]);
+
+  const winners = useMemo(
+    () => computeCompareWinners(selectedProducts),
+    [selectedProducts]
+  );
 
   if (productsLoading) {
     return <ComparePageSkeleton />;
@@ -305,17 +363,36 @@ export const ComparePage: React.FC = () => {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#E4E8EE] text-xs">
+              <tbody className="divide-y divide-[#E4E8EE] text-xs" data-testid="compare-spec-rows">
                 {visibleRows.map((row) => (
                   <tr key={row.key} className="hover:bg-[#F7F8FA]">
                     <td className="p-4 font-medium text-[#4A5464] bg-[#F7F8FA]/60">
                       {row.label}
                     </td>
-                    {selectedProducts.map((p) => (
-                      <td key={p.id} className="p-4 font-medium text-[#11161E] tabular-nums-fa leading-6">
-                        {row.render(p)}
-                      </td>
-                    ))}
+                    {selectedProducts.map((p) => {
+                      const isWinner = selectedProducts.length >= 2 && winners[row.key] === p.id;
+                      return (
+                        <td
+                          key={p.id}
+                          data-winner={isWinner ? 'true' : undefined}
+                          className={`p-4 tabular-nums-fa leading-6 transition-colors ${
+                            isWinner
+                              ? 'bg-[#ECFDF3]/70 text-[#067647] font-semibold'
+                              : 'font-medium text-[#11161E]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{row.render(p)}</span>
+                            {isWinner && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[#ECFDF3] border border-[#ABEFC6] text-[#067647] text-[10px] font-semibold shrink-0">
+                                <Check className="w-3 h-3" strokeWidth={2} />
+                                برتر
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>

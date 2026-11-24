@@ -1,6 +1,9 @@
 import type {
   AttributeDefinition,
+  BlogListResponse,
+  BlogPostItem,
   BrandItem,
+  CartItem,
   CategoryItem,
   CouponRule,
   DemoUser,
@@ -9,16 +12,20 @@ import type {
   OrderStatus,
   OrderSummary,
   OtpPurpose,
+  PaginatedProductsResponse,
   Product,
   ProductAttributeValue,
+  ProductQuestion,
   ProductReview,
   ProductVariant,
   PublicUserProfile,
   ResendServiceStatus,
+  StockAlertItem,
   StockMovementItem,
   StoreSettings,
   SupportTicket,
   UserAddress,
+  UserNotification,
   WarehouseItem,
   WarehouseStockItem,
   WarrantyItem,
@@ -346,6 +353,24 @@ export const authApi = {
     );
   },
 
+  async getCart(): Promise<{ items: CartItem[] }> {
+    return requestJson<{ items: CartItem[] }>('/api/auth/cart');
+  },
+
+  async replaceCart(items: CartItem[]): Promise<{ items: CartItem[] }> {
+    return requestJson<{ items: CartItem[] }>('/api/auth/cart', {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    });
+  },
+
+  async mergeCart(items: CartItem[]): Promise<{ items: CartItem[] }> {
+    return requestJson<{ items: CartItem[] }>('/api/auth/cart/merge', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
+  },
+
   async getMyOrders(): Promise<{ orders: OrderRecord[] }> {
     return requestJson<{ orders: OrderRecord[] }>('/api/orders/mine');
   },
@@ -465,6 +490,26 @@ export const authApi = {
     return result.order;
   },
 
+  async cancelOrder(
+    orderCode: string,
+    opts?: { phone?: string; reason?: string }
+  ): Promise<{ order: OrderRecord }> {
+    const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+    const token = getOrderTrackingToken(normalized);
+    return requestJson<{ order: OrderRecord }>(
+      `/api/orders/${encodeURIComponent(normalized)}/cancel`,
+      {
+        method: 'POST',
+        headers: token ? { 'X-Order-Tracking-Token': token } : undefined,
+        body: JSON.stringify({
+          ...(token ? { trackingToken: token } : {}),
+          ...(opts?.phone ? { phone: opts.phone } : {}),
+          ...(opts?.reason ? { reason: opts.reason } : {}),
+        }),
+      }
+    );
+  },
+
   async notifyOrderPlaced(payload: {
     orderCode: string;
     totalFormatted: string;
@@ -476,6 +521,38 @@ export const authApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }).catch(() => undefined);
+  },
+
+  async getStockAlerts(): Promise<{ alerts: StockAlertItem[]; productIds: string[] }> {
+    return requestJson<{ alerts: StockAlertItem[]; productIds: string[] }>('/api/stock-alerts');
+  },
+
+  async getNotifications(): Promise<{ notifications: UserNotification[]; unreadCount: number }> {
+    return requestJson<{ notifications: UserNotification[]; unreadCount: number }>('/api/notifications');
+  },
+
+  async markNotificationRead(id: string): Promise<{ notification: UserNotification }> {
+    return requestJson<{ notification: UserNotification }>(
+      `/api/notifications/${encodeURIComponent(id)}/read`,
+      { method: 'PATCH' }
+    );
+  },
+
+  async markAllNotificationsRead(): Promise<{ ok: boolean; updatedCount: number }> {
+    return requestJson<{ ok: boolean; updatedCount: number }>('/api/notifications/read-all', {
+      method: 'PATCH',
+    });
+  },
+
+  async deleteNotification(id: string): Promise<{ ok: boolean; id: string }> {
+    return requestJson<{ ok: boolean; id: string }>(
+      `/api/notifications/${encodeURIComponent(id)}`,
+      { method: 'DELETE' }
+    );
+  },
+
+  async getMySupportTickets(): Promise<{ tickets: SupportTicket[] }> {
+    return requestJson<{ tickets: SupportTicket[] }>('/api/support-tickets/mine');
   },
 };
 
@@ -520,6 +597,57 @@ export const storeApi = {
     return Array.isArray(res.products) ? res.products : [];
   },
 
+  async getProductsPaginated(params?: {
+    category?: string;
+    q?: string;
+    brand?: string;
+    inStock?: boolean;
+    discounted?: boolean;
+    express?: boolean;
+    minPrice?: number;
+    maxPrice?: number;
+    storage?: string | null;
+    ram?: string | null;
+    colorId?: string | null;
+    attributeFilters?: Record<string, string>;
+    sort?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<PaginatedProductsResponse> {
+    const qs = new URLSearchParams();
+    if (params?.category) qs.set('category', params.category);
+    if (params?.q) qs.set('q', params.q);
+    if (params?.brand) qs.set('brand', params.brand);
+    if (params?.inStock) qs.set('inStock', 'true');
+    if (params?.discounted) qs.set('discounted', 'true');
+    if (params?.express) qs.set('express', 'true');
+    if (params?.minPrice !== undefined && params.minPrice > 0) qs.set('minPrice', String(params.minPrice));
+    if (params?.maxPrice !== undefined && Number.isFinite(params.maxPrice)) qs.set('maxPrice', String(params.maxPrice));
+    if (params?.storage) qs.set('storage', params.storage);
+    if (params?.ram) qs.set('ram', params.ram);
+    if (params?.colorId) qs.set('colorId', params.colorId);
+    if (params?.attributeFilters) {
+      for (const [code, val] of Object.entries(params.attributeFilters)) {
+        if (val) qs.set(`attr_${code}`, val);
+      }
+    }
+    if (params?.sort) qs.set('sort', params.sort);
+    if (params?.page !== undefined) qs.set('page', String(params.page));
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+    const suffix = qs.toString();
+    const res = await requestJson<PaginatedProductsResponse>(
+      suffix ? `/api/products?${suffix}` : '/api/products'
+    );
+    const list = Array.isArray(res.products) ? res.products : [];
+    return {
+      products: list,
+      total: typeof res.total === 'number' ? res.total : list.length,
+      page: typeof res.page === 'number' ? res.page : params?.page || 1,
+      limit: typeof res.limit === 'number' ? res.limit : params?.limit || list.length || 12,
+      totalPages: typeof res.totalPages === 'number' ? res.totalPages : 1,
+    };
+  },
+
   async getProductBySlug(slug: string): Promise<{ product: Product; reviews: ProductReview[] }> {
     return requestJson<{ product: Product; reviews: ProductReview[] }>(
       `/api/products/${encodeURIComponent(slug)}`
@@ -559,6 +687,46 @@ export const storeApi = {
       }
     );
     return res.review;
+  },
+
+  async getProductQuestions(productId: string): Promise<ProductQuestion[]> {
+    const res = await requestJson<{ questions: ProductQuestion[] }>(
+      `/api/products/${encodeURIComponent(productId)}/questions`
+    );
+    return Array.isArray(res.questions) ? res.questions : [];
+  },
+
+  async submitProductQuestion(
+    productId: string,
+    payload: { authorName: string; question: string }
+  ): Promise<ProductQuestion> {
+    const res = await requestJson<{ question: ProductQuestion }>(
+      `/api/products/${encodeURIComponent(productId)}/questions`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    );
+    return res.question;
+  },
+
+  async subscribeStockAlert(payload: {
+    productId: string;
+    variantId?: string | null;
+    email?: string;
+  }): Promise<{ alert: StockAlertItem; alreadySubscribed: boolean }> {
+    return requestJson<{ alert: StockAlertItem; alreadySubscribed: boolean }>('/api/stock-alerts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async removeStockAlert(productId: string, email?: string): Promise<{ ok: boolean; removed: boolean }> {
+    const qs = email ? `?email=${encodeURIComponent(email)}` : '';
+    return requestJson<{ ok: boolean; removed: boolean }>(
+      `/api/stock-alerts/${encodeURIComponent(productId)}${qs}`,
+      { method: 'DELETE' }
+    );
   },
 
   async submitSupportTicket(payload: {
@@ -607,6 +775,31 @@ export const storeApi = {
     const qs = category ? `?category=${encodeURIComponent(category)}` : '';
     const res = await requestJson<{ attributes: AttributeDefinition[] }>(`/api/attributes${qs}`);
     return Array.isArray(res.attributes) ? res.attributes : [];
+  },
+
+  async getBlogPosts(params?: {
+    category?: string;
+    q?: string;
+    tag?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<BlogListResponse> {
+    const qs = new URLSearchParams();
+    if (params?.category && params.category !== 'all') qs.set('category', params.category);
+    if (params?.q && params.q.trim()) qs.set('q', params.q.trim());
+    if (params?.tag && params.tag.trim()) qs.set('tag', params.tag.trim());
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const suffix = qs.toString();
+    return requestJson<BlogListResponse>(suffix ? `/api/blog?${suffix}` : '/api/blog');
+  },
+
+  async getBlogPostBySlug(
+    slug: string
+  ): Promise<{ post: BlogPostItem; relatedPosts: BlogPostItem[] }> {
+    return requestJson<{ post: BlogPostItem; relatedPosts: BlogPostItem[] }>(
+      `/api/blog/${encodeURIComponent(slug)}`
+    );
   },
 };
 

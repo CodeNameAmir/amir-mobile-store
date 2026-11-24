@@ -15,8 +15,58 @@ import type {
 const PERSIAN_DIGITS = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
 
 export const FREE_SHIPPING_THRESHOLD = 1_000_000;
-export const STANDARD_SHIPPING_FEE = 150_000;
+export const TEHRAN_EXPRESS_SHIPPING_FEE = 150_000;
+export const NATIONAL_POST_SHIPPING_FEE = 95_000;
+export const STANDARD_SHIPPING_FEE = TEHRAN_EXPRESS_SHIPPING_FEE;
 export const DEFAULT_MONTHLY_INSTALLMENT_RATE = 2.2; // 2.2% monthly fee
+
+export function isTehranCity(city?: string): boolean {
+  const clean = toEnglishDigits(String(city ?? '')).trim().toLowerCase();
+  if (!clean) return false;
+  return (
+    clean === 'تهران' ||
+    clean === 'tehran' ||
+    clean === 'استان تهران' ||
+    clean === 'تهران بزرگ' ||
+    /^تهران(\s|[-،,]|$)/.test(clean)
+  );
+}
+
+export function resolveDeliverySlot(
+  city?: string,
+  deliverySlot?: 'express' | 'standard'
+): 'express' | 'standard' {
+  return isTehranCity(city) && deliverySlot !== 'standard' ? 'express' : 'standard';
+}
+
+export function resolveShippingOption(
+  afterDiscounts: number,
+  freeShippingThreshold: number,
+  city?: string,
+  deliverySlot?: 'express' | 'standard',
+  hasItems = true
+): {
+  deliverySlot: 'express' | 'standard';
+  shippingCost: number;
+  freeShippingEligible: boolean;
+} {
+  const resolvedSlot = resolveDeliverySlot(city, deliverySlot);
+  const freeShippingEligible = !hasItems || afterDiscounts >= freeShippingThreshold;
+  if (!hasItems || freeShippingEligible) {
+    return {
+      deliverySlot: resolvedSlot,
+      shippingCost: 0,
+      freeShippingEligible: true,
+    };
+  }
+  const shippingCost =
+    resolvedSlot === 'express' ? TEHRAN_EXPRESS_SHIPPING_FEE : NATIONAL_POST_SHIPPING_FEE;
+  return {
+    deliverySlot: resolvedSlot,
+    shippingCost,
+    freeShippingEligible: false,
+  };
+}
 
 export const DEFAULT_COUPON_RULES: CouponRule[] = [
   {
@@ -330,12 +380,47 @@ export function filterAndSortProducts(
       if (!hasColor) return false;
     }
 
+    if (filters.attributeFilters && Object.keys(filters.attributeFilters).length > 0) {
+      const attrs = p.attributeValues || [];
+      for (const [code, expectedRaw] of Object.entries(filters.attributeFilters)) {
+        const expected = toEnglishDigits(String(expectedRaw || '')).trim().toLowerCase();
+        if (!expected) continue;
+        const match = attrs.find((a) => a.code.toLowerCase() === code.toLowerCase());
+        if (!match) return false;
+        const valCandidates = [
+          match.displayValue,
+          match.valueText ?? '',
+          match.valueNumber !== null && match.valueNumber !== undefined ? String(match.valueNumber) : '',
+          typeof match.valueBoolean === 'boolean'
+            ? match.valueBoolean
+              ? 'true دارد بله'
+              : 'false ندارد خیر'
+            : '',
+        ]
+          .map((v) => toEnglishDigits(String(v)).trim().toLowerCase())
+          .filter(Boolean);
+        if (!valCandidates.some((c) => c === expected || c.includes(expected))) {
+          return false;
+        }
+      }
+    }
+
     if (filters.searchQuery.trim() && !matchesProductSearch(p, filters.searchQuery)) {
       return false;
     }
 
     return true;
   });
+
+  const stockOrder = (p: Product) => (p.inStock && p.stockCount > 0 ? 0 : 1);
+  const discountMagnitude = (p: Product) => {
+    const pct = p.discountPercent ?? 0;
+    if (pct > 0) return pct;
+    if (p.originalPrice && p.originalPrice > p.price) {
+      return Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
+    }
+    return 0;
+  };
 
   const sorted = [...filtered];
   switch (filters.sortBy) {
@@ -346,14 +431,24 @@ export function filterAndSortProducts(
       sorted.sort((a, b) => b.price - a.price);
       break;
     case 'bestselling':
-      sorted.sort((a, b) => a.salesRank - b.salesRank);
+      sorted.sort((a, b) => stockOrder(a) - stockOrder(b) || a.salesRank - b.salesRank);
       break;
     case 'popular':
-      sorted.sort((a, b) => b.rating - a.rating || b.reviewCount - a.reviewCount);
+      sorted.sort(
+        (a, b) => stockOrder(a) - stockOrder(b) || b.rating - a.rating || b.reviewCount - a.reviewCount
+      );
+      break;
+    case 'biggest_discount':
+      sorted.sort(
+        (a, b) =>
+          stockOrder(a) - stockOrder(b) ||
+          discountMagnitude(b) - discountMagnitude(a) ||
+          compareNewestProducts(a, b)
+      );
       break;
     case 'newest':
     default:
-      sorted.sort(compareNewestProducts);
+      sorted.sort((a, b) => stockOrder(a) - stockOrder(b) || compareNewestProducts(a, b));
       break;
   }
 
@@ -480,6 +575,15 @@ export interface OrderStageDisplay {
 
 export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
   switch (status) {
+    case 'pending_payment':
+      return {
+        activeStageIndex: 0,
+        isCancelled: false,
+        isDelivered: false,
+        badgeLabel: 'در انتظار پرداخت',
+        headlineText: 'سفارش شما ثبت شده و در انتظار تکمیل پرداخت است',
+        summaryText: 'پس از تایید پرداخت، سفارش وارد مرحله بررسی انبار و آماده‌سازی می‌شود.',
+      };
     case 'paid':
       return {
         activeStageIndex: 0,
@@ -614,6 +718,7 @@ export interface CartSummary {
   netSubtotal: number;
   productDiscount: number;
   couponDiscount: number;
+  deliverySlot: 'express' | 'standard';
   shippingCost: number;
   freeShippingEligible: boolean;
   totalPayable: number;
@@ -624,7 +729,8 @@ export function calculateCartSummary(
   items: CartItem[],
   couponCode: string | null,
   customRules: CouponRule[] = DEFAULT_COUPON_RULES,
-  freeShippingThreshold: number = FREE_SHIPPING_THRESHOLD
+  freeShippingThreshold: number = FREE_SHIPPING_THRESHOLD,
+  shippingOptions?: { city?: string; deliverySlot?: 'express' | 'standard' }
 ): CartSummary {
   let itemCount = 0;
   let originalSubtotal = 0;
@@ -644,8 +750,15 @@ export function calculateCartSummary(
   const couponDiscount = couponEval.valid ? couponEval.discountAmount : 0;
 
   const afterDiscounts = Math.max(0, netSubtotal - couponDiscount);
-  const freeShippingEligible = afterDiscounts >= freeShippingThreshold || items.length === 0;
-  const shippingCost = items.length === 0 || freeShippingEligible ? 0 : STANDARD_SHIPPING_FEE;
+  const cityForShipping = shippingOptions?.city ?? 'تهران';
+  const slotForShipping = shippingOptions?.deliverySlot ?? 'express';
+  const { deliverySlot, shippingCost, freeShippingEligible } = resolveShippingOption(
+    afterDiscounts,
+    freeShippingThreshold,
+    cityForShipping,
+    slotForShipping,
+    items.length > 0
+  );
   const totalPayable = afterDiscounts + shippingCost;
   const totalSavings = productDiscount + couponDiscount;
 
@@ -655,6 +768,7 @@ export function calculateCartSummary(
     netSubtotal,
     productDiscount,
     couponDiscount,
+    deliverySlot,
     shippingCost,
     freeShippingEligible,
     totalPayable,
@@ -670,6 +784,10 @@ export function validateCheckoutForm(data: CheckoutFormData): Record<string, str
   const phoneEn = toEnglishDigits(data.phone.trim()).replace(/[\s-]/g, '');
   if (!/^09\d{9}$/.test(phoneEn)) {
     errors.phone = 'شماره موبایل معتبر وارد کنید (مثال: ۰۹۱۲۳۴۵۶۷۸۹).';
+  }
+  const emailTrimmed = toEnglishDigits(String(data.email ?? '')).trim();
+  if (emailTrimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(emailTrimmed)) {
+    errors.email = 'فرمت ایمیل وارد شده معتبر نیست.';
   }
   if (data.city.trim().length < 2) {
     errors.city = 'نام شهر یا استان را وارد کنید.';
@@ -702,4 +820,135 @@ export function validateContactForm(data: ContactFormData): Record<string, strin
 export function generateOrderCode(seed?: number): string {
   const num = seed ?? Math.floor(10000 + Math.random() * 89999);
   return `AMIR-${num}`;
+}
+
+export function extractAvailableStorageOptions(products: Product[]): string[] {
+  const seen = new Map<string, { label: string; gbScore: number }>();
+  const register = (raw?: string | null) => {
+    const label = String(raw || '').trim();
+    if (!label || label === 'ندارد' || label === '-' || label === '—') return;
+    if (!/(گیگ|ترابایت|gb|tb)/i.test(label)) return;
+    const norm = toEnglishDigits(label).toLowerCase().replace(/\s+/g, '');
+    const numMatch = toEnglishDigits(label).match(/(\d+(?:\.\d+)?)/);
+    let score = numMatch ? Number(numMatch[1]) : 0;
+    if (/ترابایت|tb/i.test(label)) score *= 1024;
+    if (!seen.has(norm)) {
+      seen.set(norm, { label, gbScore: score });
+    }
+  };
+  for (const p of products) {
+    register(p.specs?.storageDefault);
+    for (const s of p.storageOptions || []) {
+      register(s.label);
+    }
+    for (const v of p.variants || []) {
+      register(v.storage);
+    }
+  }
+  return [...seen.values()]
+    .sort((a, b) => a.gbScore - b.gbScore || a.label.localeCompare(b.label, 'fa'))
+    .map((x) => x.label);
+}
+
+export function extractAvailableRamOptions(products: Product[]): string[] {
+  const seen = new Map<string, { label: string; gbScore: number }>();
+  const register = (raw?: string | null) => {
+    const label = String(raw || '').trim();
+    if (!label || label === 'ندارد' || label === '-' || label === '—') return;
+    if (!/(گیگ|gb)/i.test(label)) return;
+    const norm = toEnglishDigits(label).toLowerCase().replace(/\s+/g, '');
+    const numMatch = toEnglishDigits(label).match(/(\d+(?:\.\d+)?)/);
+    const score = numMatch ? Number(numMatch[1]) : 0;
+    if (!seen.has(norm)) {
+      seen.set(norm, { label, gbScore: score });
+    }
+  };
+  for (const p of products) {
+    register(p.specs?.ram);
+    for (const v of p.variants || []) {
+      register(v.ram);
+    }
+  }
+  return [...seen.values()]
+    .sort((a, b) => a.gbScore - b.gbScore || a.label.localeCompare(b.label, 'fa'))
+    .map((x) => x.label);
+}
+
+export function extractFirstNumericSpec(raw?: string | null): number | null {
+  if (!raw) return null;
+  const normalized = toEnglishDigits(String(raw))
+    .replace(/[,٬،\u066C]/g, '')
+    .replace(/[٫\u066B]/g, '.');
+  const match = normalized.match(/(\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  const val = Number(match[1]);
+  return Number.isFinite(val) ? val : null;
+}
+
+export function computeCompareWinners(products: Product[]): Record<string, string | null> {
+  if (products.length < 2) return {};
+  const pickWinner = (
+    values: Array<{ id: string; score: number | null }>,
+    mode: 'min' | 'max'
+  ): string | null => {
+    const valid = values.filter((v): v is { id: string; score: number } => v.score !== null);
+    if (valid.length < 2) return null;
+    const uniqueScores = new Set(valid.map((v) => v.score));
+    if (uniqueScores.size <= 1) return null;
+    valid.sort((a, b) => (mode === 'min' ? a.score - b.score : b.score - a.score));
+    // Require strict single winner (not tied at top)
+    if (valid[0].score === valid[1].score) return null;
+    return valid[0].id;
+  };
+
+  const winners: Record<string, string | null> = {};
+  winners.price = pickWinner(
+    products.map((p) => ({
+      id: p.id,
+      score: p.inStock && p.price > 0 ? p.price : null,
+    })),
+    'min'
+  );
+  winners.ram = pickWinner(
+    products.map((p) => ({
+      id: p.id,
+      score: extractFirstNumericSpec(p.specs?.ram),
+    })),
+    'max'
+  );
+  winners.battery = pickWinner(
+    products.map((p) => {
+      const attr = p.attributeValues?.find((a) => a.code === 'battery_mah')?.valueNumber;
+      return {
+        id: p.id,
+        score: typeof attr === 'number' ? attr : extractFirstNumericSpec(p.specs?.battery),
+      };
+    }),
+    'max'
+  );
+
+  // Also check structured numeric attributes (e.g. battery_mah, fast_charge_w, screen_hz, camera_mp, screen_size)
+  const attrCodes = new Set<string>();
+  for (const p of products) {
+    for (const a of p.attributeValues || []) {
+      if (a.dataType === 'number' && typeof a.valueNumber === 'number') {
+        attrCodes.add(a.code);
+      }
+    }
+  }
+  for (const code of attrCodes) {
+    const mode: 'min' | 'max' = code === 'weight_g' ? 'min' : 'max';
+    winners[`attr:${code}`] = pickWinner(
+      products.map((p) => {
+        const match = p.attributeValues?.find((a) => a.code === code);
+        return {
+          id: p.id,
+          score: typeof match?.valueNumber === 'number' ? match.valueNumber : null,
+        };
+      }),
+      mode
+    );
+  }
+
+  return winners;
 }

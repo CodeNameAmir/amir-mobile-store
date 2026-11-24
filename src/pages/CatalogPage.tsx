@@ -13,12 +13,23 @@ import { DualPriceRangeSlider } from '../components/DualPriceRangeSlider';
 import { ProductCard } from '../components/ProductCard';
 import { ProductCardSkeleton, SkeletonBox } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
-import type { BrandId, CategoryId, CategoryItem, SortOption } from '../types/store';
+import { hydrateProduct } from '../data/catalog';
+import { storeApi } from '../lib/authApi';
+import type {
+  AttributeDefinition,
+  BrandId,
+  CategoryId,
+  CategoryItem,
+  Product,
+  SortOption,
+} from '../types/store';
 import { UI_EASE } from '../utils/motionHelpers';
 import {
   computeCatalogMaxPrice,
   extractAvailableBrands,
   extractAvailableColors,
+  extractAvailableRamOptions,
+  extractAvailableStorageOptions,
   filterAndSortProducts,
   formatToman,
   paginateItems,
@@ -26,8 +37,6 @@ import {
   toPersianDigits,
 } from '../utils/storeLogic';
 
-const STORAGE_CHIPS = ['۱۲۸ گیگابایت', '۲۵۶ گیگابایت', '۵۱۲ گیگابایت'];
-const RAM_CHIPS = ['۸ گیگ', '۱۲ گیگ', '۱۶ گیگ'];
 const PAGE_SIZE = 6;
 
 const SORT_OPTIONS: { id: SortOption; label: string }[] = [
@@ -36,6 +45,7 @@ const SORT_OPTIONS: { id: SortOption; label: string }[] = [
   { id: 'cheapest', label: 'ارزان‌ترین' },
   { id: 'expensive', label: 'گران‌ترین' },
   { id: 'popular', label: 'محبوب‌ترین' },
+  { id: 'biggest_discount', label: 'بیشترین تخفیف' },
 ];
 
 export const CatalogPage: React.FC = () => {
@@ -60,10 +70,48 @@ export const CatalogPage: React.FC = () => {
   const [extraVisibleCount, setExtraVisibleCount] = useState(0);
   const [localSearch, setLocalSearch] = useState(filters.searchQuery || '');
   const [openFaqIndices, setOpenFaqIndices] = useState<number[]>([0, 1]);
+  const [dynamicAttributes, setDynamicAttributes] = useState<AttributeDefinition[]>([]);
+  const [serverPageState, setServerPageState] = useState<{
+    items: Product[];
+    total: number;
+    page: number;
+    totalPages: number;
+    loading: boolean;
+    ready: boolean;
+    failed: boolean;
+  }>({
+    items: [],
+    total: 0,
+    page: 1,
+    totalPages: 1,
+    loading: true,
+    ready: false,
+    failed: false,
+  });
 
   useEffect(() => {
     setLocalSearch(filters.searchQuery || '');
   }, [filters.searchQuery]);
+
+  // Fetch dynamic EAV attributes for active category
+  useEffect(() => {
+    let active = true;
+    const catParam =
+      filters.category !== 'all' && filters.category !== 'offers' ? filters.category : undefined;
+    storeApi
+      .getAttributes(catParam)
+      .then((attrs) => {
+        if (!active) return;
+        setDynamicAttributes(attrs.filter((a) => a.isFilterable));
+      })
+      .catch(() => {
+        if (!active) return;
+        setDynamicAttributes([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [filters.category]);
 
   // Record typed catalog queries into recent search history after user pauses typing
   useEffect(() => {
@@ -80,6 +128,78 @@ export const CatalogPage: React.FC = () => {
     setCurrentPage(1);
     setExtraVisibleCount(0);
   }, [filters]);
+
+  // Server-side catalog query with pagination & dynamic filters
+  useEffect(() => {
+    let active = true;
+    const requestPage = currentPage === 1 && extraVisibleCount > 0 ? 1 : currentPage;
+    const requestLimit =
+      currentPage === 1 && extraVisibleCount > 0 ? PAGE_SIZE + extraVisibleCount : PAGE_SIZE;
+
+    setServerPageState((prev) => ({ ...prev, loading: true, failed: false }));
+
+    const timer = window.setTimeout(() => {
+      storeApi
+        .getProductsPaginated({
+          category: filters.category !== 'all' ? filters.category : undefined,
+          q: filters.searchQuery.trim() || undefined,
+          brand: filters.brands.length > 0 ? filters.brands.join(',') : undefined,
+          inStock: filters.inStockOnly || undefined,
+          discounted: filters.discountedOnly || undefined,
+          express: filters.expressOnly || undefined,
+          minPrice: filters.minPrice > 0 ? filters.minPrice : undefined,
+          maxPrice: Number.isFinite(filters.maxPrice) ? filters.maxPrice : undefined,
+          storage: filters.storage || undefined,
+          ram: filters.ram || undefined,
+          colorId: filters.colorId || undefined,
+          attributeFilters: filters.attributeFilters,
+          sort: filters.sortBy,
+          page: requestPage,
+          limit: requestLimit,
+        })
+        .then((res) => {
+          if (!active) return;
+          setServerPageState({
+            items: res.products.map(hydrateProduct),
+            total: res.total,
+            page: res.page,
+            totalPages: res.totalPages,
+            loading: false,
+            ready: true,
+            failed: false,
+          });
+        })
+        .catch(() => {
+          if (!active) return;
+          setServerPageState((prev) => ({
+            ...prev,
+            loading: false,
+            failed: true,
+          }));
+        });
+    }, 120);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [
+    currentPage,
+    extraVisibleCount,
+    filters.attributeFilters,
+    filters.brands,
+    filters.category,
+    filters.colorId,
+    filters.discountedOnly,
+    filters.expressOnly,
+    filters.inStockOnly,
+    filters.maxPrice,
+    filters.minPrice,
+    filters.ram,
+    filters.searchQuery,
+    filters.sortBy,
+    filters.storage,
+  ]);
 
   const activeCategories = useMemo(
     () => categories.filter((c) => c.isActive !== false).sort((a, b) => a.sortOrder - b.sortOrder),
@@ -116,16 +236,29 @@ export const CatalogPage: React.FC = () => {
     return items;
   }, [activeCategories]);
 
-  const filteredProducts = useMemo(
+  const fallbackFilteredProducts = useMemo(
     () => filterAndSortProducts(products, filters, categories),
     [products, filters, categories]
   );
 
   const effectivePageSize = PAGE_SIZE + extraVisibleCount;
-  const paginated = useMemo(
-    () => paginateItems(filteredProducts, currentPage, effectivePageSize),
-    [filteredProducts, currentPage, effectivePageSize]
+  const fallbackPaginated = useMemo(
+    () => paginateItems(fallbackFilteredProducts, currentPage, effectivePageSize),
+    [fallbackFilteredProducts, currentPage, effectivePageSize]
   );
+
+  const useServerPagination = serverPageState.ready && !serverPageState.failed;
+  const displayItems = useServerPagination ? serverPageState.items : fallbackPaginated.items;
+  const totalMatchingCount = useServerPagination
+    ? serverPageState.total
+    : fallbackPaginated.totalItems;
+  const activePageNumber = useServerPagination ? serverPageState.page : fallbackPaginated.page;
+  const activeTotalPages = useServerPagination
+    ? serverPageState.totalPages
+    : fallbackPaginated.totalPages;
+  const gridLoading =
+    (productsLoading && !serverPageState.ready) ||
+    (serverPageState.loading && displayItems.length === 0);
 
   const categoryTitle = useMemo(() => {
     if (filters.category === 'all') return 'همه محصولات فروشگاه امیر';
@@ -146,6 +279,11 @@ export const CatalogPage: React.FC = () => {
   const isPriceFiltered = isMinPriceFiltered || isMaxPriceFiltered;
 
   const availableColors = useMemo(() => extractAvailableColors(products), [products]);
+  const availableStorageChips = useMemo(
+    () => extractAvailableStorageOptions(products),
+    [products]
+  );
+  const availableRamChips = useMemo(() => extractAvailableRamOptions(products), [products]);
 
   const allBrands = useMemo(() => {
     const names = extractAvailableBrands(products, brands);
@@ -175,6 +313,14 @@ export const CatalogPage: React.FC = () => {
     }));
   };
 
+  const activeAttributeEntries = useMemo(
+    () =>
+      Object.entries(filters.attributeFilters || {}).filter(
+        ([, v]) => typeof v === 'string' && v.trim().length > 0
+      ),
+    [filters.attributeFilters]
+  );
+
   const hasActiveFilters =
     filters.category !== 'all' ||
     filters.brands.length > 0 ||
@@ -185,6 +331,7 @@ export const CatalogPage: React.FC = () => {
     Boolean(filters.storage) ||
     Boolean(filters.ram) ||
     Boolean(filters.colorId) ||
+    activeAttributeEntries.length > 0 ||
     Boolean(filters.searchQuery.trim());
 
   const handleCatalogSearchSubmit = (e: React.FormEvent) => {
@@ -396,49 +543,53 @@ export const CatalogPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Storage Capacity */}
-      <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4">
-        <p className="text-xs font-semibold text-[#11161E]">ظرفیت حافظه داخلی</p>
-        <div className="flex flex-wrap gap-1.5">
-          {STORAGE_CHIPS.map((cap) => (
-            <button
-              key={cap}
-              type="button"
-              onClick={() =>
-                setFilters((p) => ({ ...p, storage: p.storage === cap ? null : cap }))
-              }
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                filters.storage === cap
-                  ? 'bg-[#1453D6] text-white'
-                  : 'bg-[#F1F3F6] text-[#4A5464] hover:bg-[#EAECEF] hover:text-[#11161E]'
-              }`}
-            >
-              {cap}
-            </button>
-          ))}
+      {/* Dynamic Storage Capacity */}
+      {availableStorageChips.length > 0 && (
+        <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4" data-testid="dynamic-storage-filters">
+          <p className="text-xs font-semibold text-[#11161E]">ظرفیت حافظه داخلی</p>
+          <div className="flex flex-wrap gap-1.5">
+            {availableStorageChips.map((cap) => (
+              <button
+                key={cap}
+                type="button"
+                onClick={() =>
+                  setFilters((p) => ({ ...p, storage: p.storage === cap ? null : cap }))
+                }
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  filters.storage === cap
+                    ? 'bg-[#1453D6] text-white'
+                    : 'bg-[#F1F3F6] text-[#4A5464] hover:bg-[#EAECEF] hover:text-[#11161E]'
+                }`}
+              >
+                {cap}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* RAM Capacity */}
-      <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4">
-        <p className="text-xs font-semibold text-[#11161E]">حافظه رم (RAM)</p>
-        <div className="flex flex-wrap gap-1.5">
-          {RAM_CHIPS.map((ram) => (
-            <button
-              key={ram}
-              type="button"
-              onClick={() => setFilters((p) => ({ ...p, ram: p.ram === ram ? null : ram }))}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                filters.ram === ram
-                  ? 'bg-[#1453D6] text-white'
-                  : 'bg-[#F1F3F6] text-[#4A5464] hover:bg-[#EAECEF] hover:text-[#11161E]'
-              }`}
-            >
-              {ram}
-            </button>
-          ))}
+      {/* Dynamic RAM Capacity */}
+      {availableRamChips.length > 0 && (
+        <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4" data-testid="dynamic-ram-filters">
+          <p className="text-xs font-semibold text-[#11161E]">حافظه رم (RAM)</p>
+          <div className="flex flex-wrap gap-1.5">
+            {availableRamChips.map((ram) => (
+              <button
+                key={ram}
+                type="button"
+                onClick={() => setFilters((p) => ({ ...p, ram: p.ram === ram ? null : ram }))}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  filters.ram === ram
+                    ? 'bg-[#1453D6] text-white'
+                    : 'bg-[#F1F3F6] text-[#4A5464] hover:bg-[#EAECEF] hover:text-[#11161E]'
+                }`}
+              >
+                {ram}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Dynamic Available Color Swatches */}
       <div className="space-y-2.5 border-t border-[#E4E8EE] pt-4">
@@ -479,6 +630,78 @@ export const CatalogPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Dynamic Attribute Filters (EAV) */}
+      {dynamicAttributes.length > 0 && (
+        <div className="space-y-3 border-t border-[#E4E8EE] pt-4" data-testid="dynamic-attribute-filters">
+          <p className="text-xs font-semibold text-[#11161E]">ویژگی‌های فنی</p>
+          <div className="space-y-2.5">
+            {dynamicAttributes.map((attr) => {
+              const currentVal = filters.attributeFilters?.[attr.code] || '';
+              if (attr.dataType === 'boolean') {
+                const isChecked = currentVal === 'true';
+                return (
+                  <label
+                    key={attr.id}
+                    className="flex items-center justify-between gap-2 cursor-pointer text-xs text-[#11161E]"
+                  >
+                    <span>{attr.nameFa}</span>
+                    <input
+                      type="checkbox"
+                      data-testid={`attr-filter-${attr.code}`}
+                      checked={isChecked}
+                      onChange={(e) => {
+                        const nextChecked = e.target.checked;
+                        setFilters((prev) => {
+                          const nextAttrs = { ...(prev.attributeFilters || {}) };
+                          if (nextChecked) {
+                            nextAttrs[attr.code] = 'true';
+                          } else {
+                            delete nextAttrs[attr.code];
+                          }
+                          return { ...prev, attributeFilters: nextAttrs };
+                        });
+                      }}
+                      className="w-4 h-4 accent-[#1453D6] rounded cursor-pointer"
+                    />
+                  </label>
+                );
+              }
+              return (
+                <div key={attr.id} className="space-y-1">
+                  <label
+                    htmlFor={`attr-input-${attr.code}`}
+                    className="text-[11px] font-medium text-[#4A5464] flex items-center justify-between"
+                  >
+                    <span>{attr.nameFa}</span>
+                    {attr.unit && <span className="text-[10px] text-[#6E7889]">{attr.unit}</span>}
+                  </label>
+                  <input
+                    id={`attr-input-${attr.code}`}
+                    data-testid={`attr-filter-${attr.code}`}
+                    type="text"
+                    value={currentVal}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFilters((prev) => {
+                        const nextAttrs = { ...(prev.attributeFilters || {}) };
+                        if (val.trim()) {
+                          nextAttrs[attr.code] = val;
+                        } else {
+                          delete nextAttrs[attr.code];
+                        }
+                        return { ...prev, attributeFilters: nextAttrs };
+                      });
+                    }}
+                    placeholder={attr.unit ? `مثلاً ${attr.unit}` : 'فیلتر مقدار...'}
+                    className="w-full h-8 px-2.5 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-[11px] text-[#11161E] placeholder:text-[#6E7889] focus:bg-white focus:border-[#1453D6] focus:outline-none"
+                  />
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -502,11 +725,14 @@ export const CatalogPage: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          {productsLoading ? (
+          {gridLoading ? (
             <SkeletonBox className="h-8 w-24 rounded-lg" />
           ) : (
-            <span className="px-3.5 py-2 rounded-lg bg-[#F1F3F6] text-[#11161E] text-xs font-medium tabular-nums-fa">
-              {toPersianDigits(filteredProducts.length)} کالا یافت شد
+            <span
+              data-testid="catalog-total-count"
+              className="px-3.5 py-2 rounded-lg bg-[#F1F3F6] text-[#11161E] text-xs font-medium tabular-nums-fa"
+            >
+              {toPersianDigits(totalMatchingCount)} کالا یافت شد
             </span>
           )}
           <button
@@ -757,6 +983,30 @@ export const CatalogPage: React.FC = () => {
                   <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </button>
               )}
+              {activeAttributeEntries.map(([code, val]) => {
+                const attrDef = dynamicAttributes.find((a) => a.code === code);
+                const label = attrDef?.nameFa || code;
+                const displayVal = val === 'true' ? 'دارد' : val;
+                return (
+                  <button
+                    key={`attr-pill-${code}`}
+                    type="button"
+                    onClick={() =>
+                      setFilters((prev) => {
+                        const nextAttrs = { ...(prev.attributeFilters || {}) };
+                        delete nextAttrs[code];
+                        return { ...prev, attributeFilters: nextAttrs };
+                      })
+                    }
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EEF3FC] hover:bg-[#DCE7FA] text-[#1453D6] text-xs font-medium transition-colors"
+                  >
+                    <span>
+                      {label}: {displayVal}
+                    </span>
+                    <X className="w-3.5 h-3.5" strokeWidth={1.5} />
+                  </button>
+                );
+              })}
               <button
                 type="button"
                 data-testid="clear-all-filters-btn"
@@ -769,7 +1019,7 @@ export const CatalogPage: React.FC = () => {
           )}
 
           {/* Product Grid + Pagination */}
-          {productsLoading ? (
+          {gridLoading ? (
             <div
               role="status"
               aria-busy="true"
@@ -781,42 +1031,48 @@ export const CatalogPage: React.FC = () => {
                 <ProductCardSkeleton key={idx} />
               ))}
             </div>
-          ) : paginated.items.length > 0 ? (
+          ) : displayItems.length > 0 ? (
             <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5">
-                {paginated.items.map((product) => (
+              <div
+                data-testid="catalog-products-grid"
+                className={`grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-5 transition-opacity ${
+                  serverPageState.loading ? 'opacity-65' : 'opacity-100'
+                }`}
+              >
+                {displayItems.map((product) => (
                   <ProductCard key={product.id} product={product} />
                 ))}
               </div>
 
-              {(paginated.totalPages > 1 || paginated.items.length < filteredProducts.length) && (
+              {(activeTotalPages > 1 || displayItems.length < totalMatchingCount) && (
                 <div
                   data-testid="catalog-pagination"
                   className="bg-white rounded-xl border border-[#E4E8EE] p-4 flex flex-col sm:flex-row items-center justify-between gap-4"
                 >
                   <p className="text-xs font-medium text-[#4A5464] tabular-nums-fa">
-                    نمایش {toPersianDigits(paginated.items.length)} از {toPersianDigits(filteredProducts.length)} کالا · صفحه{' '}
-                    {toPersianDigits(paginated.page)} از {toPersianDigits(paginated.totalPages)}
+                    نمایش {toPersianDigits(displayItems.length)} از {toPersianDigits(totalMatchingCount)} کالا · صفحه{' '}
+                    {toPersianDigits(activePageNumber)} از {toPersianDigits(activeTotalPages)}
                   </p>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    {paginated.page === 1 && paginated.items.length < filteredProducts.length && (
+                    {activePageNumber === 1 && displayItems.length < totalMatchingCount && (
                       <button
                         type="button"
                         data-testid="catalog-load-more-btn"
                         onClick={() => setExtraVisibleCount((prev) => prev + PAGE_SIZE)}
                         className="h-9 px-4 rounded-lg bg-[#EEF3FC] hover:bg-[#1453D6] text-[#1453D6] hover:text-white text-xs font-semibold transition-colors"
                       >
-                        نمایش {toPersianDigits(Math.min(PAGE_SIZE, filteredProducts.length - paginated.items.length))} کالای بیشتر
+                        نمایش {toPersianDigits(Math.min(PAGE_SIZE, totalMatchingCount - displayItems.length))} کالای بیشتر
                       </button>
                     )}
 
-                    {paginated.totalPages > 1 && (
+                    {activeTotalPages > 1 && (
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          disabled={paginated.page <= 1}
+                          disabled={activePageNumber <= 1}
                           onClick={() => {
+                            setExtraVisibleCount(0);
                             setCurrentPage((p) => Math.max(1, p - 1));
                             window.scrollTo({ top: 140, behavior: 'smooth' });
                           }}
@@ -824,17 +1080,18 @@ export const CatalogPage: React.FC = () => {
                         >
                           قبلی
                         </button>
-                        {Array.from({ length: paginated.totalPages }, (_, i) => i + 1).map((pageNum) => (
+                        {Array.from({ length: activeTotalPages }, (_, i) => i + 1).map((pageNum) => (
                           <button
                             key={pageNum}
                             type="button"
                             data-testid={`catalog-page-${pageNum}`}
                             onClick={() => {
+                              setExtraVisibleCount(0);
                               setCurrentPage(pageNum);
                               window.scrollTo({ top: 140, behavior: 'smooth' });
                             }}
                             className={`w-9 h-9 rounded-lg text-xs font-semibold tabular-nums-fa transition-colors ${
-                              paginated.page === pageNum
+                              activePageNumber === pageNum
                                 ? 'bg-[#1453D6] text-white'
                                 : 'bg-[#F7F8FA] text-[#4A5464] hover:bg-[#F1F3F6]'
                             }`}
@@ -844,9 +1101,10 @@ export const CatalogPage: React.FC = () => {
                         ))}
                         <button
                           type="button"
-                          disabled={paginated.page >= paginated.totalPages}
+                          disabled={activePageNumber >= activeTotalPages}
                           onClick={() => {
-                            setCurrentPage((p) => Math.min(paginated.totalPages, p + 1));
+                            setExtraVisibleCount(0);
+                            setCurrentPage((p) => Math.min(activeTotalPages, p + 1));
                             window.scrollTo({ top: 140, behavior: 'smooth' });
                           }}
                           className="h-9 px-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] disabled:opacity-40 text-xs font-medium text-[#11161E]"

@@ -170,6 +170,16 @@ export const Footer: React.FC = () => {
                 پیگیری سفارش‌ها
               </a>
             </li>
+            <li>
+              <a
+                href={buildHref('/blog')}
+                onClick={(e) => handleLinkClick(e, '/blog')}
+                data-testid="footer-blog-link"
+                className="hover:text-[#1453D6] transition-colors inline-block"
+              >
+                مجله تخصصی موبایل
+              </a>
+            </li>
           </ul>
         </div>
 
@@ -197,6 +207,16 @@ export const Footer: React.FC = () => {
             </li>
             <li>
               <a
+                href={buildHref('/faq')}
+                onClick={(e) => handleLinkClick(e, '/faq')}
+                data-testid="footer-faq-link"
+                className="hover:text-[#1453D6] transition-colors inline-block"
+              >
+                پرسش‌های متداول (FAQ)
+              </a>
+            </li>
+            <li>
+              <a
                 href={buildHref('/contact')}
                 onClick={(e) => handleLinkClick(e, '/contact')}
                 className="hover:text-[#1453D6] transition-colors inline-block"
@@ -211,15 +231,6 @@ export const Footer: React.FC = () => {
                 className="hover:text-[#1453D6] transition-colors inline-block"
               >
                 حساب کاربری و سفارش‌ها
-              </a>
-            </li>
-            <li>
-              <a
-                href={buildHref('/status')}
-                onClick={(e) => handleLinkClick(e, '/status')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
-              >
-                وضعیت زیرساخت و شبکه
               </a>
             </li>
           </ul>
@@ -276,7 +287,7 @@ export const Footer: React.FC = () => {
       <div className="border-t border-[#E4E8EE] bg-[#F7F8FA]">
         <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-[#6E7889]">
           <p>
-            © ۱۴۰۴ فروشگاه موبایل امیر — تمامی حقوق محفوظ است. پرداخت در حالت دمو و نمونه‌کار است.
+            © ۱۴۰۴ فروشگاه موبایل امیر — تمامی حقوق مادی و معنوی محفوظ است.
           </p>
           <p className="font-normal">
             تضمین اصالت کالا و شفافیت قیمت‌گذاری

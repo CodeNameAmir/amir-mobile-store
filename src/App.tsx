@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { AnimatePresence, motion, MotionConfig } from 'motion/react';
 import { AlertTriangle, ArrowLeft, CheckCircle2, Info, RotateCcw, X } from 'lucide-react';
 import { BackToTopButton } from './components/BackToTopButton';
@@ -6,23 +6,80 @@ import { CompareTray } from './components/CompareTray';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
 import { RouteTransitionBar } from './components/RouteTransitionBar';
-import { TempCommitBanner } from './components/TempCommitBanner';
 import { StoreProvider, useStore } from './context/StoreContext';
 import { UI_EASE } from './utils/motionHelpers';
-import { AboutPage } from './pages/AboutPage';
-import { AccountPage } from './pages/AccountPage';
-import { CartCheckoutPage } from './pages/CartCheckoutPage';
-import { CatalogPage } from './pages/CatalogPage';
-import { ComparePage } from './pages/ComparePage';
-import { ContactPage } from './pages/ContactPage';
 import { HomePage } from './pages/HomePage';
-import { InstallmentsPage } from './pages/InstallmentsPage';
-import { OrderConfirmationPage } from './pages/OrderConfirmationPage';
-import { OrderTrackingPage } from './pages/OrderTrackingPage';
-import { ProductDetailPage } from './pages/ProductDetailPage';
-import { PublicProfilePage } from './pages/PublicProfilePage';
-import { NotFoundPage, ServerStatusPage } from './pages/StatusPages';
-import { TermsPage } from './pages/TermsPage';
+
+const AboutPage = React.lazy(() =>
+  import('./pages/AboutPage').then((m) => ({ default: m.AboutPage }))
+);
+const AccountPage = React.lazy(() =>
+  import('./pages/AccountPage').then((m) => ({ default: m.AccountPage }))
+);
+const BlogDetailPage = React.lazy(() =>
+  import('./pages/BlogDetailPage').then((m) => ({ default: m.BlogDetailPage }))
+);
+const BlogListPage = React.lazy(() =>
+  import('./pages/BlogListPage').then((m) => ({ default: m.BlogListPage }))
+);
+const CartCheckoutPage = React.lazy(() =>
+  import('./pages/CartCheckoutPage').then((m) => ({ default: m.CartCheckoutPage }))
+);
+const CatalogPage = React.lazy(() =>
+  import('./pages/CatalogPage').then((m) => ({ default: m.CatalogPage }))
+);
+const ComparePage = React.lazy(() =>
+  import('./pages/ComparePage').then((m) => ({ default: m.ComparePage }))
+);
+const ContactPage = React.lazy(() =>
+  import('./pages/ContactPage').then((m) => ({ default: m.ContactPage }))
+);
+const FaqPage = React.lazy(() =>
+  import('./pages/FaqPage').then((m) => ({ default: m.FaqPage }))
+);
+const InstallmentsPage = React.lazy(() =>
+  import('./pages/InstallmentsPage').then((m) => ({ default: m.InstallmentsPage }))
+);
+const OrderConfirmationPage = React.lazy(() =>
+  import('./pages/OrderConfirmationPage').then((m) => ({ default: m.OrderConfirmationPage }))
+);
+const OrderTrackingPage = React.lazy(() =>
+  import('./pages/OrderTrackingPage').then((m) => ({ default: m.OrderTrackingPage }))
+);
+const ProductDetailPage = React.lazy(() =>
+  import('./pages/ProductDetailPage').then((m) => ({ default: m.ProductDetailPage }))
+);
+const PublicProfilePage = React.lazy(() =>
+  import('./pages/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage }))
+);
+const NotFoundPage = React.lazy(() =>
+  import('./pages/StatusPages').then((m) => ({ default: m.NotFoundPage }))
+);
+const ServerStatusPage = React.lazy(() =>
+  import('./pages/StatusPages').then((m) => ({ default: m.ServerStatusPage }))
+);
+const TermsPage = React.lazy(() =>
+  import('./pages/TermsPage').then((m) => ({ default: m.TermsPage }))
+);
+
+const PageRouteFallback: React.FC = () => (
+  <div
+    role="status"
+    aria-label="در حال بارگذاری صفحه"
+    className="max-w-[1440px] mx-auto px-4 lg:px-8 py-12"
+  >
+    <div className="bg-white rounded-2xl border border-[#E4E8EE] p-8 sm:p-10 space-y-4 animate-pulse">
+      <div className="h-5 w-48 bg-[#EEF1F5] rounded" />
+      <div className="h-4 w-3/4 bg-[#EEF1F5] rounded" />
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+        <div className="h-36 bg-[#F3F5F8] rounded-xl" />
+        <div className="h-36 bg-[#F3F5F8] rounded-xl" />
+        <div className="h-36 bg-[#F3F5F8] rounded-xl" />
+      </div>
+      <p className="text-xs text-[#6E7889]">در حال بارگذاری بخش مورد نظر...</p>
+    </div>
+  </div>
+);
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -181,6 +238,8 @@ const StoreShell: React.FC = () => {
     switch (route.page) {
       case 'product':
         return `product:${route.slug}`;
+      case 'blog-detail':
+        return `blog:${route.slug}`;
       case 'public-profile':
         return `profile:${route.username}`;
       case 'order-confirmed':
@@ -200,6 +259,10 @@ const StoreShell: React.FC = () => {
         return <CatalogPage />;
       case 'product':
         return <ProductDetailPage slug={route.slug} />;
+      case 'blog':
+        return <BlogListPage />;
+      case 'blog-detail':
+        return <BlogDetailPage slug={route.slug} />;
       case 'compare':
         return <ComparePage />;
       case 'installments':
@@ -216,6 +279,8 @@ const StoreShell: React.FC = () => {
         return <AboutPage />;
       case 'contact':
         return <ContactPage />;
+      case 'faq':
+        return <FaqPage />;
       case 'terms':
         return <TermsPage />;
       case 'account':
@@ -238,7 +303,6 @@ const StoreShell: React.FC = () => {
     >
       <RouteTransitionBar />
       <Navbar />
-      <TempCommitBanner />
       <main className="flex-1">
         <motion.div
           key={pageKey}
@@ -246,7 +310,7 @@ const StoreShell: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2, ease: UI_EASE }}
         >
-          {renderPage()}
+          <Suspense fallback={<PageRouteFallback />}>{renderPage()}</Suspense>
         </motion.div>
       </main>
       <Footer />

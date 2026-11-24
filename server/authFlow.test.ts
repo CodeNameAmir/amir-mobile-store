@@ -12,9 +12,11 @@ import {
 import {
   getSessionCookieOptions,
   isOriginAllowed,
+  isValidPasswordPolicy,
   resolveCorsConfig,
   resolveSessionSecret,
   resolveSupabaseAdminConfig,
+  validateAvatarUrlServer,
 } from './config.ts';
 
 const TEST_SECRET = '0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -1051,4 +1053,229 @@ test('Supabase auth storage adapter falls back to store_settings when app_users.
   assert.equal(oldLookup, null);
   const newLookup = await adapter.findUserByUsername('fallback_v2');
   assert.equal(newLookup?.id, created.id);
+});
+
+test('Security hardening unit checks: aligned password policy and strict avatar MIME/XSS rejection', () => {
+  // Password policy requires min 8 chars, at least 1 letter, at least 1 digit
+  assert.equal(isValidPasswordPolicy('12345678'), false);
+  assert.equal(isValidPasswordPolicy('۱۲۳۴۵۶۷۸'), false);
+  assert.equal(isValidPasswordPolicy('abcdefgh'), false);
+  assert.equal(isValidPasswordPolicy('Amir12'), false);
+  assert.equal(isValidPasswordPolicy('Amir2026'), true);
+  assert.equal(isValidPasswordPolicy('امیر۱۲۳۴'), true);
+
+  // Avatar validator rejects SVG XSS vectors, GIF, and javascript: URIs
+  assert.equal(
+    validateAvatarUrlServer('data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+').ok,
+    false
+  );
+  assert.equal(validateAvatarUrlServer('data:image/svg+xml,<svg onload=alert(1)>').ok, false);
+  assert.equal(validateAvatarUrlServer('data:image/gif;base64,R0lGODlhAQABAA==').ok, false);
+  assert.equal(validateAvatarUrlServer('data:text/html;base64,PGh0bWw+').ok, false);
+  assert.equal(validateAvatarUrlServer('javascript:alert(1)').ok, false);
+
+  // Allowed formats pass cleanly
+  assert.equal(validateAvatarUrlServer('data:image/jpeg;base64,abc123').ok, true);
+  assert.equal(validateAvatarUrlServer('data:image/png;base64,iVBORw0KGgo=').ok, true);
+  assert.equal(validateAvatarUrlServer('data:image/webp;base64,UklGRg==').ok, true);
+  assert.equal(validateAvatarUrlServer('https://cdn.example.com/avatar.jpg').ok, true);
+  assert.deepEqual(validateAvatarUrlServer(''), { ok: true, value: undefined });
+});
+
+test('HTTP Security Hardening: Helmet headers, password policy, SVG avatar XSS rejection, and rate limits', async () => {
+  const issuedOtps = new Map<string, string>();
+  const app = await createServerApp({
+    env: {
+      NODE_ENV: 'production',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      CORS_ORIGIN: ALLOWED_ORIGIN,
+    },
+    storage: createMemoryAuthStorage(),
+    disableVite: true,
+    onOtpIssued: ({ email, purpose, code }) => {
+      issuedOtps.set(`${purpose}::${email}`, code);
+    },
+    sendEmail: async () => ({
+      sent: true,
+      provider: 'resend',
+      emailId: 'mock_sec_email',
+    }),
+  });
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+  const jar = createCookieJar();
+
+  const apiFetch = async (path: string, init: RequestInit = {}) => {
+    const res = await fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Proto': 'https',
+        Origin: ALLOWED_ORIGIN,
+        ...(jar.header() ? { cookie: jar.header() } : {}),
+        ...(init.headers || {}),
+      },
+    });
+    jar.capture(res);
+    const body = (await res.json().catch(() => ({}))) as Record<string, any>;
+    return { res, body };
+  };
+
+  try {
+    // 1. Helmet security headers & cross-origin API compatibility
+    const health = await apiFetch('/api/health', { method: 'GET' });
+    assert.equal(health.res.status, 200);
+    assert.equal(health.res.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(health.res.headers.get('cross-origin-resource-policy'), 'cross-origin');
+    assert.equal(health.res.headers.get('x-frame-options'), 'DENY');
+    assert.equal(health.res.headers.get('x-powered-by'), null);
+
+    // 2. Numeric-only password rejected at signup
+    const email = 'sec.tester@codenameamir.ir';
+    const weakSignup = await apiFetch('/api/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        purpose: 'signup',
+        fullName: 'تست امنیت',
+        phone: '09123456789',
+        password: '12345678',
+      }),
+    });
+    assert.equal(weakSignup.res.status, 400);
+
+    // Valid signup succeeds
+    const validPw = 'SecurePass2026';
+    const okSignup = await apiFetch('/api/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        purpose: 'signup',
+        fullName: 'تست امنیت',
+        phone: '09123456789',
+        password: validPw,
+      }),
+    });
+    assert.equal(okSignup.res.status, 200);
+    const signupCode = issuedOtps.get(`signup::${email}`);
+    assert.ok(signupCode);
+    const verified = await apiFetch('/api/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, purpose: 'signup', code: signupCode }),
+    });
+    assert.equal(verified.res.status, 200);
+
+    // Numeric-only password rejected on change-password
+    const weakChange = await apiFetch('/api/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        currentPassword: validPw,
+        newPassword: '12345678',
+      }),
+    });
+    assert.equal(weakChange.res.status, 400);
+
+    // Numeric-only password rejected on reset-password
+    const resetReq = await apiFetch('/api/auth/send-otp', {
+      method: 'POST',
+      body: JSON.stringify({ email, purpose: 'reset-password' }),
+    });
+    assert.equal(resetReq.res.status, 200);
+    const resetCode = issuedOtps.get(`reset-password::${email}`);
+    assert.ok(resetCode);
+    const weakReset = await apiFetch('/api/auth/verify-otp', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        purpose: 'reset-password',
+        code: resetCode,
+        newPassword: '12345678',
+      }),
+    });
+    assert.equal(weakReset.res.status, 400);
+
+    // 3. Stored XSS avatar rejection & allowed raster MIME pass
+    const svgAvatar = await apiFetch('/api/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        avatarUrl: 'data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+',
+      }),
+    });
+    assert.equal(svgAvatar.res.status, 400);
+
+    const gifAvatar = await apiFetch('/api/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        avatarUrl: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==',
+      }),
+    });
+    assert.equal(gifAvatar.res.status, 400);
+
+    const pngAvatar = await apiFetch('/api/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        avatarUrl: 'data:image/png;base64,iVBORw0KGgo=',
+      }),
+    });
+    assert.equal(pngAvatar.res.status, 200);
+
+    const webpAvatar = await apiFetch('/api/auth/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({
+        avatarUrl: 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA=',
+      }),
+    });
+    assert.equal(webpAvatar.res.status, 200);
+
+    // 4. Rate limits: strict (10 req / 15m) on login-password & orders/:code/verify, moderate (15 req / 15m) on support-tickets
+    for (let i = 0; i < 10; i++) {
+      const attempt = await apiFetch('/api/auth/login-password', {
+        method: 'POST',
+        body: JSON.stringify({ email, password: 'WrongPassword1' }),
+      });
+      assert.equal(attempt.res.status, 401);
+    }
+    const loginBlocked = await apiFetch('/api/auth/login-password', {
+      method: 'POST',
+      body: JSON.stringify({ email, password: validPw }),
+    });
+    assert.equal(loginBlocked.res.status, 429);
+
+    for (let i = 0; i < 10; i++) {
+      const verifyAttempt = await apiFetch('/api/orders/AMIR-00000/verify', {
+        method: 'POST',
+        body: JSON.stringify({ phone: '09123456789' }),
+      });
+      assert.equal(verifyAttempt.res.status, 404);
+    }
+    const verifyBlocked = await apiFetch('/api/orders/AMIR-00000/verify', {
+      method: 'POST',
+      body: JSON.stringify({ phone: '09123456789' }),
+    });
+    assert.equal(verifyBlocked.res.status, 429);
+
+    for (let i = 0; i < 15; i++) {
+      const ticketAttempt = await apiFetch('/api/support-tickets', {
+        method: 'POST',
+        body: JSON.stringify({ fullName: 'a' }),
+      });
+      assert.equal(ticketAttempt.res.status, 400);
+    }
+    const ticketBlocked = await apiFetch('/api/support-tickets', {
+      method: 'POST',
+      body: JSON.stringify({
+        fullName: 'علی رضایی',
+        phone: '09123456789',
+        message: 'پیام تستی بعد از اتمام سهمیه نرخ ارسال.',
+      }),
+    });
+    assert.equal(ticketBlocked.res.status, 429);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err) => (err ? reject(err) : resolve()))
+    );
+  }
 });

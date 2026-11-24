@@ -22,6 +22,7 @@ interface OrderTrackingPageProps {
 }
 
 const STATUS_INDEX: Record<OrderStatus, number> = {
+  pending_payment: 0,
   paid: 0,
   preparing: 1,
   shipped: 2,
@@ -30,6 +31,7 @@ const STATUS_INDEX: Record<OrderStatus, number> = {
 };
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
+  pending_payment: 'در انتظار پرداخت',
   paid: 'پرداخت موفق',
   preparing: 'در حال آماده‌سازی در انبار',
   shipped: 'تحویل به پیک / پست',
@@ -38,7 +40,15 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
 };
 
 export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCode }) => {
-  const { orders, lookupOrder, verifyGuestOrder, buildHref, handleLinkClick, showToast } = useStore();
+  const {
+    orders,
+    lookupOrder,
+    verifyGuestOrder,
+    cancelCustomerOrder,
+    buildHref,
+    handleLinkClick,
+    showToast,
+  } = useStore();
   const defaultCode = initialCode || orders[0]?.orderCode || '';
   const [searchCode, setSearchCode] = useState(defaultCode);
   const [lookup, setLookup] = useState<OrderLookupResult | null>(null);
@@ -48,6 +58,8 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
   const [verifyPhone, setVerifyPhone] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancellingOrder, setCancellingOrder] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -265,17 +277,68 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                   تحویل‌گیرنده: {order.customerName} — مبلغ کل: {formatToman(order.totalAmount)} تومان
                 </h2>
               </div>
-              {order.status === 'cancelled' ? (
-                <div className="px-4 py-2 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] text-[#B42318] text-xs font-semibold inline-flex items-center gap-2">
-                  <XCircle className="w-4 h-4" strokeWidth={1.5} />
-                  <span>سفارش لغو شده است</span>
-                </div>
-              ) : (
-                <div className="px-4 py-2 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-semibold inline-flex items-center gap-2 tabular-nums-fa">
-                  <KeyRound className="w-4 h-4" strokeWidth={1.5} />
-                  <span>پین تحویل امن به پیک: {toPersianDigits(order.deliveryPin)}</span>
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {order.status === 'cancelled' ? (
+                  <div className="px-4 py-2 rounded-lg bg-[#FEF3F2] border border-[#FECDCA] text-[#B42318] text-xs font-semibold inline-flex items-center gap-2">
+                    <XCircle className="w-4 h-4" strokeWidth={1.5} />
+                    <span>سفارش لغو شده است</span>
+                  </div>
+                ) : (
+                  <div className="px-4 py-2 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-semibold inline-flex items-center gap-2 tabular-nums-fa">
+                    <KeyRound className="w-4 h-4" strokeWidth={1.5} />
+                    <span>پین تحویل امن به پیک: {toPersianDigits(order.deliveryPin)}</span>
+                  </div>
+                )}
+
+                {(order.status === 'pending_payment' ||
+                  order.status === 'paid' ||
+                  order.status === 'preparing') &&
+                  (!cancelConfirmOpen ? (
+                    <button
+                      type="button"
+                      onClick={() => setCancelConfirmOpen(true)}
+                      data-testid="tracking-cancel-order-btn"
+                      className="px-3.5 py-2 rounded-lg bg-[#FEF3F2] hover:bg-[#FEE4E2] border border-[#FECDCA] text-[#B42318] text-xs font-semibold transition-colors"
+                    >
+                      لغو سفارش
+                    </button>
+                  ) : (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#FEF3F2] border border-[#FECDCA]">
+                      <span className="text-[11px] font-medium text-[#B42318]">لغو شود؟</span>
+                      <button
+                        type="button"
+                        disabled={cancellingOrder}
+                        onClick={async () => {
+                          setCancellingOrder(true);
+                          try {
+                            const updated = await cancelCustomerOrder(order.orderCode);
+                            setOrder(updated);
+                            setCancelConfirmOpen(false);
+                          } catch (err) {
+                            showToast(
+                              err instanceof Error ? err.message : 'لغو سفارش امکان‌پذیر نیست.',
+                              'error'
+                            );
+                          } finally {
+                            setCancellingOrder(false);
+                          }
+                        }}
+                        data-testid="tracking-confirm-cancel-btn"
+                        className="px-2.5 py-1 rounded bg-[#B42318] text-white text-[11px] font-semibold disabled:opacity-60"
+                      >
+                        {cancellingOrder ? '...' : 'تایید لغو'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={cancellingOrder}
+                        onClick={() => setCancelConfirmOpen(false)}
+                        className="px-2 py-1 rounded bg-white border border-[#E4E8EE] text-[#4A5464] text-[11px]"
+                      >
+                        انصراف
+                      </button>
+                    </div>
+                  ))}
+              </div>
             </div>
 
             {order.adminNote && (

@@ -95,14 +95,16 @@ export const NotFoundPage: React.FC<NotFoundPageProps> = ({ missingPath }) => {
 };
 
 export const ServerStatusPage: React.FC = () => {
-  const { buildHref, handleLinkClick } = useStore();
+  const { buildHref, handleLinkClick, user, authLoading } = useStore();
+  const isAdmin = user?.role === 'admin';
   const [health, setHealth] = useState<BackendHealthResponse | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [checkedAt, setCheckedAt] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(false);
 
   const runCheck = useCallback(async () => {
+    if (!isAdmin) return;
     setChecking(true);
     setErrorMessage(null);
     const start = performance.now();
@@ -115,17 +117,64 @@ export const ServerStatusPage: React.FC = () => {
       setLatencyMs(Math.round(performance.now() - start));
       setHealth(null);
       setErrorMessage(
-        err instanceof Error ? err.message : 'خطا در برقراری ارتباط با سرویس Backend API.'
+        err instanceof Error ? err.message : 'خطا در برقراری ارتباط با سرویس API.'
       );
       setCheckedAt(new Date().toLocaleTimeString('fa-IR'));
     } finally {
       setChecking(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
-    runCheck();
-  }, [runCheck]);
+    if (isAdmin) {
+      runCheck();
+    }
+  }, [isAdmin, runCheck]);
+
+  if (authLoading) {
+    return (
+      <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-12">
+        <div className="max-w-2xl mx-auto bg-white rounded-2xl border border-[#E4E8EE] p-8">
+          <StatusDiagSkeleton />
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-14">
+        <div className="max-w-lg mx-auto bg-white rounded-2xl border border-[#E4E8EE] p-8 sm:p-10 text-center space-y-5">
+          <div className="w-12 h-12 rounded-xl bg-[#FEF3F2] border border-[#FECDCA] text-[#B42318] flex items-center justify-center mx-auto">
+            <AlertTriangle className="w-5 h-5" strokeWidth={1.5} />
+          </div>
+          <h1 className="text-lg sm:text-xl font-semibold text-[#11161E]">
+            دسترسی محدود به صفحه وضعیت فنی
+          </h1>
+          <p className="text-xs sm:text-sm text-[#4A5464] leading-7">
+            مشاهده جزئیات زیرساخت و گزارش‌های فنی سیستم تنها برای مدیران تاییدشده فروشگاه امکان‌پذیر است.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+            <a
+              href={buildHref('/')}
+              onClick={(e) => handleLinkClick(e, '/')}
+              className="h-10 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold inline-flex items-center gap-2 transition-colors"
+            >
+              <span>بازگشت به صفحه اصلی</span>
+              <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
+            </a>
+            <a
+              href={buildHref('/contact')}
+              onClick={(e) => handleLinkClick(e, '/contact')}
+              className="h-10 px-5 rounded-lg bg-[#F1F3F6] hover:bg-[#E4E8EE] text-[#11161E] text-xs font-medium inline-flex items-center transition-colors"
+            >
+              تماس با پشتیبانی
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const isHealthy = Boolean(health?.ok && health?.storage?.ok);
 
@@ -139,7 +188,7 @@ export const ServerStatusPage: React.FC = () => {
             </div>
             <div>
               <h1 className="text-lg sm:text-xl font-semibold text-[#11161E]">
-                وضعیت زیرساخت، Backend API و دیتابیس Supabase
+                پایش وضعیت فنی سرویس‌ها (پنل مدیر)
               </h1>
               <p className="text-xs text-[#4A5464] mt-0.5 tabular-nums-fa">
                 آخرین بررسی زنده: {checkedAt ? toPersianDigits(checkedAt) : 'در حال بررسی...'}
@@ -164,9 +213,9 @@ export const ServerStatusPage: React.FC = () => {
               <Globe className="w-5 h-5 text-[#1453D6]" strokeWidth={1.5} />
               <CheckCircle2 className="w-4 h-4 text-[#067647]" strokeWidth={1.5} />
             </div>
-            <p className="text-xs font-semibold text-[#11161E]">History API Clean Routing</p>
+            <p className="text-xs font-semibold text-[#11161E]">مسیریابی اپلیکیشن</p>
             <p className="text-[11px] text-[#4A5464] leading-5">
-              مسیریابی History API فعال است؛ ارتباط با دیتابیس به‌طور انحصاری از طریق Backend انجام می‌شود.
+              مسیریابی SPA فعال است و تمام ارتباطات داده از طریق سرور اختصاصی انجام می‌شود.
             </p>
           </div>
 
@@ -181,13 +230,13 @@ export const ServerStatusPage: React.FC = () => {
                 <AlertTriangle className="w-4 h-4 text-[#A84500]" strokeWidth={1.5} />
               )}
             </div>
-            <p className="text-xs font-semibold text-[#11161E]">Backend Express API</p>
+            <p className="text-xs font-semibold text-[#11161E]">سرویس API فروشگاه</p>
             <p className="text-[11px] text-[#4A5464] leading-5">
               {checking
-                ? 'در حال بررسی پاسخ سرویس /api/health...'
+                ? 'در حال بررسی پاسخ سرویس...'
                 : health
                 ? `متصل و فعال (${toPersianDigits(latencyMs ?? 0)} میلی‌ثانیه)`
-                : 'سرویس Backend در دسترس نیست.'}
+                : 'سرویس در دسترس نیست.'}
             </p>
           </div>
 
@@ -202,65 +251,24 @@ export const ServerStatusPage: React.FC = () => {
                 <AlertTriangle className="w-4 h-4 text-[#A84500]" strokeWidth={1.5} />
               )}
             </div>
-            <p className="text-xs font-semibold text-[#11161E]">Database & Auth Storage</p>
+            <p className="text-xs font-semibold text-[#11161E]">وضعیت ذخیره‌سازی</p>
             <p className="text-[11px] text-[#4A5464] leading-5">
               {checking
                 ? 'در حال استعلام وضعیت ذخیره‌سازی...'
-                : health?.storage.mode === 'supabase'
-                ? 'متصل به Supabase PostgreSQL'
-                : health
-                ? 'حالت توسعه حافظه‌ای (آفلاین)'
-                : 'وضعیت دیتابیس در دسترس نیست.'}
+                : isHealthy
+                ? 'پایگاه‌داده متصل و آماده پاسخ‌گویی است.'
+                : 'وضعیت ذخیره‌سازی در دسترس نیست.'}
             </p>
           </div>
         </div>
 
-        {/* Live Backend Health Diagnostic Details */}
         {checking && !health ? (
           <StatusDiagSkeleton />
-        ) : (
-          <div
-            className={`p-5 rounded-xl border space-y-3 ${
-              isHealthy ? 'bg-[#ECFDF3] border-[#ABEFC6]' : 'bg-[#EEF3FC] border-[#D4E2FC]'
-            }`}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs sm:text-sm font-semibold text-[#11161E]">
-                گزارش سلامت Backend API و اتصال Supabase
-              </p>
-              {health?.service && (
-                <code dir="ltr" className="text-[11px] px-2 py-0.5 rounded bg-white border border-[#E4E8EE] font-mono text-[#1453D6]">
-                  {health.service} ({health.environment})
-                </code>
-              )}
-            </div>
-
-            {health ? (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-                <div className="p-3 rounded-lg bg-white border border-[#E4E8EE] flex items-center justify-between gap-2">
-                  <span className="text-[#4A5464]">حالت ذخیره‌سازی:</span>
-                  <strong className="text-[#11161E] font-mono" dir="ltr">
-                    {health.storage.mode}
-                  </strong>
-                </div>
-                <div className="p-3 rounded-lg bg-white border border-[#E4E8EE] flex items-center justify-between gap-2">
-                  <span className="text-[#4A5464]">سرویس ایمیل Resend:</span>
-                  <strong className="text-[#11161E]">
-                    {health.resend.resendConfigured ? 'پیکربندی شده' : 'حالت پیش‌نمایش'}
-                  </strong>
-                </div>
-                <div className="p-3 rounded-lg bg-white border border-[#E4E8EE] flex items-center justify-between gap-2">
-                  <span className="text-[#4A5464]">زمان پاسخ سرور:</span>
-                  <strong dir="ltr" className="text-[#067647] tabular-nums-fa font-mono">
-                    {toPersianDigits(latencyMs ?? 0)} ms
-                  </strong>
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-[#4A5464] leading-6">{errorMessage}</p>
-            )}
+        ) : !health && errorMessage ? (
+          <div className="p-5 rounded-xl border bg-[#EEF3FC] border-[#D4E2FC]">
+            <p className="text-xs text-[#4A5464] leading-6">{errorMessage}</p>
           </div>
-        )}
+        ) : null}
 
         <div className="flex justify-end">
           <a

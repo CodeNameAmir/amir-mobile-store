@@ -26,13 +26,22 @@ interface OrderConfirmationPageProps {
 }
 
 export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ orderCode }) => {
-  const { lookupOrder, verifyGuestOrder, buildHref, handleLinkClick, showToast } = useStore();
+  const {
+    lookupOrder,
+    verifyGuestOrder,
+    cancelCustomerOrder,
+    buildHref,
+    handleLinkClick,
+    showToast,
+  } = useStore();
   const [lookup, setLookup] = useState<OrderLookupResult | null>(null);
   const [order, setOrder] = useState<OrderRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [verifyPhone, setVerifyPhone] = useState('');
   const [verifying, setVerifying] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -262,7 +271,7 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
           </div>
 
           <div className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-[#4A5464]">کد پیگیری شاپرک (دمو):</span>
+            <span className="text-xs font-medium text-[#4A5464]">کد رهگیری پرداخت:</span>
             <div className="flex items-center gap-2">
               <span dir="ltr" className="text-sm sm:text-base font-semibold text-[#11161E] tabular-nums-fa">
                 {toPersianDigits(order.shaparakRef)}
@@ -417,15 +426,29 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
 
           <div className="border-t border-[#E4E8EE] pt-4 space-y-2.5 text-xs">
             <div className="flex justify-between text-[#4A5464]">
-              <span>جمع قیمت کالاها:</span>
+              <span>
+                {(order.productDiscount ?? 0) > 0
+                  ? 'قیمت اولیه کالاها:'
+                  : 'جمع قیمت کالاها:'}
+              </span>
               <span className="font-medium text-[#11161E] tabular-nums-fa">
-                {formatToman(order.subtotal)} تومان
+                {formatToman(order.subtotal + (order.productDiscount || 0))} تومان
               </span>
             </div>
+            {(order.productDiscount ?? 0) > 0 && (
+              <div className="flex justify-between text-[#067647] font-medium">
+                <span>تخفیف شگفت‌انگیز کالاها:</span>
+                <span data-testid="invoice-product-discount" className="tabular-nums-fa">
+                  {formatToman(order.productDiscount || 0)}- تومان
+                </span>
+              </div>
+            )}
             {order.couponDiscount > 0 && (
               <div className="flex justify-between text-[#067647] font-medium">
-                <span>تخفیف کد ({order.couponCode}):</span>
-                <span className="tabular-nums-fa">{formatToman(order.couponDiscount)}- تومان</span>
+                <span>تخفیف کد ({order.couponCode || 'تخفیف'}):</span>
+                <span data-testid="invoice-coupon-discount" className="tabular-nums-fa">
+                  {formatToman(order.couponDiscount)}- تومان
+                </span>
               </div>
             )}
             <div className="flex justify-between text-[#4A5464]">
@@ -499,6 +522,60 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
               <Printer className="w-4 h-4" strokeWidth={1.5} />
               <span>چاپ رسید سفارش و فاکتور رسمی</span>
             </button>
+
+            {(order.status === 'pending_payment' ||
+              order.status === 'paid' ||
+              order.status === 'preparing') &&
+              (!cancelConfirmOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setCancelConfirmOpen(true)}
+                  data-testid="cancel-order-btn"
+                  className="w-full h-10 rounded-lg bg-[#FEF3F2] hover:bg-[#FEE4E2] border border-[#FECDCA] text-[#B42318] text-xs sm:text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors"
+                >
+                  <XCircle className="w-4 h-4" strokeWidth={1.5} />
+                  <span>لغو سفارش</span>
+                </button>
+              ) : (
+                <div className="p-3 rounded-xl bg-[#FEF3F2] border border-[#FECDCA] space-y-2.5">
+                  <p className="text-xs font-medium text-[#B42318]">
+                    آیا از لغو این سفارش مطمئن هستید؟ موجودی کالاها به انبار بازگردانده می‌شود.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={cancelling}
+                      data-testid="confirm-cancel-order-btn"
+                      onClick={async () => {
+                        setCancelling(true);
+                        try {
+                          const updated = await cancelCustomerOrder(order.orderCode);
+                          setOrder(updated);
+                          setCancelConfirmOpen(false);
+                        } catch (err) {
+                          showToast(
+                            err instanceof Error ? err.message : 'لغو سفارش امکان‌پذیر نیست.',
+                            'error'
+                          );
+                        } finally {
+                          setCancelling(false);
+                        }
+                      }}
+                      className="flex-1 h-9 rounded-lg bg-[#B42318] hover:bg-[#912018] disabled:opacity-60 text-white text-xs font-semibold transition-colors"
+                    >
+                      {cancelling ? 'در حال لغو...' : 'تایید لغو سفارش'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={cancelling}
+                      onClick={() => setCancelConfirmOpen(false)}
+                      className="px-4 h-9 rounded-lg bg-white border border-[#E4E8EE] text-[#4A5464] text-xs font-medium"
+                    >
+                      انصراف
+                    </button>
+                  </div>
+                </div>
+              ))}
 
             <a
               href={buildHref('/catalog')}

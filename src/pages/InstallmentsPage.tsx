@@ -243,7 +243,7 @@ export const InstallmentsPage: React.FC = () => {
           <div className="p-3.5 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-xs text-[#4A5464] space-y-1.5 leading-6">
             <p className="font-semibold text-[#11161E] flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-[#4A5464]" strokeWidth={1.5} />
-              مدارک مورد نیاز (نسخه دمو رزومه‌ای)
+              مدارک مورد نیاز خرید اقساطی
             </p>
             <p className="flex items-center gap-1.5">
               <CheckCircle2 className="w-3.5 h-3.5 text-[#067647] shrink-0" strokeWidth={1.5} />

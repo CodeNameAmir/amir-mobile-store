@@ -12,6 +12,8 @@ import {
   ChevronRight,
   Cpu,
   Heart,
+  Maximize2,
+  MessageSquareMore,
   Minus,
   Plus,
   Scale,
@@ -22,6 +24,7 @@ import {
   Smartphone,
   Star,
   Truck,
+  X,
   Zap,
 } from 'lucide-react';
 import { ProductCard } from '../components/ProductCard';
@@ -34,7 +37,7 @@ import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import { hydrateProduct } from '../data/catalog';
 import { storeApi } from '../lib/authApi';
-import type { CategoryId, Product, ProductReview } from '../types/store';
+import type { CategoryId, Product, ProductQuestion, ProductReview } from '../types/store';
 import { UI_EASE } from '../utils/motionHelpers';
 import { useTemporarilyAdded } from '../utils/useTemporarilyAdded';
 import {
@@ -45,6 +48,15 @@ import {
   getVariantPrice,
   toPersianDigits,
 } from '../utils/storeLogic';
+import {
+  applyDocumentSeoMeta,
+  buildBreadcrumbJsonLd,
+  buildProductJsonLd,
+  buildRouteSeoMetadata,
+  removeJsonLdScript,
+  SITE_ORIGIN,
+  upsertJsonLdScript,
+} from '../utils/seo';
 
 interface ProductDetailPageProps {
   slug: string;
@@ -112,11 +124,12 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const productId = product?.id ?? null;
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [selectedColorId, setSelectedColorId] = useState('');
   const [selectedStorage, setSelectedStorage] = useState('');
   const [includeCarePlus, setIncludeCarePlus] = useState(false);
   const [qty, setQty] = useState(1);
-  const [activeTab, setActiveTab] = useState<'specs' | 'review' | 'comments'>('specs');
+  const [activeTab, setActiveTab] = useState<'specs' | 'review' | 'comments' | 'qa'>('specs');
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(true);
   const [submittingReview, setSubmittingReview] = useState(false);
@@ -124,11 +137,20 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const [reviewRating, setReviewRating] = useState(5);
   const [reviewText, setReviewText] = useState('');
   const [useReviewUsername, setUseReviewUsername] = useState(true);
+  const [questions, setQuestions] = useState<ProductQuestion[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState(true);
+  const [submittingQuestion, setSubmittingQuestion] = useState(false);
+  const [questionAuthor, setQuestionAuthor] = useState(user?.fullName || '');
+  const [questionText, setQuestionText] = useState('');
+  const [guestAlertEmail, setGuestAlertEmail] = useState('');
   const { recentlyAdded, triggerAdded } = useTemporarilyAdded(2000);
 
   useEffect(() => {
     if (user?.fullName && !reviewAuthor.trim()) {
       setReviewAuthor(user.fullName);
+    }
+    if (user?.fullName && !questionAuthor.trim()) {
+      setQuestionAuthor(user.fullName);
     }
   }, [user?.fullName]);
 
@@ -136,6 +158,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     if (!productId || !product) return;
     let mounted = true;
     setActiveImageIndex(0);
+    setLightboxOpen(false);
     setSelectedColorId(product.colors[0]?.id || 'default');
     setSelectedStorage(product.storageOptions[0]?.label || product.specs.storageDefault);
     setIncludeCarePlus(false);
@@ -143,6 +166,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     markProductViewed(productId);
     setReviews([]);
     setReviewsLoading(true);
+    setQuestions([]);
+    setQuestionsLoading(true);
     storeApi
       .getProductReviews(productId)
       .then((fetched) => {
@@ -153,6 +178,17 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       .catch(() => {
         if (!mounted) return;
         setReviewsLoading(false);
+      });
+    storeApi
+      .getProductQuestions(productId)
+      .then((fetched) => {
+        if (!mounted) return;
+        setQuestions(fetched);
+        setQuestionsLoading(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setQuestionsLoading(false);
       });
     return () => {
       mounted = false;
@@ -165,6 +201,54 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     setQty((prev) => Math.max(1, Math.min(prev, product.stockCount || 1)));
   }, [product?.inStock, product?.stockCount]);
 
+  useEffect(() => {
+    if (!product) {
+      removeJsonLdScript('product-jsonld');
+      removeJsonLdScript('product-breadcrumb-jsonld');
+      return;
+    }
+
+    const activeCat = categories.find(
+      (c) => c.slug === product.category || c.id === product.category
+    );
+    const liveReviewCount = reviews.length > 0 ? Math.max(reviews.length, product.reviewCount) : product.reviewCount;
+    const seoMeta = buildRouteSeoMetadata({
+      route: { page: 'product', slug: product.slug },
+      categories,
+      products: [product],
+      origin: SITE_ORIGIN,
+    });
+    applyDocumentSeoMeta(seoMeta);
+
+    upsertJsonLdScript(
+      'product-jsonld',
+      buildProductJsonLd(product, {
+        siteOrigin: SITE_ORIGIN,
+        reviewCount: liveReviewCount,
+        ratingValue: product.rating,
+      })
+    );
+    upsertJsonLdScript(
+      'product-breadcrumb-jsonld',
+      buildBreadcrumbJsonLd(
+        [
+          { name: 'فروشگاه موبایل امیر', url: '/' },
+          {
+            name: activeCat?.label || 'کاتالوگ محصولات',
+            url: activeCat ? `/catalog?cat=${encodeURIComponent(activeCat.slug)}` : '/catalog',
+          },
+          { name: product.nameFa, url: `/product/${encodeURIComponent(product.slug)}` },
+        ],
+        SITE_ORIGIN
+      )
+    );
+
+    return () => {
+      removeJsonLdScript('product-jsonld');
+      removeJsonLdScript('product-breadcrumb-jsonld');
+    };
+  }, [categories, product, reviews.length]);
+
   const galleryImages = useMemo(() => {
     if (!product) return [];
     const list = [product.image, ...(product.images || [])]
@@ -172,6 +256,21 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       .filter(Boolean);
     return [...new Set(list)];
   }, [product]);
+
+  useEffect(() => {
+    if (!lightboxOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setLightboxOpen(false);
+      } else if (galleryImages.length > 1 && e.key === 'ArrowLeft') {
+        setActiveImageIndex((i) => (i + 1) % galleryImages.length);
+      } else if (galleryImages.length > 1 && e.key === 'ArrowRight') {
+        setActiveImageIndex((i) => (i - 1 + galleryImages.length) % galleryImages.length);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [lightboxOpen, galleryImages.length]);
 
   const complementaryItems = useMemo(() => {
     if (!product) return [];
@@ -183,6 +282,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
           (p.category === 'chargers' || p.category === 'cases' || p.category === 'audio')
       )
       .slice(0, 3);
+  }, [products, product]);
+
+  const similarProducts = useMemo(() => {
+    if (!product) return [];
+    return products
+      .filter((p) => p.id !== product.id && p.category === product.category)
+      .sort((a, b) => Number(b.inStock) - Number(a.inStock))
+      .slice(0, 4);
   }, [products, product]);
 
   const recentOtherProducts = useMemo(() => {
@@ -324,15 +431,62 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         comment: reviewText.trim(),
         useUsername: Boolean(user?.username && useReviewUsername),
       });
-      setReviews((prev) => [savedReview, ...prev]);
+      if (savedReview.isApproved) {
+        setReviews((prev) => [savedReview, ...prev]);
+        showToast('دیدگاه شما با موفقیت ثبت و منتشر شد.', 'success');
+      } else {
+        showToast('دیدگاه شما ثبت شد و پس از تایید مدیر منتشر می‌شود.', 'success');
+      }
       setReviewAuthor(user?.fullName || '');
       setReviewText('');
-      showToast('دیدگاه شما با موفقیت ثبت شد.', 'success');
+      setReviewRating(5);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'خطا در ثبت دیدگاه.', 'error');
     } finally {
       setSubmittingReview(false);
     }
+  };
+
+  const handleSubmitQuestion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (questionAuthor.trim().length < 2 || questionText.trim().length < 8) {
+      showToast('لطفاً نام و متن پرسش (حداقل ۸ کاراکتر) را وارد کنید.', 'error');
+      return;
+    }
+    setSubmittingQuestion(true);
+    try {
+      const created = await storeApi.submitProductQuestion(product.id, {
+        authorName: questionAuthor.trim(),
+        question: questionText.trim(),
+      });
+      setQuestions((prev) => [created, ...prev]);
+      setQuestionText('');
+      setQuestionAuthor(user?.fullName || '');
+      showToast('پرسش شما ثبت شد و به زودی توسط کارشناسان پاسخ داده می‌شود.', 'success');
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'خطا در ثبت پرسش.', 'error');
+    } finally {
+      setSubmittingQuestion(false);
+    }
+  };
+
+  const handleStockAlertClick = async () => {
+    if (!user && !isAlerted) {
+      const trimmedEmail = guestAlertEmail.trim();
+      if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        showToast('لطفاً ایمیل معتبر خود را برای اطلاع‌رسانی موجودی وارد کنید.', 'error');
+        return;
+      }
+      await toggleStockAlert(product.id, {
+        email: trimmedEmail,
+        variantId: activeVariant?.id ?? null,
+      });
+      return;
+    }
+    await toggleStockAlert(product.id, {
+      email: !user && guestAlertEmail.trim() ? guestAlertEmail.trim() : undefined,
+      variantId: activeVariant?.id ?? null,
+    });
   };
 
   return (
@@ -369,13 +523,16 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         <div className="lg:col-span-4 space-y-3">
           <div className="relative aspect-square rounded-xl bg-[#F3F5F8] border border-[#E4E8EE] overflow-hidden p-4">
             <AnimatePresence mode="wait" initial={false}>
-              <motion.div
+              <motion.button
+                type="button"
                 key={currentGalleryImg}
                 initial={{ opacity: 0.35, scale: 0.985 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0.35, scale: 0.985 }}
                 transition={{ duration: 0.2, ease: UI_EASE }}
-                className="w-full h-full"
+                onClick={() => setLightboxOpen(true)}
+                aria-label="بزرگ‌نمایی تصویر محصول"
+                className="w-full h-full block cursor-zoom-in focus:outline-none"
               >
                 <SmartImage
                   src={currentGalleryImg}
@@ -384,14 +541,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   data-testid="pdp-main-image"
                   className="w-full h-full object-cover rounded-lg"
                 />
-              </motion.div>
+              </motion.button>
             </AnimatePresence>
             {product.discountPercent && product.inStock && (
               <span className="absolute top-4 right-4 px-2.5 py-1 rounded-md bg-[#FDF1E8] border border-[#F5D6BE] text-[#A84500] text-xs font-medium tabular-nums-fa">
                 {toPersianDigits(product.discountPercent)}٪ تخفیف ویژه
               </span>
             )}
-            <div className="absolute top-4 left-4 flex flex-col gap-2">
+            <div className="absolute top-3 left-3 z-10 flex flex-col gap-1.5">
               <motion.button
                 type="button"
                 whileTap={{ scale: 0.88 }}
@@ -440,6 +597,18 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 <Share2 className="w-4 h-4" strokeWidth={1.5} />
               </motion.button>
             </div>
+
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.88 }}
+              data-testid="pdp-open-lightbox-btn"
+              onClick={() => setLightboxOpen(true)}
+              aria-label="بزرگ‌نمایی گالری تصاویر"
+              title="بزرگ‌نمایی تصویر"
+              className="absolute bottom-3 right-3 z-10 w-9 h-9 rounded-lg bg-white/95 hover:bg-white border border-[#E4E8EE] text-[#4A5464] hover:text-[#1453D6] flex items-center justify-center transition-colors"
+            >
+              <Maximize2 className="w-4 h-4" strokeWidth={1.5} />
+            </motion.button>
 
             {galleryImages.length > 1 && (
               <>
@@ -880,11 +1049,32 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               <div className="space-y-4">
                 <p className="text-sm font-semibold text-[#11161E]">این کالا فعلاً ناموجود است</p>
                 <p className="text-xs text-[#4A5464] leading-6">
-                  به محض شارژ مجدد انبار، از طریق دکمه زیر به شما اطلاع‌رسانی می‌کنیم.
+                  به محض شارژ مجدد انبار، از طریق ایمیل و اعلان حساب کاربری به شما اطلاع‌رسانی می‌کنیم.
                 </p>
+                {!user && !isAlerted && (
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="stock-alert-email-input"
+                      className="text-[11px] font-medium text-[#11161E] block"
+                    >
+                      ایمیل برای دریافت هشدار موجودی
+                    </label>
+                    <input
+                      id="stock-alert-email-input"
+                      data-testid="stock-alert-email-input"
+                      type="email"
+                      dir="ltr"
+                      value={guestAlertEmail}
+                      onChange={(e) => setGuestAlertEmail(e.target.value)}
+                      placeholder="name@example.com"
+                      className="w-full h-10 px-3 rounded-lg bg-white border border-[#E4E8EE] text-xs text-[#11161E] focus:outline-none focus:border-[#1453D6]"
+                    />
+                  </div>
+                )}
                 <button
                   type="button"
-                  onClick={() => toggleStockAlert(product.id)}
+                  data-testid="pdp-stock-alert-btn"
+                  onClick={handleStockAlertClick}
                   className={`w-full h-11 rounded-lg text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors ${
                     isAlerted
                       ? 'bg-[#13171F] text-white'
@@ -928,11 +1118,13 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               { id: 'specs', label: 'مشخصات فنی تخصصی' },
               { id: 'review', label: 'بررسی تخصصی کارشناسی' },
               { id: 'comments', label: `نظرات خریداران (${toPersianDigits(reviews.length)})` },
+              { id: 'qa', label: `پرسش و پاسخ (${toPersianDigits(questions.length)})` },
             ] as const
           ).map((tab) => (
             <button
               key={tab.id}
               type="button"
+              data-testid={`pdp-tab-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               className={`relative px-4 py-3 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap ${
                 activeTab === tab.id
@@ -1030,12 +1222,24 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
               transition={{ duration: 0.16, ease: UI_EASE }}
+              data-testid="pdp-editorial-review"
               className="space-y-4 text-sm text-[#11161E] leading-8 max-w-3xl"
             >
               <h3 className="text-base font-semibold">تحلیل تیم فنی فروشگاه موبایل امیر</h3>
-              <p className="text-[#4A5464]">
-                محصول <span className="font-semibold text-[#11161E]">{product.nameFa}</span> یکی از ارزشمندترین گزینه‌های رده خود در بازار ایران است. واحد کنترل کیفیت ۱۸ مرحله‌ای امیر پیش از پلمپ و ارسال نهایی، اصالت پارت‌نامبر، سلامت بسته‌بندی و وضعیت استعلام در سامانه همتا را تایید می‌کند.
-              </p>
+              {product.editorialReview && product.editorialReview.trim() ? (
+                <div className="space-y-3 text-[#4A5464]">
+                  {product.editorialReview
+                    .trim()
+                    .split(/\n+/)
+                    .map((para, idx) => (
+                      <p key={idx}>{para}</p>
+                    ))}
+                </div>
+              ) : (
+                <p className="text-[#4A5464]">
+                  محصول <span className="font-semibold text-[#11161E]">{product.nameFa}</span> یکی از ارزشمندترین گزینه‌های رده خود در بازار ایران است. واحد کنترل کیفیت ۱۸ مرحله‌ای امیر پیش از پلمپ و ارسال نهایی، اصالت پارت‌نامبر، سلامت بسته‌بندی و وضعیت استعلام در سامانه همتا را تایید می‌کند.
+                </p>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                 <div className="p-4 rounded-xl bg-[#ECFDF3] border border-[#ABEFC6] text-[#067647] space-y-1">
                   <p className="font-semibold text-xs">نقاط قوت کلیدی</p>
@@ -1145,11 +1349,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   <select
                     value={reviewRating}
                     onChange={(e) => setReviewRating(Number(e.target.value))}
+                    data-testid="review-rating-select"
                     className="w-full h-10 px-3 rounded-lg bg-white text-xs text-[#11161E] border border-[#E4E8EE] focus:outline-none focus:border-[#1453D6]"
                   >
                     <option value={5}>۵ ستاره — عالی</option>
                     <option value={4}>۴ ستاره — خوب</option>
                     <option value={3}>۳ ستاره — متوسط</option>
+                    <option value={2}>۲ ستاره — ضعیف</option>
+                    <option value={1}>۱ ستاره — بسیار ضعیف</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -1172,9 +1379,114 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               </form>
             </motion.div>
           )}
+          {activeTab === 'qa' && (
+            <motion.div
+              key="tab-qa"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.16, ease: UI_EASE }}
+              className="grid grid-cols-1 lg:grid-cols-12 gap-8"
+              data-testid="pdp-qa-panel"
+            >
+              <div className="lg:col-span-7 space-y-4">
+                {questionsLoading && questions.length === 0 ? (
+                  <div className="space-y-4" aria-busy="true" aria-label="در حال بارگذاری پرسش‌ها">
+                    <ReviewCardSkeleton />
+                  </div>
+                ) : questions.length === 0 ? (
+                  <div className="p-6 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-2">
+                    <MessageSquareMore className="w-7 h-7 text-[#6E7889] mx-auto" strokeWidth={1.5} />
+                    <p className="text-xs sm:text-sm font-medium text-[#11161E]">
+                      هنوز پرسشی برای این محصول ثبت نشده است.
+                    </p>
+                    <p className="text-xs text-[#6E7889]">
+                      سوال فنی یا ابهام خود درباره رجیستری، پارت‌نامبر یا گارانتی را بپرسید تا کارشناسان پاسخ دهند.
+                    </p>
+                  </div>
+                ) : (
+                  questions.map((q) => (
+                    <div
+                      key={q.id}
+                      data-testid="pdp-qa-item"
+                      className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-3"
+                    >
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-[#6E7889]">
+                        <span className="font-semibold text-[#11161E]">{q.authorName}</span>
+                        <span className="tabular-nums-fa">{formatPersianDate(q.createdAt)}</span>
+                      </div>
+                      <p className="text-xs sm:text-sm font-medium text-[#11161E] leading-6">
+                        پرسش: {q.question}
+                      </p>
+                      {q.answer ? (
+                        <div className="p-3 rounded-lg bg-[#ECFDF3] border border-[#ABEFC6] space-y-1">
+                          <p className="text-[11px] font-semibold text-[#067647]">
+                            پاسخ کارشناس فروشگاه موبایل امیر
+                          </p>
+                          <p className="text-xs text-[#11161E] leading-6">{q.answer}</p>
+                        </div>
+                      ) : (
+                        <p className="text-[11px] text-[#6E7889]">در انتظار پاسخ کارشناسان فروشگاه</p>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <form
+                onSubmit={handleSubmitQuestion}
+                data-testid="pdp-qa-form"
+                className="lg:col-span-5 p-5 rounded-xl bg-[#F1F3F6] border border-[#E4E8EE] space-y-4 self-start"
+              >
+                <h3 className="text-sm font-semibold text-[#11161E]">ثبت پرسش جدید درباره کالا</h3>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-[#11161E] block">نام شما</label>
+                  <input
+                    type="text"
+                    data-testid="pdp-qa-author-input"
+                    value={questionAuthor}
+                    onChange={(e) => setQuestionAuthor(e.target.value)}
+                    placeholder="مثال: سارا کریمی"
+                    className="w-full h-10 px-3 rounded-lg bg-white text-xs text-[#11161E] border border-[#E4E8EE] focus:outline-none focus:border-[#1453D6]"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-[#11161E] block">متن پرسش</label>
+                  <textarea
+                    rows={3}
+                    data-testid="pdp-qa-question-input"
+                    value={questionText}
+                    onChange={(e) => setQuestionText(e.target.value)}
+                    placeholder="سوال خود درباره پارت‌نامبر، گارانتی، رجیستری یا لوازم جعبه را بنویسید..."
+                    className="w-full p-3 rounded-lg bg-white text-xs text-[#11161E] border border-[#E4E8EE] focus:outline-none focus:border-[#1453D6]"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  data-testid="pdp-qa-submit-btn"
+                  disabled={submittingQuestion}
+                  className="w-full h-10 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-xs font-semibold transition-colors"
+                >
+                  {submittingQuestion ? 'در حال ثبت پرسش...' : 'ارسال پرسش'}
+                </button>
+              </form>
+            </motion.div>
+          )}
           </AnimatePresence>
         </div>
       </section>
+
+      {/* Similar Products */}
+      {similarProducts.length > 0 && (
+        <section className="space-y-4" data-testid="pdp-similar-products">
+          <h2 className="text-lg sm:text-xl font-semibold text-[#11161E]">محصولات مشابه</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+            {similarProducts.map((item) => (
+              <ProductCard key={item.id} product={item} compact />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Recently Viewed Products */}
       {recentOtherProducts.length > 0 && (
@@ -1187,6 +1499,82 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
           </div>
         </section>
       )}
+
+      {/* Fullscreen Lightbox Modal */}
+      <AnimatePresence>
+        {lightboxOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16, ease: UI_EASE }}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`گالری تصاویر ${product.nameFa}`}
+            data-testid="pdp-lightbox"
+            onClick={() => setLightboxOpen(false)}
+            className="fixed inset-0 z-50 bg-black/88 backdrop-blur-sm flex items-center justify-center p-4 sm:p-8"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-4xl bg-[#13171F] border border-white/10 rounded-2xl p-4 sm:p-6 space-y-4"
+            >
+              <div className="flex items-center justify-between gap-3 text-white">
+                <p className="text-xs sm:text-sm font-semibold line-clamp-1">{product.nameFa}</p>
+                <div className="flex items-center gap-3 shrink-0">
+                  {galleryImages.length > 1 && (
+                    <span dir="ltr" className="text-xs text-white/75 tabular-nums-fa">
+                      {toPersianDigits(activeImageIndex + 1)} / {toPersianDigits(galleryImages.length)}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="pdp-lightbox-close"
+                    onClick={() => setLightboxOpen(false)}
+                    aria-label="بستن بزرگ‌نمایی تصویر"
+                    className="w-9 h-9 rounded-lg bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors"
+                  >
+                    <X className="w-4 h-4" strokeWidth={1.75} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="relative aspect-square sm:aspect-[16/11] bg-[#0B0E14] rounded-xl overflow-hidden flex items-center justify-center">
+                <SmartImage
+                  src={currentGalleryImg}
+                  alt={`${product.nameFa} - تصویر بزرگ ${toPersianDigits(activeImageIndex + 1)}`}
+                  loading="eager"
+                  className="max-w-full max-h-full object-contain"
+                />
+                {galleryImages.length > 1 && (
+                  <>
+                    <button
+                      type="button"
+                      data-testid="pdp-lightbox-prev"
+                      onClick={() =>
+                        setActiveImageIndex((i) => (i - 1 + galleryImages.length) % galleryImages.length)
+                      }
+                      aria-label="تصویر قبلی در گالری"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-lg bg-white/90 hover:bg-white text-[#11161E] flex items-center justify-center"
+                    >
+                      <ChevronRight className="w-5 h-5" strokeWidth={1.75} />
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="pdp-lightbox-next"
+                      onClick={() => setActiveImageIndex((i) => (i + 1) % galleryImages.length)}
+                      aria-label="تصویر بعدی در گالری"
+                      className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-lg bg-white/90 hover:bg-white text-[#11161E] flex items-center justify-center"
+                    >
+                      <ChevronLeft className="w-5 h-5" strokeWidth={1.75} />
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

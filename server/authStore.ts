@@ -4,6 +4,7 @@ import { resolveSessionSecret, resolveSupabaseAdminConfig } from './config.ts';
 import {
   applyStockMovementDelta,
   DEFAULT_DEV_ATTRIBUTES,
+  DEFAULT_DEV_BLOG_POSTS,
   DEFAULT_DEV_BRANDS,
   DEFAULT_DEV_CATEGORIES,
   DEFAULT_DEV_COUPONS,
@@ -28,6 +29,7 @@ import {
   type AdminStatsDTO,
   type AttributeDefinitionDTO,
   type AuthRoleDTO,
+  type BlogPostDTO,
   type BrandDTO,
   type CategoryDTO,
   type CouponRuleDTO,
@@ -38,15 +40,18 @@ import {
   type ProductColorDTO,
   type ProductDTO,
   type ProductQueryParams,
+  type ProductQuestionDTO,
   type ProductReviewDTO,
   type ProductSpecsDTO,
   type ProductVariantDTO,
+  type StockAlertDTO,
   type StockMovementDTO,
   type StockMovementInput,
   type StockMovementType,
   type StorageVariantDTO,
   type StoreSettingsDTO,
   type SupportTicketDTO,
+  type UserNotificationDTO,
   type UserRole,
   type WarehouseDTO,
   type WarehouseStockDTO,
@@ -96,12 +101,29 @@ export interface StoredOrderItem {
   stockCount: number;
 }
 
+export interface StoredCartItemRecord {
+  id?: string;
+  userId?: string;
+  key: string;
+  productId: string;
+  variantId?: string | null;
+  sku?: string | null;
+  colorName: string;
+  colorHex: string;
+  storageLabel: string;
+  warranty: string;
+  qty: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface StoredOrderRecord {
   orderCode: string;
   userId?: string | null;
   shaparakRef: string;
   customerName: string;
   customerPhone: string;
+  customerEmail?: string;
   city: string;
   shippingAddress: string;
   postalCode: string;
@@ -243,9 +265,68 @@ export interface AuthStorageAdapter {
   deleteBrand(idOrName: string): Promise<boolean>;
   listActiveCoupons(): Promise<CouponRuleDTO[]>;
   getStoreSettings(): Promise<StoreSettingsDTO>;
-  listProductReviews(productId: string): Promise<ProductReviewDTO[]>;
+  listProductReviews(productId: string, includeUnapproved?: boolean): Promise<ProductReviewDTO[]>;
   createProductReview(review: ProductReviewDTO): Promise<ProductReviewDTO>;
+  listAllReviews(params?: {
+    isApproved?: boolean;
+    productId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ reviews: ProductReviewDTO[]; total: number }>;
+  findProductReviewById(reviewId: string): Promise<ProductReviewDTO | null>;
+  moderateProductReview(reviewId: string, isApproved: boolean): Promise<ProductReviewDTO | null>;
+  deleteProductReview(reviewId: string): Promise<boolean>;
+  recalculateProductRating(productId: string): Promise<{ rating: number; reviewCount: number } | null>;
+  getUserCart(userId: string): Promise<StoredCartItemRecord[]>;
+  replaceUserCart(userId: string, items: StoredCartItemRecord[]): Promise<StoredCartItemRecord[]>;
+  mergeUserCart(userId: string, guestItems: StoredCartItemRecord[]): Promise<StoredCartItemRecord[]>;
   createSupportTicket(ticket: SupportTicketDTO): Promise<SupportTicketDTO>;
+  listUserSupportTickets(userId: string, phone?: string): Promise<SupportTicketDTO[]>;
+  listUserStockAlerts(userId: string): Promise<StockAlertDTO[]>;
+  subscribeStockAlert(input: {
+    userId?: string | null;
+    email: string;
+    productId: string;
+    variantId?: string | null;
+  }): Promise<{ alert: StockAlertDTO; alreadySubscribed: boolean }>;
+  removeStockAlertByProduct(params: {
+    userId?: string | null;
+    email?: string;
+    productId: string;
+  }): Promise<boolean>;
+  findPendingStockAlerts(productId: string, variantId?: string | null): Promise<StockAlertDTO[]>;
+  markStockAlertsNotified(alertIds: string[]): Promise<void>;
+  listUserNotifications(userId: string): Promise<UserNotificationDTO[]>;
+  createUserNotification(
+    input: Omit<UserNotificationDTO, 'id' | 'isRead' | 'createdAt'>
+  ): Promise<UserNotificationDTO>;
+  markNotificationRead(userId: string, notificationId: string): Promise<UserNotificationDTO | null>;
+  markAllNotificationsRead(userId: string): Promise<number>;
+  deleteUserNotification(userId: string, notificationId: string): Promise<boolean>;
+  listProductQuestions(productId: string, includeUnapproved?: boolean): Promise<ProductQuestionDTO[]>;
+  createProductQuestion(
+    input: Omit<ProductQuestionDTO, 'id' | 'createdAt'>
+  ): Promise<ProductQuestionDTO>;
+  answerProductQuestion(
+    questionId: string,
+    patch: { answer?: string | null; isApproved?: boolean }
+  ): Promise<ProductQuestionDTO | null>;
+  listBlogPosts(params?: {
+    category?: string;
+    q?: string;
+    tag?: string;
+    page?: number;
+    limit?: number;
+    includeUnpublished?: boolean;
+  }): Promise<{
+    posts: BlogPostDTO[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+    categories: string[];
+  }>;
+  findBlogPostBySlug(slug: string, includeUnpublished?: boolean): Promise<BlogPostDTO | null>;
   subscribeNewsletter(contact: string): Promise<{ alreadySubscribed: boolean }>;
   listCustomers(params?: {
     search?: string;
@@ -304,6 +385,59 @@ export interface AuthStorageAdapter {
     movementType?: string;
     limit?: number;
   }): Promise<StockMovementDTO[]>;
+}
+
+function filterAndPaginateBlogPosts(
+  posts: BlogPostDTO[],
+  params: {
+    category?: string;
+    q?: string;
+    tag?: string;
+    page?: number;
+    limit?: number;
+    includeUnpublished?: boolean;
+  }
+) {
+  const includeUnpublished = Boolean(params.includeUnpublished);
+  const category = String(params.category || '').trim();
+  const tag = String(params.tag || '').trim().toLowerCase();
+  const q = String(params.q || '').trim().toLowerCase();
+  const page = Math.max(1, Math.floor(Number(params.page) || 1));
+  const limit = Math.min(50, Math.max(1, Math.floor(Number(params.limit) || 9)));
+
+  const visible = posts
+    .filter((p) => includeUnpublished || p.isPublished)
+    .sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());
+
+  const categories = Array.from(new Set(visible.map((p) => p.category).filter(Boolean)));
+
+  const filtered = visible.filter((p) => {
+    if (category && p.category !== category) return false;
+    if (tag && !p.tags.some((t) => t.toLowerCase() === tag)) return false;
+    if (q) {
+      const hay = `${p.title} ${p.excerpt} ${p.category} ${p.tags.join(' ')} ${p.authorName}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const total = filtered.length;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const safePage = Math.min(page, totalPages);
+  const offset = (safePage - 1) * limit;
+  const paged = filtered.slice(offset, offset + limit).map((p) => ({
+    ...p,
+    tags: [...p.tags],
+  }));
+
+  return {
+    posts: paged,
+    total,
+    page: safePage,
+    limit,
+    totalPages,
+    categories,
+  };
 }
 
 export function hashPassword(password: string): string {
@@ -398,22 +532,38 @@ function parseBooleanFlag(raw: unknown, fallback = false): boolean {
 function mapSupabaseOrderRow(row: Record<string, unknown>): StoredOrderRecord {
   const status = normalizeOrderStatus(row.status);
   const parsedItems = parseJsonValue<unknown>(row.items, []);
+  const subtotal = Number(row.subtotal || 0);
+  const shippingCost = Number(row.shipping_cost || 0);
+  const totalAmount = Number(row.total_amount || 0);
+  const discountTotal = Number(row.discount_total || 0);
+  const hasSeparateDiscounts =
+    (row.product_discount !== null && row.product_discount !== undefined) ||
+    (row.coupon_discount !== null && row.coupon_discount !== undefined);
+  const couponDiscount = hasSeparateDiscounts
+    ? Number(row.coupon_discount || 0)
+    : row.coupon_code
+    ? Math.max(0, subtotal + shippingCost - totalAmount)
+    : 0;
+  const productDiscount = hasSeparateDiscounts
+    ? Number(row.product_discount || 0)
+    : Math.max(0, discountTotal - couponDiscount);
   return {
     orderCode: String(row.order_code || ''),
     userId: row.user_id ? String(row.user_id) : null,
     shaparakRef: String(row.shaparak_ref || '84729104'),
     customerName: String(row.customer_name || ''),
     customerPhone: String(row.customer_phone || ''),
+    customerEmail: row.customer_email ? String(row.customer_email) : undefined,
     city: String(row.city || ''),
     shippingAddress: String(row.shipping_address || ''),
     postalCode: String(row.postal_code || ''),
     deliverySlot: row.delivery_slot === 'standard' ? 'standard' : 'express',
     couponCode: row.coupon_code ? String(row.coupon_code) : null,
-    subtotal: Number(row.subtotal || 0),
-    productDiscount: Number(row.discount_total || 0),
-    couponDiscount: 0,
-    shippingCost: Number(row.shipping_cost || 0),
-    totalAmount: Number(row.total_amount || 0),
+    subtotal,
+    productDiscount,
+    couponDiscount,
+    shippingCost,
+    totalAmount,
     status,
     deliveryPin: String(row.delivery_pin || ''),
     imeiSample: String(row.imei_sample || ''),
@@ -480,6 +630,7 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
     __images?: unknown;
     __customSpecs?: unknown;
     __priceUpdatedAt?: unknown;
+    __editorialReview?: unknown;
   };
   const parsedColors = parseJsonValue<unknown>(row.colors, []);
   const rawColors = Array.isArray(parsedColors) ? (parsedColors as ProductColorDTO[]) : [];
@@ -531,6 +682,12 @@ function mapSupabaseProductRow(row: Record<string, unknown>): ProductDTO {
     nameEn: String(row.name_en || ''),
     modelName: row.model_name ? String(row.model_name) : undefined,
     descriptionFa: row.description_fa ? String(row.description_fa) : undefined,
+    editorialReview:
+      typeof row.editorial_review === 'string' && row.editorial_review.trim()
+        ? row.editorial_review.trim()
+        : typeof rawSpecs.__editorialReview === 'string' && rawSpecs.__editorialReview.trim()
+        ? rawSpecs.__editorialReview.trim()
+        : undefined,
     brand: String(row.brand || 'Apple').trim(),
     category: String(row.category || 'phones').trim().toLowerCase() as ProductCategory,
     price: Number(row.price || 0),
@@ -600,6 +757,9 @@ function toSupabaseProductRow(p: ProductDTO, includeExtendedColumns = false): Re
   if (cleanImages.length > 0) specsPayload.__images = cleanImages;
   if (cleanCustomSpecs.length > 0) specsPayload.__customSpecs = cleanCustomSpecs;
   if (p.priceUpdatedAt) specsPayload.__priceUpdatedAt = p.priceUpdatedAt;
+  if (p.editorialReview && p.editorialReview.trim()) {
+    specsPayload.__editorialReview = p.editorialReview.trim();
+  }
 
   const baseRow: Record<string, unknown> = {
     id: p.id,
@@ -635,6 +795,7 @@ function toSupabaseProductRow(p: ProductDTO, includeExtendedColumns = false): Re
     baseRow.images = cleanImages;
     baseRow.custom_specs = cleanCustomSpecs;
     baseRow.price_updated_at = p.priceUpdatedAt || new Date().toISOString();
+    baseRow.editorial_review = p.editorialReview ? p.editorialReview.trim() : null;
   }
 
   return baseRow;
@@ -730,11 +891,86 @@ function isUuid(val: string | null | undefined): boolean {
   return Boolean(val && UUID_RE.test(val.trim()));
 }
 
+function normalizeStoredCartItems(items: StoredCartItemRecord[]): StoredCartItemRecord[] {
+  const map = new Map<string, StoredCartItemRecord>();
+  for (const raw of items) {
+    const productId = String(raw.productId || '').trim();
+    if (!productId) continue;
+    const colorName = String(raw.colorName || '').trim() || 'مشکی';
+    const colorHex = String(raw.colorHex || '#1e293b').trim() || '#1e293b';
+    const storageLabel = String(raw.storageLabel || '').trim() || '۲۵۶ گیگابایت';
+    const warranty = String(raw.warranty || '').trim() || '۱۸ ماهه امیر سرویس';
+    const key =
+      String(raw.key || '').trim() ||
+      `${productId}__${raw.variantId || colorName}__${storageLabel}__${warranty}`;
+    const qty = Math.min(20, Math.max(1, Math.floor(Number(raw.qty) || 1)));
+    const existing = map.get(key);
+    if (existing) {
+      map.set(key, { ...existing, qty: Math.min(20, existing.qty + qty) });
+    } else {
+      map.set(key, {
+        ...(raw.id ? { id: raw.id } : {}),
+        ...(raw.userId ? { userId: raw.userId } : {}),
+        key,
+        productId,
+        variantId: raw.variantId ? String(raw.variantId).trim() : null,
+        sku: raw.sku ? String(raw.sku).trim() : null,
+        colorName,
+        colorHex,
+        storageLabel,
+        warranty,
+        qty,
+        ...(raw.createdAt ? { createdAt: raw.createdAt } : {}),
+        ...(raw.updatedAt ? { updatedAt: raw.updatedAt } : {}),
+      });
+    }
+  }
+  return [...map.values()].slice(0, 50);
+}
+
+function mergeStoredCartItems(
+  serverItems: StoredCartItemRecord[],
+  guestItems: StoredCartItemRecord[]
+): StoredCartItemRecord[] {
+  const merged = new Map<string, StoredCartItemRecord>();
+  for (const item of normalizeStoredCartItems(serverItems)) {
+    merged.set(item.key, { ...item });
+  }
+  for (const item of normalizeStoredCartItems(guestItems)) {
+    const existing = merged.get(item.key);
+    if (existing) {
+      merged.set(item.key, {
+        ...existing,
+        qty: Math.min(20, existing.qty + item.qty),
+      });
+    } else {
+      merged.set(item.key, { ...item });
+    }
+  }
+  return [...merged.values()].slice(0, 50);
+}
+
+function mapSupabaseReviewRow(row: Record<string, unknown>, fallbackProductId?: string): ProductReviewDTO {
+  return {
+    id: String(row.id),
+    productId: String(row.product_id || fallbackProductId || ''),
+    author: String(row.author || ''),
+    authorUsername: row.author_username ? normalizeUsernameServer(row.author_username) : undefined,
+    dateLabel: formatPersianTimestamp(row.created_at),
+    rating: Number(row.rating || 5),
+    comment: String(row.comment || ''),
+    verified: Boolean(row.verified),
+    isApproved: row.is_approved !== false,
+    createdAt: String(row.created_at || new Date().toISOString()),
+  };
+}
+
 export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorageAdapter {
   const avatarSettingKey = (userId: string) => `user_avatar:${userId}`;
   const usernameSettingKey = (userId: string) => `user_username:${userId}`;
   const usernameLookupKey = (username: string) =>
     `user_username_lookup:${normalizeUsernameServer(username)}`;
+  const cartSettingKey = (userId: string) => `user_cart:${userId}`;
 
   const hydrateUserExtrasFallback = async (
     rawRow: Record<string, unknown>,
@@ -1106,7 +1342,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         order.city && !order.shippingAddress.startsWith(order.city)
           ? `${order.city}، ${order.shippingAddress}`
           : order.shippingAddress;
-      const payload = {
+      const basePayload: Record<string, unknown> = {
         order_code: order.orderCode,
         user_id: userId,
         customer_name: order.customerName,
@@ -1126,7 +1362,25 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         imei_sample: order.imeiSample,
         items: order.items,
       };
-      const { data, error } = await supabase.from('orders').insert(payload).select('*').single();
+      const extendedPayload: Record<string, unknown> = {
+        ...basePayload,
+        product_discount: order.productDiscount,
+        coupon_discount: order.couponDiscount,
+        customer_email: order.customerEmail ?? null,
+      };
+
+      let usedColumnFallback = false;
+      let { data, error } = await supabase
+        .from('orders')
+        .insert(extendedPayload)
+        .select('*')
+        .single();
+      if (error && isSchemaColumnMismatch(error)) {
+        usedColumnFallback = true;
+        const fb = await supabase.from('orders').insert(basePayload).select('*').single();
+        data = fb.data;
+        error = fb.error;
+      }
       if (error || !data) {
         throw new Error(`Supabase create order failed: ${error?.message || 'no row returned'}`);
       }
@@ -1154,7 +1408,13 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       } catch {
         // Ignore if order_items table is not migrated yet
       }
-      return mapSupabaseOrderRow(data as Record<string, unknown>);
+      const mapped = mapSupabaseOrderRow(data as Record<string, unknown>);
+      return {
+        ...mapped,
+        productDiscount: usedColumnFallback ? order.productDiscount : mapped.productDiscount,
+        couponDiscount: usedColumnFallback ? order.couponDiscount : mapped.couponDiscount,
+        customerEmail: mapped.customerEmail || order.customerEmail,
+      };
     },
 
     async findOrderByCode(orderCode: string) {
@@ -1221,7 +1481,74 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         .order('release_order', { ascending: true });
       if (error) throw new Error(`Supabase list products failed: ${error.message}`);
       const mapped = (data || []).map((row) => mapSupabaseProductRow(row as Record<string, unknown>));
-      return filterAndSortProducts(mapped, query);
+
+      let productAttributesMap: Map<string, ProductAttributeValueDTO[]> | undefined;
+      if (query.attributes && Object.keys(query.attributes).length > 0 && !query.productAttributesMap) {
+        productAttributesMap = new Map<string, ProductAttributeValueDTO[]>();
+        const defs = await this.listAttributes().catch(() => DEFAULT_DEV_ATTRIBUTES);
+        const defById = new Map(defs.map((d) => [d.id, d]));
+        const defByCode = new Map(defs.map((d) => [d.code, d]));
+        try {
+          const valsRes = await supabase.from('product_attribute_values').select('*');
+          if (!valsRes.error && Array.isArray(valsRes.data)) {
+            for (const row of valsRes.data as Array<Record<string, unknown>>) {
+              const pid = String(row.product_id || '');
+              const def = defById.get(String(row.attribute_id || ''));
+              if (!pid || !def) continue;
+              const valueText = row.value_text !== null && row.value_text !== undefined ? String(row.value_text) : null;
+              const valueNumber = row.value_number !== null && row.value_number !== undefined ? Number(row.value_number) : null;
+              const valueBoolean = typeof row.value_boolean === 'boolean' ? row.value_boolean : null;
+              const arr = productAttributesMap.get(pid) || [];
+              arr.push({
+                id: String(row.id),
+                productId: pid,
+                attributeId: def.id,
+                code: def.code,
+                nameFa: def.nameFa,
+                nameEn: def.nameEn,
+                dataType: def.dataType,
+                unit: def.unit,
+                valueText,
+                valueNumber,
+                valueBoolean,
+                displayValue: formatAttributeDisplayValue(def, { valueText, valueNumber, valueBoolean }),
+              });
+              productAttributesMap.set(pid, arr);
+            }
+          }
+        } catch {
+          // Fallback to seeded below
+        }
+        for (const p of mapped) {
+          if (!productAttributesMap.has(p.id) && DEFAULT_DEV_PRODUCT_ATTRIBUTES[p.id]) {
+            const seeded = DEFAULT_DEV_PRODUCT_ATTRIBUTES[p.id]
+              .map((entry) => {
+                const def = defByCode.get(entry.code);
+                if (!def) return null;
+                return {
+                  productId: p.id,
+                  attributeId: def.id,
+                  code: def.code,
+                  nameFa: def.nameFa,
+                  nameEn: def.nameEn,
+                  dataType: def.dataType,
+                  unit: def.unit,
+                  valueText: entry.valueText ?? null,
+                  valueNumber: entry.valueNumber ?? null,
+                  valueBoolean: entry.valueBoolean ?? null,
+                  displayValue: formatAttributeDisplayValue(def, entry),
+                } as ProductAttributeValueDTO;
+              })
+              .filter((x): x is ProductAttributeValueDTO => Boolean(x));
+            if (seeded.length > 0) productAttributesMap.set(p.id, seeded);
+          }
+        }
+      }
+
+      return filterAndSortProducts(mapped, {
+        ...query,
+        productAttributesMap: query.productAttributesMap ?? productAttributesMap,
+      });
     },
 
     async findProductByIdOrSlug(idOrSlug: string) {
@@ -1606,26 +1933,17 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       };
     },
 
-    async listProductReviews(productId: string) {
-      const { data, error } = await supabase
+    async listProductReviews(productId: string, includeUnapproved = false) {
+      let query = supabase
         .from('product_reviews')
         .select('*')
-        .eq('product_id', productId)
-        .eq('is_approved', true)
-        .order('created_at', { ascending: false });
+        .eq('product_id', productId);
+      if (!includeUnapproved) {
+        query = query.eq('is_approved', true);
+      }
+      const { data, error } = await query.order('created_at', { ascending: false });
       if (error) throw new Error(`Supabase reviews failed: ${error.message}`);
-      return (data || []).map((row) => ({
-        id: String(row.id),
-        productId: String(row.product_id || productId),
-        author: String(row.author || ''),
-        authorUsername: row.author_username ? normalizeUsernameServer(row.author_username) : undefined,
-        dateLabel: formatPersianTimestamp(row.created_at),
-        rating: Number(row.rating || 5),
-        comment: String(row.comment || ''),
-        verified: Boolean(row.verified),
-        isApproved: row.is_approved !== false,
-        createdAt: String(row.created_at || new Date().toISOString()),
-      }));
+      return (data || []).map((row) => mapSupabaseReviewRow(row as Record<string, unknown>, productId));
     },
 
     async createProductReview(review: ProductReviewDTO) {
@@ -1658,41 +1976,236 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (error || !data) {
         throw new Error(`Supabase create review failed: ${error?.message || 'no row returned'}`);
       }
+      const mapped = mapSupabaseReviewRow(data as Record<string, unknown>, review.productId);
+      if (mapped.isApproved) {
+        await this.recalculateProductRating(review.productId).catch(() => null);
+      }
       return {
-        id: String(data.id),
-        productId: String(data.product_id),
-        author: String(data.author),
-        authorUsername: data.author_username
-          ? normalizeUsernameServer(data.author_username)
-          : review.authorUsername,
+        ...mapped,
         dateLabel: 'هم‌اکنون',
-        rating: Number(data.rating),
-        comment: String(data.comment),
-        verified: Boolean(data.verified),
-        isApproved: data.is_approved !== false,
-        createdAt: String(data.created_at || review.createdAt),
+        authorUsername: mapped.authorUsername || review.authorUsername,
       };
     },
 
-    async createSupportTicket(ticket: SupportTicketDTO) {
+    async listAllReviews(params = {}) {
+      let query = supabase
+        .from('product_reviews')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (typeof params.isApproved === 'boolean') {
+        query = query.eq('is_approved', params.isApproved);
+      }
+      if (params.productId && params.productId.trim()) {
+        query = query.eq('product_id', params.productId.trim());
+      }
+      const { data, error } = await query;
+      if (error) throw new Error(`Supabase list reviews failed: ${error.message}`);
+      const mapped = (data || []).map((row) => mapSupabaseReviewRow(row as Record<string, unknown>));
+      const total = mapped.length;
+      const offset = Math.max(0, Number(params.offset || 0));
+      const limit = Math.min(200, Math.max(1, Number(params.limit || 50)));
+      return { reviews: mapped.slice(offset, offset + limit), total };
+    },
+
+    async findProductReviewById(reviewId: string) {
       const { data, error } = await supabase
-        .from('support_tickets')
-        .insert({
-          ticket_code: ticket.ticketCode,
-          full_name: ticket.fullName,
-          phone: ticket.phone,
-          department: ticket.department,
-          order_code: ticket.orderCode || null,
-          message: ticket.message,
-          status: ticket.status,
+        .from('product_reviews')
+        .select('*')
+        .eq('id', reviewId)
+        .maybeSingle();
+      if (error) throw new Error(`Supabase review lookup failed: ${error.message}`);
+      return data ? mapSupabaseReviewRow(data as Record<string, unknown>) : null;
+    },
+
+    async moderateProductReview(reviewId: string, isApproved: boolean) {
+      const { data, error } = await supabase
+        .from('product_reviews')
+        .update({ is_approved: isApproved })
+        .eq('id', reviewId)
+        .select('*')
+        .maybeSingle();
+      if (error) throw new Error(`Supabase moderate review failed: ${error.message}`);
+      if (!data) return null;
+      const mapped = mapSupabaseReviewRow(data as Record<string, unknown>);
+      await this.recalculateProductRating(mapped.productId).catch(() => null);
+      return mapped;
+    },
+
+    async deleteProductReview(reviewId: string) {
+      const existing = await this.findProductReviewById(reviewId);
+      if (!existing) return false;
+      const { error } = await supabase.from('product_reviews').delete().eq('id', reviewId);
+      if (error) throw new Error(`Supabase delete review failed: ${error.message}`);
+      await this.recalculateProductRating(existing.productId).catch(() => null);
+      return true;
+    },
+
+    async recalculateProductRating(productId: string) {
+      const product = await this.findProductByIdOrSlug(productId);
+      if (!product) return null;
+      const { data, error } = await supabase
+        .from('product_reviews')
+        .select('rating')
+        .eq('product_id', product.id)
+        .eq('is_approved', true);
+      if (error) throw new Error(`Supabase recalculate rating failed: ${error.message}`);
+      const ratings = (data || [])
+        .map((r) => Number((r as Record<string, unknown>).rating))
+        .filter((n) => Number.isFinite(n) && n >= 1 && n <= 5);
+      const reviewCount = ratings.length;
+      const rating =
+        reviewCount > 0
+          ? Math.round((ratings.reduce((acc, n) => acc + n, 0) / reviewCount) * 10) / 10
+          : 0;
+      await supabase
+        .from('products')
+        .update({
+          rating,
+          review_count: reviewCount,
+          updated_at: new Date().toISOString(),
         })
+        .eq('id', product.id);
+      return { rating, reviewCount };
+    },
+
+    async getUserCart(userId: string) {
+      try {
+        const { data, error } = await supabase
+          .from('cart_items')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true });
+        if (!error && Array.isArray(data)) {
+          return normalizeStoredCartItems(
+            data.map((row: Record<string, unknown>) => ({
+              id: String(row.id || ''),
+              userId: String(row.user_id || userId),
+              key: String(row.item_key || ''),
+              productId: String(row.product_id || ''),
+              variantId: row.variant_id ? String(row.variant_id) : null,
+              sku: row.sku ? String(row.sku) : null,
+              colorName: String(row.color || ''),
+              colorHex: row.color_hex ? String(row.color_hex) : '#1e293b',
+              storageLabel: String(row.storage || ''),
+              warranty: String(row.warranty || ''),
+              qty: Number(row.quantity || 1),
+              createdAt: row.created_at ? String(row.created_at) : undefined,
+              updatedAt: row.updated_at ? String(row.updated_at) : undefined,
+            }))
+          );
+        }
+        if (error && !isMissingRelationError(error)) {
+          throw new Error(`Supabase get cart failed: ${error.message}`);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('Supabase get cart failed:')) {
+          throw err;
+        }
+      }
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', cartSettingKey(userId))
+          .maybeSingle();
+        if (Array.isArray(data?.value)) {
+          return normalizeStoredCartItems(data.value as StoredCartItemRecord[]);
+        }
+      } catch {
+        // Ignore if store_settings is unavailable
+      }
+      return [];
+    },
+
+    async replaceUserCart(userId: string, items: StoredCartItemRecord[]) {
+      const normalized = normalizeStoredCartItems(items);
+      const nowIso = new Date().toISOString();
+      try {
+        const { error: delError } = await supabase
+          .from('cart_items')
+          .delete()
+          .eq('user_id', userId);
+        if (!delError) {
+          if (normalized.length > 0) {
+            const rows = normalized.map((item) => ({
+              user_id: userId,
+              item_key: item.key,
+              product_id: item.productId,
+              variant_id: item.variantId ?? null,
+              sku: item.sku ?? null,
+              color: item.colorName,
+              color_hex: item.colorHex,
+              storage: item.storageLabel,
+              warranty: item.warranty,
+              quantity: item.qty,
+              updated_at: nowIso,
+            }));
+            const { error: insError } = await supabase.from('cart_items').insert(rows);
+            if (insError && !isMissingRelationError(insError)) {
+              throw new Error(`Supabase replace cart failed: ${insError.message}`);
+            }
+            if (!insError) {
+              return normalized;
+            }
+          } else {
+            return [];
+          }
+        } else if (!isMissingRelationError(delError)) {
+          throw new Error(`Supabase clear cart failed: ${delError.message}`);
+        }
+      } catch (err) {
+        if (
+          err instanceof Error &&
+          (err.message.startsWith('Supabase replace cart failed:') ||
+            err.message.startsWith('Supabase clear cart failed:'))
+        ) {
+          throw err;
+        }
+      }
+      await supabase.from('store_settings').upsert({
+        key: cartSettingKey(userId),
+        value: normalized,
+        updated_at: nowIso,
+      });
+      return normalized;
+    },
+
+    async mergeUserCart(userId: string, guestItems: StoredCartItemRecord[]) {
+      const existing = await this.getUserCart(userId);
+      const merged = mergeStoredCartItems(existing, guestItems);
+      return this.replaceUserCart(userId, merged);
+    },
+
+    async createSupportTicket(ticket: SupportTicketDTO) {
+      const baseInsert: Record<string, unknown> = {
+        ticket_code: ticket.ticketCode,
+        full_name: ticket.fullName,
+        phone: ticket.phone,
+        department: ticket.department,
+        order_code: ticket.orderCode || null,
+        message: ticket.message,
+        status: ticket.status,
+      };
+      const extInsert: Record<string, unknown> = {
+        ...baseInsert,
+        user_id: ticket.userId && isUuid(ticket.userId) ? ticket.userId : null,
+      };
+      let { data, error } = await supabase
+        .from('support_tickets')
+        .insert(extInsert)
         .select('*')
         .single();
+      if (error && isSchemaColumnMismatch(error)) {
+        const fb = await supabase.from('support_tickets').insert(baseInsert).select('*').single();
+        data = fb.data;
+        error = fb.error;
+      }
       if (error || !data) {
         throw new Error(`Supabase support ticket failed: ${error?.message || 'no row returned'}`);
       }
-      return {
+      const created: SupportTicketDTO = {
         id: String(data.id),
+        userId: data.user_id ? String(data.user_id) : ticket.userId ?? null,
         ticketCode: String(data.ticket_code),
         fullName: String(data.full_name),
         phone: String(data.phone),
@@ -1700,8 +2213,65 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         orderCode: data.order_code ? String(data.order_code) : '',
         message: String(data.message),
         status: (data.status as SupportTicketDTO['status']) || 'open',
+        adminReply: data.admin_reply ? String(data.admin_reply) : undefined,
         createdAt: formatPersianTimestamp(data.created_at),
       };
+      if (ticket.userId && !data.user_id) {
+        try {
+          const key = `user_tickets_${ticket.userId}`;
+          const existing = await supabase.from('store_settings').select('value').eq('key', key).maybeSingle();
+          const list = Array.isArray(existing.data?.value) ? (existing.data.value as string[]) : [];
+          await supabase.from('store_settings').upsert({
+            key,
+            value: Array.from(new Set([created.ticketCode, ...list])).slice(0, 100),
+            updated_at: new Date().toISOString(),
+          });
+        } catch {
+          // Non-fatal fallback link
+        }
+      }
+      return created;
+    },
+
+    async listUserSupportTickets(userId: string, phone?: string) {
+      const { data, error } = await supabase
+        .from('support_tickets')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) {
+        throw new Error(`Supabase list user tickets failed: ${error.message}`);
+      }
+      let fallbackCodes = new Set<string>();
+      try {
+        const key = `user_tickets_${userId}`;
+        const fb = await supabase.from('store_settings').select('value').eq('key', key).maybeSingle();
+        if (Array.isArray(fb.data?.value)) {
+          fallbackCodes = new Set(fb.data.value.map((v) => String(v).toUpperCase()));
+        }
+      } catch {
+        // Ignore
+      }
+      const cleanPhone = phone ? normalizePhone(phone) : '';
+      return (data || [])
+        .filter((row: Record<string, unknown>) => {
+          if (row.user_id && String(row.user_id) === userId) return true;
+          if (fallbackCodes.has(String(row.ticket_code || '').toUpperCase())) return true;
+          if (cleanPhone && normalizePhone(String(row.phone || '')) === cleanPhone) return true;
+          return false;
+        })
+        .map((row: Record<string, unknown>) => ({
+          id: String(row.id),
+          userId: row.user_id ? String(row.user_id) : null,
+          ticketCode: String(row.ticket_code || ''),
+          fullName: String(row.full_name || ''),
+          phone: String(row.phone || ''),
+          department: String(row.department || ''),
+          orderCode: row.order_code ? String(row.order_code) : '',
+          message: String(row.message || ''),
+          status: (row.status as SupportTicketDTO['status']) || 'open',
+          adminReply: row.admin_reply ? String(row.admin_reply) : undefined,
+          createdAt: formatPersianTimestamp(row.created_at),
+        }));
     },
 
     async subscribeNewsletter(contact: string) {
@@ -2659,6 +3229,681 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       }
       return [];
     },
+
+    async listUserStockAlerts(userId: string) {
+      try {
+        const { data, error } = await supabase
+          .from('stock_alerts')
+          .select('*')
+          .eq('user_id', userId)
+          .is('notified_at', null)
+          .order('created_at', { ascending: false });
+        if (!error && Array.isArray(data)) {
+          return data.map((r: Record<string, unknown>) => ({
+            id: String(r.id),
+            userId: r.user_id ? String(r.user_id) : null,
+            email: String(r.email || ''),
+            productId: String(r.product_id || ''),
+            variantId: r.variant_id ? String(r.variant_id) : null,
+            notifiedAt: r.notified_at ? String(r.notified_at) : null,
+            createdAt: String(r.created_at || new Date().toISOString()),
+          }));
+        }
+      } catch {
+        // Fallback below
+      }
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', 'stock_alerts_fallback')
+          .maybeSingle();
+        if (Array.isArray(data?.value)) {
+          return (data.value as StockAlertDTO[]).filter(
+            (a) => a.userId === userId && !a.notifiedAt
+          );
+        }
+      } catch {
+        // Ignore
+      }
+      return [];
+    },
+
+    async subscribeStockAlert(input) {
+      const emailClean = input.email.trim().toLowerCase();
+      const variantIdClean = input.variantId && isUuid(input.variantId) ? input.variantId : null;
+      try {
+        let q = supabase
+          .from('stock_alerts')
+          .select('*')
+          .eq('product_id', input.productId)
+          .is('notified_at', null);
+        q = input.userId ? q.eq('user_id', input.userId) : q.eq('email', emailClean);
+        const { data: existingRows, error: checkErr } = await q;
+        if (!checkErr) {
+          const match = (existingRows || []).find(
+            (r: Record<string, unknown>) => (r.variant_id ? String(r.variant_id) : null) === variantIdClean
+          );
+          if (match) {
+            return {
+              alert: {
+                id: String(match.id),
+                userId: match.user_id ? String(match.user_id) : null,
+                email: String(match.email || ''),
+                productId: String(match.product_id || ''),
+                variantId: match.variant_id ? String(match.variant_id) : null,
+                notifiedAt: match.notified_at ? String(match.notified_at) : null,
+                createdAt: String(match.created_at || new Date().toISOString()),
+              },
+              alreadySubscribed: true,
+            };
+          }
+          const { data: inserted, error: insErr } = await supabase
+            .from('stock_alerts')
+            .insert({
+              user_id: input.userId && isUuid(input.userId) ? input.userId : null,
+              email: emailClean,
+              product_id: input.productId,
+              variant_id: variantIdClean,
+            })
+            .select('*')
+            .single();
+          if (!insErr && inserted) {
+            return {
+              alert: {
+                id: String(inserted.id),
+                userId: inserted.user_id ? String(inserted.user_id) : null,
+                email: String(inserted.email || ''),
+                productId: String(inserted.product_id || ''),
+                variantId: inserted.variant_id ? String(inserted.variant_id) : null,
+                notifiedAt: null,
+                createdAt: String(inserted.created_at || new Date().toISOString()),
+              },
+              alreadySubscribed: false,
+            };
+          }
+          if (insErr && !isMissingRelationError(insErr)) {
+            throw new Error(`Supabase stock alert failed: ${insErr.message}`);
+          }
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('Supabase stock alert failed:')) {
+          throw err;
+        }
+      }
+
+      const { data: fbRow } = await supabase
+        .from('store_settings')
+        .select('value')
+        .eq('key', 'stock_alerts_fallback')
+        .maybeSingle();
+      const list = Array.isArray(fbRow?.value) ? [...(fbRow.value as StockAlertDTO[])] : [];
+      const existing = list.find(
+        (a) =>
+          a.productId === input.productId &&
+          !a.notifiedAt &&
+          (a.variantId ?? null) === variantIdClean &&
+          (input.userId ? a.userId === input.userId : a.email === emailClean)
+      );
+      if (existing) {
+        return { alert: existing, alreadySubscribed: true };
+      }
+      const created: StockAlertDTO = {
+        id: crypto.randomUUID(),
+        userId: input.userId ?? null,
+        email: emailClean,
+        productId: input.productId,
+        variantId: variantIdClean,
+        notifiedAt: null,
+        createdAt: new Date().toISOString(),
+      };
+      list.unshift(created);
+      await supabase.from('store_settings').upsert({
+        key: 'stock_alerts_fallback',
+        value: list,
+        updated_at: new Date().toISOString(),
+      });
+      return { alert: created, alreadySubscribed: false };
+    },
+
+    async removeStockAlertByProduct(params) {
+      try {
+        let q = supabase
+          .from('stock_alerts')
+          .delete()
+          .eq('product_id', params.productId)
+          .is('notified_at', null);
+        if (params.userId) {
+          q = q.eq('user_id', params.userId);
+        } else if (params.email) {
+          q = q.eq('email', params.email.trim().toLowerCase());
+        }
+        const { error } = await q;
+        if (!error) return true;
+        if (!isMissingRelationError(error)) {
+          throw new Error(`Supabase delete stock alert failed: ${error.message}`);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('Supabase delete stock alert failed:')) {
+          throw err;
+        }
+      }
+      const { data: fbRow } = await supabase
+        .from('store_settings')
+        .select('value')
+        .eq('key', 'stock_alerts_fallback')
+        .maybeSingle();
+      const list = Array.isArray(fbRow?.value) ? [...(fbRow.value as StockAlertDTO[])] : [];
+      const filtered = list.filter((a) => {
+        if (a.productId !== params.productId || a.notifiedAt) return true;
+        if (params.userId && a.userId === params.userId) return false;
+        if (!params.userId && params.email && a.email === params.email.trim().toLowerCase()) return false;
+        return true;
+      });
+      if (filtered.length !== list.length) {
+        await supabase.from('store_settings').upsert({
+          key: 'stock_alerts_fallback',
+          value: filtered,
+          updated_at: new Date().toISOString(),
+        });
+        return true;
+      }
+      return false;
+    },
+
+    async findPendingStockAlerts(productId: string, variantId?: string | null) {
+      try {
+        const { data, error } = await supabase
+          .from('stock_alerts')
+          .select('*')
+          .eq('product_id', productId)
+          .is('notified_at', null);
+        if (!error && Array.isArray(data)) {
+          return data
+            .map((r: Record<string, unknown>) => ({
+              id: String(r.id),
+              userId: r.user_id ? String(r.user_id) : null,
+              email: String(r.email || ''),
+              productId: String(r.product_id || ''),
+              variantId: r.variant_id ? String(r.variant_id) : null,
+              notifiedAt: null,
+              createdAt: String(r.created_at || new Date().toISOString()),
+            }))
+            .filter((a) => !variantId || !a.variantId || a.variantId === variantId);
+        }
+      } catch {
+        // Fallback below
+      }
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', 'stock_alerts_fallback')
+          .maybeSingle();
+        if (Array.isArray(data?.value)) {
+          return (data.value as StockAlertDTO[]).filter(
+            (a) =>
+              a.productId === productId &&
+              !a.notifiedAt &&
+              (!variantId || !a.variantId || a.variantId === variantId)
+          );
+        }
+      } catch {
+        // Ignore
+      }
+      return [];
+    },
+
+    async markStockAlertsNotified(alertIds: string[]) {
+      if (alertIds.length === 0) return;
+      const nowIso = new Date().toISOString();
+      try {
+        const { error } = await supabase
+          .from('stock_alerts')
+          .update({ notified_at: nowIso })
+          .in('id', alertIds);
+        if (!error) return;
+      } catch {
+        // Fallback below
+      }
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', 'stock_alerts_fallback')
+          .maybeSingle();
+        if (Array.isArray(data?.value)) {
+          const idSet = new Set(alertIds);
+          const next = (data.value as StockAlertDTO[]).map((a) =>
+            idSet.has(a.id) ? { ...a, notifiedAt: nowIso } : a
+          );
+          await supabase.from('store_settings').upsert({
+            key: 'stock_alerts_fallback',
+            value: next,
+            updated_at: nowIso,
+          });
+        }
+      } catch {
+        // Ignore
+      }
+    },
+
+    async listUserNotifications(userId: string) {
+      try {
+        const { data, error } = await supabase
+          .from('user_notifications')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(50);
+        if (!error && Array.isArray(data)) {
+          return data.map((r: Record<string, unknown>) => ({
+            id: String(r.id),
+            userId: String(r.user_id),
+            type: String(r.type || 'system'),
+            title: String(r.title || ''),
+            message: String(r.message || ''),
+            link: r.link ? String(r.link) : null,
+            isRead: r.is_read === true,
+            createdAt: String(r.created_at || new Date().toISOString()),
+          }));
+        }
+      } catch {
+        // Fallback below
+      }
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', `user_notifications_${userId}`)
+          .maybeSingle();
+        if (Array.isArray(data?.value)) {
+          return data.value as UserNotificationDTO[];
+        }
+      } catch {
+        // Ignore
+      }
+      return [];
+    },
+
+    async createUserNotification(input) {
+      const nowIso = new Date().toISOString();
+      try {
+        const { data, error } = await supabase
+          .from('user_notifications')
+          .insert({
+            user_id: input.userId,
+            type: input.type,
+            title: input.title,
+            message: input.message,
+            link: input.link ?? null,
+            is_read: false,
+          })
+          .select('*')
+          .single();
+        if (!error && data) {
+          return {
+            id: String(data.id),
+            userId: String(data.user_id),
+            type: String(data.type || 'system'),
+            title: String(data.title || ''),
+            message: String(data.message || ''),
+            link: data.link ? String(data.link) : null,
+            isRead: data.is_read === true,
+            createdAt: String(data.created_at || nowIso),
+          };
+        }
+      } catch {
+        // Fallback below
+      }
+      const key = `user_notifications_${input.userId}`;
+      const existing = await this.listUserNotifications(input.userId);
+      const created: UserNotificationDTO = {
+        id: crypto.randomUUID(),
+        userId: input.userId,
+        type: input.type,
+        title: input.title,
+        message: input.message,
+        link: input.link ?? null,
+        isRead: false,
+        createdAt: nowIso,
+      };
+      await supabase.from('store_settings').upsert({
+        key,
+        value: [created, ...existing].slice(0, 50),
+        updated_at: nowIso,
+      });
+      return created;
+    },
+
+    async markNotificationRead(userId: string, notificationId: string) {
+      try {
+        const { data, error } = await supabase
+          .from('user_notifications')
+          .update({ is_read: true })
+          .eq('id', notificationId)
+          .eq('user_id', userId)
+          .select('*')
+          .maybeSingle();
+        if (!error) {
+          return data
+            ? {
+                id: String(data.id),
+                userId: String(data.user_id),
+                type: String(data.type || 'system'),
+                title: String(data.title || ''),
+                message: String(data.message || ''),
+                link: data.link ? String(data.link) : null,
+                isRead: data.is_read === true,
+                createdAt: String(data.created_at || new Date().toISOString()),
+              }
+            : null;
+        }
+      } catch {
+        // Fallback below
+      }
+      const key = `user_notifications_${userId}`;
+      const list = await this.listUserNotifications(userId);
+      const target = list.find((n) => n.id === notificationId);
+      if (!target) return null;
+      const updated = { ...target, isRead: true };
+      await supabase.from('store_settings').upsert({
+        key,
+        value: list.map((n) => (n.id === notificationId ? updated : n)),
+        updated_at: new Date().toISOString(),
+      });
+      return updated;
+    },
+
+    async markAllNotificationsRead(userId: string) {
+      try {
+        const { data, error } = await supabase
+          .from('user_notifications')
+          .update({ is_read: true })
+          .eq('user_id', userId)
+          .eq('is_read', false)
+          .select('id');
+        if (!error) {
+          return Array.isArray(data) ? data.length : 0;
+        }
+      } catch {
+        // Fallback below
+      }
+      const key = `user_notifications_${userId}`;
+      const list = await this.listUserNotifications(userId);
+      const unreadCount = list.filter((n) => !n.isRead).length;
+      if (unreadCount > 0) {
+        await supabase.from('store_settings').upsert({
+          key,
+          value: list.map((n) => ({ ...n, isRead: true })),
+          updated_at: new Date().toISOString(),
+        });
+      }
+      return unreadCount;
+    },
+
+    async deleteUserNotification(userId: string, notificationId: string) {
+      try {
+        const { data, error } = await supabase
+          .from('user_notifications')
+          .delete()
+          .eq('id', notificationId)
+          .eq('user_id', userId)
+          .select('id');
+        if (!error) {
+          return Array.isArray(data) && data.length > 0;
+        }
+      } catch {
+        // Fallback below
+      }
+      const key = `user_notifications_${userId}`;
+      const list = await this.listUserNotifications(userId);
+      const next = list.filter((n) => n.id !== notificationId);
+      if (next.length === list.length) return false;
+      await supabase.from('store_settings').upsert({
+        key,
+        value: next,
+        updated_at: new Date().toISOString(),
+      });
+      return true;
+    },
+
+    async listProductQuestions(productId: string, includeUnapproved = false) {
+      try {
+        let q = supabase
+          .from('product_questions')
+          .select('*')
+          .eq('product_id', productId)
+          .order('created_at', { ascending: false });
+        if (!includeUnapproved) {
+          q = q.eq('is_approved', true);
+        }
+        const { data, error } = await q;
+        if (!error && Array.isArray(data)) {
+          return data.map((r: Record<string, unknown>) => ({
+            id: String(r.id),
+            productId: String(r.product_id),
+            userId: r.user_id ? String(r.user_id) : null,
+            authorName: String(r.author_name || 'کاربر'),
+            question: String(r.question || ''),
+            answer: r.answer ? String(r.answer) : null,
+            answeredAt: r.answered_at ? String(r.answered_at) : null,
+            isApproved: r.is_approved !== false,
+            createdAt: formatPersianTimestamp(r.created_at),
+          }));
+        }
+      } catch {
+        // Fallback below
+      }
+      try {
+        const { data } = await supabase
+          .from('store_settings')
+          .select('value')
+          .eq('key', `product_questions_${productId}`)
+          .maybeSingle();
+        if (Array.isArray(data?.value)) {
+          const list = data.value as ProductQuestionDTO[];
+          return includeUnapproved ? list : list.filter((item) => item.isApproved !== false);
+        }
+      } catch {
+        // Ignore
+      }
+      return [];
+    },
+
+    async createProductQuestion(input) {
+      const nowIso = new Date().toISOString();
+      try {
+        const { data, error } = await supabase
+          .from('product_questions')
+          .insert({
+            product_id: input.productId,
+            user_id: input.userId && isUuid(input.userId) ? input.userId : null,
+            author_name: input.authorName,
+            question: input.question,
+            answer: input.answer ?? null,
+            answered_at: input.answeredAt ?? null,
+            is_approved: input.isApproved !== false,
+          })
+          .select('*')
+          .single();
+        if (!error && data) {
+          return {
+            id: String(data.id),
+            productId: String(data.product_id),
+            userId: data.user_id ? String(data.user_id) : null,
+            authorName: String(data.author_name || 'کاربر'),
+            question: String(data.question || ''),
+            answer: data.answer ? String(data.answer) : null,
+            answeredAt: data.answered_at ? String(data.answered_at) : null,
+            isApproved: data.is_approved !== false,
+            createdAt: formatPersianTimestamp(data.created_at),
+          };
+        }
+        if (error && !isMissingRelationError(error)) {
+          throw new Error(`Supabase product question failed: ${error.message}`);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('Supabase product question failed:')) {
+          throw err;
+        }
+      }
+      const key = `product_questions_${input.productId}`;
+      const existing = await this.listProductQuestions(input.productId, true);
+      const created: ProductQuestionDTO = {
+        id: crypto.randomUUID(),
+        productId: input.productId,
+        userId: input.userId ?? null,
+        authorName: input.authorName,
+        question: input.question,
+        answer: input.answer ?? null,
+        answeredAt: input.answeredAt ?? null,
+        isApproved: input.isApproved !== false,
+        createdAt: formatPersianTimestamp(nowIso),
+      };
+      await supabase.from('store_settings').upsert({
+        key,
+        value: [created, ...existing],
+        updated_at: nowIso,
+      });
+      return created;
+    },
+
+    async listBlogPosts(params = {}) {
+      const page = Math.max(1, Math.floor(Number(params.page) || 1));
+      const limit = Math.min(50, Math.max(1, Math.floor(Number(params.limit) || 9)));
+      const includeUnpublished = Boolean(params.includeUnpublished);
+
+      let allPosts: BlogPostDTO[] | null = null;
+      try {
+        let query = supabase
+          .from('blog_posts')
+          .select('*')
+          .order('published_at', { ascending: false });
+        if (!includeUnpublished) {
+          query = query.eq('is_published', true);
+        }
+        const { data, error } = await query;
+        if (!error && Array.isArray(data)) {
+          allPosts = data.map((row) => ({
+            id: String(row.id),
+            slug: String(row.slug),
+            title: String(row.title || ''),
+            excerpt: String(row.excerpt || ''),
+            content: String(row.content || ''),
+            coverImage: String(row.cover_image || ''),
+            category: String(row.category || 'راهنمای خرید'),
+            tags: Array.isArray(row.tags) ? row.tags.map((t: unknown) => String(t)) : [],
+            authorName: String(row.author_name || 'تحریریه موبایل امیر'),
+            readingTimeMinutes: Math.max(1, Number(row.reading_time_minutes) || 5),
+            isPublished: row.is_published !== false,
+            publishedAt: String(row.published_at || row.created_at || new Date().toISOString()),
+            createdAt: String(row.created_at || row.published_at || new Date().toISOString()),
+            updatedAt: String(row.updated_at || row.published_at || new Date().toISOString()),
+          }));
+        } else if (error && !isMissingRelationError(error)) {
+          throw new Error(`Supabase blog query failed: ${error.message}`);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('Supabase blog query failed:')) {
+          throw err;
+        }
+      }
+
+      const sourcePosts =
+        allPosts ??
+        DEFAULT_DEV_BLOG_POSTS.filter((p) => includeUnpublished || p.isPublished).map((p) => ({
+          ...p,
+          tags: [...p.tags],
+        }));
+
+      return filterAndPaginateBlogPosts(sourcePosts, { ...params, page, limit, includeUnpublished });
+    },
+
+    async findBlogPostBySlug(slug: string, includeUnpublished = false) {
+      const cleanSlug = String(slug || '').trim();
+      if (!cleanSlug) return null;
+      try {
+        let query = supabase
+          .from('blog_posts')
+          .select('*')
+          .eq('slug', cleanSlug)
+          .limit(1);
+        if (!includeUnpublished) {
+          query = query.eq('is_published', true);
+        }
+        const { data, error } = await query.maybeSingle();
+        if (!error && data) {
+          return {
+            id: String(data.id),
+            slug: String(data.slug),
+            title: String(data.title || ''),
+            excerpt: String(data.excerpt || ''),
+            content: String(data.content || ''),
+            coverImage: String(data.cover_image || ''),
+            category: String(data.category || 'راهنمای خرید'),
+            tags: Array.isArray(data.tags) ? data.tags.map((t: unknown) => String(t)) : [],
+            authorName: String(data.author_name || 'تحریریه موبایل امیر'),
+            readingTimeMinutes: Math.max(1, Number(data.reading_time_minutes) || 5),
+            isPublished: data.is_published !== false,
+            publishedAt: String(data.published_at || data.created_at || new Date().toISOString()),
+            createdAt: String(data.created_at || data.published_at || new Date().toISOString()),
+            updatedAt: String(data.updated_at || data.published_at || new Date().toISOString()),
+          };
+        }
+        if (!error && !data) {
+          return null;
+        }
+        if (error && !isMissingRelationError(error)) {
+          throw new Error(`Supabase blog detail failed: ${error.message}`);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('Supabase blog detail failed:')) {
+          throw err;
+        }
+      }
+
+      const fallback = DEFAULT_DEV_BLOG_POSTS.find(
+        (p) => p.slug === cleanSlug && (includeUnpublished || p.isPublished)
+      );
+      return fallback ? { ...fallback, tags: [...fallback.tags] } : null;
+    },
+
+    async answerProductQuestion(questionId: string, patch) {
+      const nowIso = new Date().toISOString();
+      const updateObj: Record<string, unknown> = {};
+      if (patch.answer !== undefined) {
+        updateObj.answer = patch.answer;
+        updateObj.answered_at = patch.answer ? nowIso : null;
+      }
+      if (typeof patch.isApproved === 'boolean') {
+        updateObj.is_approved = patch.isApproved;
+      }
+      try {
+        const { data, error } = await supabase
+          .from('product_questions')
+          .update(updateObj)
+          .eq('id', questionId)
+          .select('*')
+          .maybeSingle();
+        if (!error && data) {
+          return {
+            id: String(data.id),
+            productId: String(data.product_id),
+            userId: data.user_id ? String(data.user_id) : null,
+            authorName: String(data.author_name || 'کاربر'),
+            question: String(data.question || ''),
+            answer: data.answer ? String(data.answer) : null,
+            answeredAt: data.answered_at ? String(data.answered_at) : null,
+            isApproved: data.is_approved !== false,
+            createdAt: formatPersianTimestamp(data.created_at),
+          };
+        }
+      } catch {
+        // Fallback below
+      }
+      return null;
+    },
   };
 }
 
@@ -2681,6 +3926,7 @@ export function createMemoryAuthStorage(options?: {
   const coupons: CouponRuleDTO[] = DEFAULT_DEV_COUPONS.map((c) => ({ ...c }));
   const settings: StoreSettingsDTO = { ...DEFAULT_DEV_SETTINGS };
   const reviewsByProduct = new Map<string, ProductReviewDTO[]>();
+  const cartByUser = new Map<string, StoredCartItemRecord[]>();
   const tickets: SupportTicketDTO[] = [];
   const newsletter = new Set<string>();
   const auditLogs: AdminAuditLogDTO[] = [];
@@ -2714,6 +3960,13 @@ export function createMemoryAuthStorage(options?: {
   const warehouses: WarehouseDTO[] = DEFAULT_DEV_WAREHOUSES.map((w) => ({ ...w }));
   const warehouseStocks: WarehouseStockDTO[] = DEFAULT_DEV_WAREHOUSE_STOCK.map((s) => ({ ...s }));
   const stockMovements: StockMovementDTO[] = [];
+  const stockAlerts: StockAlertDTO[] = [];
+  const notificationsByUser = new Map<string, UserNotificationDTO[]>();
+  const productQuestions: ProductQuestionDTO[] = [];
+  const blogPosts: BlogPostDTO[] = DEFAULT_DEV_BLOG_POSTS.map((p) => ({
+    ...p,
+    tags: [...p.tags],
+  }));
 
   return {
     mode: 'dev-memory',
@@ -2897,6 +4150,16 @@ export function createMemoryAuthStorage(options?: {
     },
 
     async listProducts(query = {}) {
+      let productAttributesMap = query.productAttributesMap;
+      if (!productAttributesMap && query.attributes && Object.keys(query.attributes).length > 0) {
+        productAttributesMap = new Map<string, ProductAttributeValueDTO[]>();
+        for (const p of products) {
+          const vals = await this.listProductAttributes(p.id);
+          if (vals.length > 0) {
+            productAttributesMap.set(p.id, vals);
+          }
+        }
+      }
       return filterAndSortProducts(
         products.map((p) => ({
           ...p,
@@ -2906,7 +4169,7 @@ export function createMemoryAuthStorage(options?: {
           images: p.images ? [...p.images] : undefined,
           customSpecs: p.customSpecs ? p.customSpecs.map((cs) => ({ ...cs })) : undefined,
         })),
-        { ...query, categories: query.categories ?? categories }
+        { ...query, categories: query.categories ?? categories, productAttributesMap }
       );
     },
 
@@ -3065,10 +4328,13 @@ export function createMemoryAuthStorage(options?: {
       return { ...settings };
     },
 
-    async listProductReviews(productId: string) {
+    async listProductReviews(productId: string, includeUnapproved = false) {
       const saved = reviewsByProduct.get(productId) || [];
+      const filteredSaved = includeUnapproved
+        ? saved
+        : saved.filter((r) => r.isApproved !== false);
       return [
-        ...saved,
+        ...filteredSaved.map((r) => ({ ...r })),
         ...DEFAULT_DEV_REVIEWS.map((r) => ({ ...r, productId })),
       ];
     },
@@ -3077,13 +4343,311 @@ export function createMemoryAuthStorage(options?: {
       const existing = reviewsByProduct.get(review.productId) || [];
       const created = { ...review, id: review.id || crypto.randomUUID() };
       reviewsByProduct.set(review.productId, [created, ...existing]);
+      if (created.isApproved) {
+        await this.recalculateProductRating(review.productId);
+      }
       return created;
     },
 
+    async listAllReviews(params = {}) {
+      let list: ProductReviewDTO[] = [];
+      for (const arr of reviewsByProduct.values()) {
+        for (const r of arr) {
+          list.push({ ...r });
+        }
+      }
+      list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      if (typeof params.isApproved === 'boolean') {
+        list = list.filter((r) => Boolean(r.isApproved) === params.isApproved);
+      }
+      if (params.productId && params.productId.trim()) {
+        const pid = params.productId.trim();
+        list = list.filter((r) => r.productId === pid);
+      }
+      const total = list.length;
+      const offset = Math.max(0, Number(params.offset || 0));
+      const limit = Math.min(200, Math.max(1, Number(params.limit || 50)));
+      return { reviews: list.slice(offset, offset + limit), total };
+    },
+
+    async findProductReviewById(reviewId: string) {
+      for (const arr of reviewsByProduct.values()) {
+        const found = arr.find((r) => r.id === reviewId);
+        if (found) return { ...found };
+      }
+      return null;
+    },
+
+    async moderateProductReview(reviewId: string, isApproved: boolean) {
+      for (const [pid, arr] of reviewsByProduct.entries()) {
+        const idx = arr.findIndex((r) => r.id === reviewId);
+        if (idx >= 0) {
+          const updated = { ...arr[idx], isApproved };
+          arr[idx] = updated;
+          reviewsByProduct.set(pid, arr);
+          await this.recalculateProductRating(pid);
+          return { ...updated };
+        }
+      }
+      return null;
+    },
+
+    async deleteProductReview(reviewId: string) {
+      for (const [pid, arr] of reviewsByProduct.entries()) {
+        const idx = arr.findIndex((r) => r.id === reviewId);
+        if (idx >= 0) {
+          arr.splice(idx, 1);
+          reviewsByProduct.set(pid, arr);
+          await this.recalculateProductRating(pid);
+          return true;
+        }
+      }
+      return false;
+    },
+
+    async recalculateProductRating(productId: string) {
+      const idx = products.findIndex((p) => p.id === productId || p.slug === productId);
+      if (idx < 0) return null;
+      const prod = products[idx];
+      const approved = (reviewsByProduct.get(prod.id) || []).filter(
+        (r) => r.isApproved !== false
+      );
+      const reviewCount = approved.length;
+      const rating =
+        reviewCount > 0
+          ? Math.round((approved.reduce((acc, r) => acc + r.rating, 0) / reviewCount) * 10) / 10
+          : 0;
+      products[idx] = {
+        ...prod,
+        rating,
+        reviewCount,
+        updatedAt: new Date().toISOString(),
+      };
+      return { rating, reviewCount };
+    },
+
+    async getUserCart(userId: string) {
+      return (cartByUser.get(userId) || []).map((item) => ({ ...item }));
+    },
+
+    async replaceUserCart(userId: string, items: StoredCartItemRecord[]) {
+      const normalized = normalizeStoredCartItems(items).map((item) => ({
+        ...item,
+        userId,
+        id: item.id || crypto.randomUUID(),
+        updatedAt: new Date().toISOString(),
+      }));
+      cartByUser.set(userId, normalized);
+      return normalized.map((item) => ({ ...item }));
+    },
+
+    async mergeUserCart(userId: string, guestItems: StoredCartItemRecord[]) {
+      const existing = cartByUser.get(userId) || [];
+      const merged = mergeStoredCartItems(existing, guestItems);
+      return this.replaceUserCart(userId, merged);
+    },
+
     async createSupportTicket(ticket: SupportTicketDTO) {
-      const created = { ...ticket, id: crypto.randomUUID() };
+      const created: SupportTicketDTO = {
+        ...ticket,
+        id: crypto.randomUUID(),
+        userId: ticket.userId ?? null,
+      };
       tickets.unshift(created);
       return created;
+    },
+
+    async listUserSupportTickets(userId: string, phone?: string) {
+      const cleanPhone = phone ? normalizePhone(phone) : '';
+      return tickets
+        .filter(
+          (t) =>
+            (t.userId && t.userId === userId) ||
+            (cleanPhone && normalizePhone(t.phone) === cleanPhone)
+        )
+        .map((t) => ({ ...t }));
+    },
+
+    async listUserStockAlerts(userId: string) {
+      return stockAlerts
+        .filter((a) => a.userId === userId && !a.notifiedAt)
+        .map((a) => ({ ...a }));
+    },
+
+    async subscribeStockAlert(input) {
+      const emailClean = input.email.trim().toLowerCase();
+      const variantIdClean = input.variantId ?? null;
+      const existing = stockAlerts.find(
+        (a) =>
+          a.productId === input.productId &&
+          !a.notifiedAt &&
+          (a.variantId ?? null) === variantIdClean &&
+          (input.userId ? a.userId === input.userId : a.email === emailClean)
+      );
+      if (existing) {
+        return { alert: { ...existing }, alreadySubscribed: true };
+      }
+      const created: StockAlertDTO = {
+        id: crypto.randomUUID(),
+        userId: input.userId ?? null,
+        email: emailClean,
+        productId: input.productId,
+        variantId: variantIdClean,
+        notifiedAt: null,
+        createdAt: new Date().toISOString(),
+      };
+      stockAlerts.unshift(created);
+      return { alert: { ...created }, alreadySubscribed: false };
+    },
+
+    async removeStockAlertByProduct(params) {
+      const emailClean = params.email ? params.email.trim().toLowerCase() : '';
+      let removed = false;
+      for (let i = stockAlerts.length - 1; i >= 0; i -= 1) {
+        const a = stockAlerts[i];
+        if (a.productId !== params.productId || a.notifiedAt) continue;
+        if (params.userId && a.userId === params.userId) {
+          stockAlerts.splice(i, 1);
+          removed = true;
+        } else if (!params.userId && emailClean && a.email === emailClean) {
+          stockAlerts.splice(i, 1);
+          removed = true;
+        }
+      }
+      return removed;
+    },
+
+    async findPendingStockAlerts(productId: string, variantId?: string | null) {
+      return stockAlerts
+        .filter(
+          (a) =>
+            a.productId === productId &&
+            !a.notifiedAt &&
+            (!variantId || !a.variantId || a.variantId === variantId)
+        )
+        .map((a) => ({ ...a }));
+    },
+
+    async markStockAlertsNotified(alertIds: string[]) {
+      const idSet = new Set(alertIds);
+      const nowIso = new Date().toISOString();
+      for (let i = 0; i < stockAlerts.length; i += 1) {
+        if (idSet.has(stockAlerts[i].id)) {
+          stockAlerts[i] = { ...stockAlerts[i], notifiedAt: nowIso };
+        }
+      }
+    },
+
+    async listUserNotifications(userId: string) {
+      return (notificationsByUser.get(userId) || []).map((n) => ({ ...n }));
+    },
+
+    async createUserNotification(input) {
+      const created: UserNotificationDTO = {
+        id: crypto.randomUUID(),
+        userId: input.userId,
+        type: input.type,
+        title: input.title,
+        message: input.message,
+        link: input.link ?? null,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      };
+      const existing = notificationsByUser.get(input.userId) || [];
+      notificationsByUser.set(input.userId, [created, ...existing].slice(0, 50));
+      return { ...created };
+    },
+
+    async markNotificationRead(userId: string, notificationId: string) {
+      const list = notificationsByUser.get(userId) || [];
+      const idx = list.findIndex((n) => n.id === notificationId);
+      if (idx < 0) return null;
+      const updated = { ...list[idx], isRead: true };
+      list[idx] = updated;
+      notificationsByUser.set(userId, list);
+      return { ...updated };
+    },
+
+    async markAllNotificationsRead(userId: string) {
+      const list = notificationsByUser.get(userId) || [];
+      let count = 0;
+      const next = list.map((n) => {
+        if (!n.isRead) {
+          count += 1;
+          return { ...n, isRead: true };
+        }
+        return n;
+      });
+      notificationsByUser.set(userId, next);
+      return count;
+    },
+
+    async deleteUserNotification(userId: string, notificationId: string) {
+      const list = notificationsByUser.get(userId) || [];
+      const next = list.filter((n) => n.id !== notificationId);
+      if (next.length === list.length) return false;
+      notificationsByUser.set(userId, next);
+      return true;
+    },
+
+    async listProductQuestions(productId: string, includeUnapproved = false) {
+      return productQuestions
+        .filter((q) => q.productId === productId && (includeUnapproved || q.isApproved !== false))
+        .map((q) => ({ ...q }));
+    },
+
+    async createProductQuestion(input) {
+      const created: ProductQuestionDTO = {
+        id: crypto.randomUUID(),
+        productId: input.productId,
+        userId: input.userId ?? null,
+        authorName: input.authorName,
+        question: input.question,
+        answer: input.answer ?? null,
+        answeredAt: input.answeredAt ?? null,
+        isApproved: input.isApproved !== false,
+        createdAt: formatPersianTimestamp(new Date().toISOString()),
+      };
+      productQuestions.unshift(created);
+      return { ...created };
+    },
+
+    async answerProductQuestion(questionId: string, patch) {
+      const idx = productQuestions.findIndex((q) => q.id === questionId);
+      if (idx < 0) return null;
+      const current = productQuestions[idx];
+      const next: ProductQuestionDTO = {
+        ...current,
+        answer: patch.answer !== undefined ? patch.answer : current.answer,
+        answeredAt:
+          patch.answer !== undefined
+            ? patch.answer
+              ? new Date().toISOString()
+              : null
+            : current.answeredAt,
+        isApproved: typeof patch.isApproved === 'boolean' ? patch.isApproved : current.isApproved,
+      };
+      productQuestions[idx] = next;
+      return { ...next };
+    },
+
+    async listBlogPosts(params = {}) {
+      const page = Math.max(1, Math.floor(Number(params.page) || 1));
+      const limit = Math.min(50, Math.max(1, Math.floor(Number(params.limit) || 9)));
+      return filterAndPaginateBlogPosts(blogPosts, {
+        ...params,
+        page,
+        limit,
+      });
+    },
+
+    async findBlogPostBySlug(slug: string, includeUnpublished = false) {
+      const cleanSlug = String(slug || '').trim();
+      if (!cleanSlug) return null;
+      const match = blogPosts.find(
+        (p) => p.slug === cleanSlug && (includeUnpublished || p.isPublished)
+      );
+      return match ? { ...match, tags: [...match.tags] } : null;
     },
 
     async subscribeNewsletter(contact: string) {
@@ -3649,6 +5213,18 @@ export class AuthService {
 
   findOrderByCode(orderCode: string) {
     return this.storage.findOrderByCode(orderCode);
+  }
+
+  getUserCart(userId: string) {
+    return this.storage.getUserCart(userId);
+  }
+
+  replaceUserCart(userId: string, items: StoredCartItemRecord[]) {
+    return this.storage.replaceUserCart(userId, items);
+  }
+
+  mergeUserCart(userId: string, guestItems: StoredCartItemRecord[]) {
+    return this.storage.mergeUserCart(userId, guestItems);
   }
 
   async createOtpChallenge(params: {

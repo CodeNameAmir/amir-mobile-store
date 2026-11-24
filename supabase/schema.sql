@@ -52,6 +52,8 @@ create table if not exists public.orders (
   coupon_code text,
   subtotal bigint not null,
   discount_total bigint default 0,
+  product_discount bigint default 0,
+  coupon_discount bigint default 0,
   shipping_cost bigint default 0,
   total_amount bigint not null,
   status text not null default 'preparing',
@@ -65,6 +67,9 @@ alter table public.orders add column if not exists city text default 'تهران
 alter table public.orders add column if not exists delivery_slot text default 'express';
 alter table public.orders add column if not exists shaparak_ref text;
 alter table public.orders add column if not exists admin_note text;
+alter table public.orders add column if not exists product_discount bigint default 0;
+alter table public.orders add column if not exists coupon_discount bigint default 0;
+alter table public.orders add column if not exists customer_email text;
 alter table public.orders add column if not exists updated_at timestamptz default now();
 
 -- 3. Support Tickets Table
@@ -108,15 +113,15 @@ values
   ('VIP-10', 'percent', 10, 2000000, 1000000, true, 'تخفیف ۱۰ درصدی ویژه تا سقف ۲ میلیون تومان')
 on conflict (code) do nothing;
 
--- 6. Product Reviews Table (Submitted on PDP, Moderated in Future Admin Panel)
+-- 6. Product Reviews Table (Submitted on PDP, Moderated in Admin Panel)
 create table if not exists public.product_reviews (
   id uuid primary key default gen_random_uuid(),
   product_id text not null,
   author text not null,
   rating integer not null check (rating between 1 and 5),
   comment text not null,
-  verified boolean default true,
-  is_approved boolean default true,
+  verified boolean default false,
+  is_approved boolean default false,
   created_at timestamptz default now()
 );
 
@@ -136,7 +141,9 @@ on conflict (key) do nothing;
 
 -- ============================================================================
 -- Row Level Security (RLS)
--- Storefront uses anon key; Future Admin Panel uses Supabase Auth (authenticated).
+-- All database mutations & sensitive reads go exclusively through the Express
+-- Backend API using SUPABASE_SERVICE_ROLE_KEY. Default-deny anon access on
+-- orders, support_tickets, newsletter_subscribers, and product_reviews.
 -- ============================================================================
 alter table public.products enable row level security;
 alter table public.orders enable row level security;
@@ -146,46 +153,31 @@ alter table public.coupons enable row level security;
 alter table public.product_reviews enable row level security;
 alter table public.store_settings enable row level security;
 
--- Public Storefront Policies
+-- Public Catalog Metadata Policies (read-only)
 drop policy if exists "Public can view products" on public.products;
 create policy "Public can view products"
   on public.products for select
   using (true);
 
+-- Default-deny anon access on sensitive/user-submitted tables (Backend service_role only)
 drop policy if exists "Anyone can create demo orders" on public.orders;
-create policy "Anyone can create demo orders"
-  on public.orders for insert
-  with check (true);
-
 drop policy if exists "Anyone can view orders by code" on public.orders;
-create policy "Anyone can view orders by code"
-  on public.orders for select
-  using (true);
-
 drop policy if exists "Anyone can create support tickets" on public.support_tickets;
-create policy "Anyone can create support tickets"
-  on public.support_tickets for insert
-  with check (true);
-
 drop policy if exists "Anyone can subscribe to newsletter" on public.newsletter_subscribers;
-create policy "Anyone can subscribe to newsletter"
-  on public.newsletter_subscribers for insert
-  with check (true);
+drop policy if exists "Public can view approved reviews" on public.product_reviews;
+drop policy if exists "Anyone can submit product review" on public.product_reviews;
+
+revoke all on table
+  public.orders,
+  public.support_tickets,
+  public.newsletter_subscribers,
+  public.product_reviews
+from anon;
 
 drop policy if exists "Public can view active coupons" on public.coupons;
 create policy "Public can view active coupons"
   on public.coupons for select
   using (is_active = true);
-
-drop policy if exists "Public can view approved reviews" on public.product_reviews;
-create policy "Public can view approved reviews"
-  on public.product_reviews for select
-  using (is_approved = true);
-
-drop policy if exists "Anyone can submit product review" on public.product_reviews;
-create policy "Anyone can submit product review"
-  on public.product_reviews for insert
-  with check (true);
 
 drop policy if exists "Public can view store settings" on public.store_settings;
 create policy "Public can view store settings"
@@ -703,3 +695,196 @@ create unique index if not exists idx_app_users_username_lower
 
 alter table public.product_reviews
   add column if not exists author_username text;
+
+alter table public.product_reviews
+  alter column verified set default false;
+
+alter table public.product_reviews
+  alter column is_approved set default false;
+
+-- 12. Persistent Server-Side User Cart Items
+create table if not exists public.cart_items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.app_users(id) on delete cascade,
+  item_key text not null,
+  product_id text not null,
+  variant_id text,
+  sku text,
+  color text not null default '',
+  color_hex text default '#1e293b',
+  storage text not null default '',
+  warranty text not null default '',
+  quantity integer not null check (quantity > 0),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create unique index if not exists idx_cart_items_user_item_key
+  on public.cart_items (user_id, item_key);
+create index if not exists idx_cart_items_user_id
+  on public.cart_items (user_id);
+
+alter table public.cart_items enable row level security;
+revoke all on table public.cart_items from anon;
+
+-- 13. Phase 3: Editorial Review, Support Ticket User Link, Stock Alerts, Notifications & Product Q&A
+alter table public.products
+  add column if not exists editorial_review text;
+
+alter table public.support_tickets
+  add column if not exists user_id uuid references public.app_users(id) on delete set null;
+
+create index if not exists idx_support_tickets_user_id
+  on public.support_tickets (user_id);
+
+create table if not exists public.stock_alerts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references public.app_users(id) on delete cascade,
+  email text not null,
+  product_id text not null,
+  variant_id uuid,
+  notified_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_stock_alerts_product_pending
+  on public.stock_alerts (product_id)
+  where notified_at is null;
+create index if not exists idx_stock_alerts_user_id
+  on public.stock_alerts (user_id);
+
+alter table public.stock_alerts enable row level security;
+revoke all on table public.stock_alerts from anon;
+
+create table if not exists public.user_notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.app_users(id) on delete cascade,
+  type text not null default 'system',
+  title text not null,
+  message text not null,
+  link text,
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_user_notifications_user_created
+  on public.user_notifications (user_id, created_at desc);
+
+alter table public.user_notifications enable row level security;
+revoke all on table public.user_notifications from anon;
+
+create table if not exists public.product_questions (
+  id uuid primary key default gen_random_uuid(),
+  product_id text not null,
+  user_id uuid references public.app_users(id) on delete set null,
+  author_name text not null,
+  question text not null,
+  answer text,
+  answered_at timestamptz,
+  is_approved boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_product_questions_product_created
+  on public.product_questions (product_id, created_at desc);
+
+alter table public.product_questions enable row level security;
+revoke all on table public.product_questions from anon;
+
+-- 14. Phase 4: Blog Module (blog_posts)
+create table if not exists public.blog_posts (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,
+  title text not null,
+  excerpt text not null,
+  content text not null,
+  cover_image text not null default '',
+  category text not null default 'راهنمای خرید',
+  tags text[] not null default '{}',
+  author_name text not null default 'تحریریه موبایل امیر',
+  reading_time_minutes integer not null default 5,
+  is_published boolean not null default true,
+  published_at timestamptz not null default now(),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_blog_posts_slug
+  on public.blog_posts (slug);
+create index if not exists idx_blog_posts_published_at
+  on public.blog_posts (is_published, published_at desc);
+create index if not exists idx_blog_posts_category
+  on public.blog_posts (category);
+
+alter table public.blog_posts enable row level security;
+revoke all on table public.blog_posts from anon;
+
+insert into public.blog_posts (
+  slug,
+  title,
+  excerpt,
+  content,
+  cover_image,
+  category,
+  tags,
+  author_name,
+  reading_time_minutes,
+  is_published,
+  published_at
+)
+values
+(
+  'iphone-16-pro-max-vs-s24-ultra-camera',
+  'مقایسه دوربین پرچمداران: آیفون ۱۶ پرو مکس در برابر گلکسی S24 اولترا',
+  'کدام گوشی در شب عکس‌های طبیعی‌تری ثبت می‌کند؟ بررسی دقیق سنسورهای پریسکوپی، داینامیک رنج و قدرت پردازش هوش مصنوعی.',
+  E'انتخاب بین دو غول دنیای عکاسی موبایل یعنی آیفون ۱۶ پرو مکس و گلکسی S24 اولترا، بیش از هر زمان دیگری به سبک عکاسی و نیاز فیلم‌برداری شما وابسته است. در آزمایش‌های میدانی تحریریه موبایل امیر، هر دو دستگاه را در شرایط نوری سخت، عکاسی پرتره و زوم اپتیکال ۵ برابری زیر ذره‌بین قرار دادیم.\n\n## عملکرد در نور روز و بازتولید رنگ\nاپل با نسل جدید پردازش تصویر Photonic Engine و پروفایل‌های رنگی جدید، جزئیات سایه‌ها را بدون اغراق در کنتراست حفظ می‌کند و رنگ پوست را بسیار نزدیک به واقعیت ثبت می‌کند. در مقابل، گلکسی S24 اولترا با سنسور ۲۰۰ مگاپیکسلی اصلی خود، وضوح لبه‌ها و شفافیت بافت‌ها را در ثبت مناظر شهری و معماری به اوج می‌رساند.\n\n## عکاسی در شب و زوم تله‌فوتو\nهر دو گوشی به لنز تله‌فوتو پریسکوپی ۵ برابر مجهز هستند. در محیط‌های کم‌نور، آیفون به دلیل گشودگی دیافراگم مناسب‌تر و زمان نوردهی هوشمند، نویز کمتری ایجاد می‌کند؛ اما سامسونگ با قابلیت زوم ۱۰ و ۱۰۰ برابری دیجیتال مبتنی بر هوش مصنوعی، در فواصل بسیار دور دست بالا را دارد.\n\n## فیلم‌برداری و جمع‌بندی خرید\nاگر تولید محتوای ویدیویی، پشتیبانی از فرمت ProRes 4K با نرخ ۱۲۰ فریم بر ثانیه و کلید اختصاصی Camera Control برایتان اولویت دارد، آیفون ۱۶ پرو مکس انتخاب بی‌رقیب است. اما برای کاربرانی که نمایشگر ضدبازتاب، قلم S-Pen و زوم برد بلند می‌خواهند، گلکسی S24 اولترا ارزش خرید فوق‌العاده‌ای دارد.',
+  'asset:iphoneCamera',
+  'مقایسه تخصصی',
+  array['آیفون ۱۶ پرو مکس', 'گلکسی S24 اولترا', 'مقایسه دوربین'],
+  'امیرحسین مرادی',
+  7,
+  true,
+  now() - interval '2 days'
+),
+(
+  'fast-charging-gan-cable-buying-guide',
+  'راهنمای جامع خرید آداپتور و کابل فست شارژ؛ تشخیص شارژر اصلی از تقلبی',
+  'معرفی استانداردهای PD و PPS و نحوه تشخیص شارژرهای تقلبی که سلامت باتری گوشی گران‌قیمت شما را به خطر می‌اندازند.',
+  E'بسیاری از کاربران پس از خرید گوشی‌های پرچمدار، برای تهیه آداپتور شارژ سریع با نمونه‌های غیر‌اصلی و مشابه روبه‌رو می‌شوند که نه‌تنها سرعت واقعی شارژ را ارائه نمی‌دهند، بلکه در درازمدت به مدار تغذیه (IC شارژ) و سلامت باتری آسیب جدی می‌زنند.\n\n## فناوری GaN چیست و چه تفاوتی ایجاد می‌کند؟\nشارژرهای مبتنی بر نیترید گالیوم (GaN) در مقایسه با نمونه‌های سیلیکونی قدیمی، حرارت بسیار کمتری تولید می‌کنند و در ابعادی کوچک‌تر، توان خروجی بالا مانند ۴۵ تا ۶۵ وات را به صورت پایدار تحویل می‌دهند. برندهایی نظیر انکر (Anker) و آداپتورهای رسمی اپل و سامسونگ از محافظ‌های چندلایه نوسان برق و کنترل دمای لحظه‌ای بهره می‌برند.\n\n## استانداردهای PD و PPS را بشناسید\nبرای گوشی‌های آیفون سری ۱۵ و ۱۶، پشتیبانی آداپتور از پروتکل USB Power Delivery (PD 3.0) حیاتی است. در سوی دیگر، پرچمداران سامسونگ برای دستیابی به شارژ فوق‌سریع ۴۵ واتی نیازمند پروتکل PPS (تنظیم هوشمند ولتاژ و جریان) هستند تا دمای باتری در حین شارژ تحت کنترل بماند.\n\n## چطور شارژر اصل را تشخیص دهیم؟\nوزن متناسب و غیرعادی سبک نبودن بدنه، کیفیت چاپ لیزری شماره سریال، بسته‌بندی پلمپ با هولوگرام اصالت و خرید از فروشگاه دارای گارانتی تعویض واقعی، مهم‌ترین معیارها برای اطمینان از اصالت آداپتور و کابل Type-C هستند.',
+  'asset:ankerCharger',
+  'راهنمای خرید',
+  array['فست شارژ', 'فناوری GaN', 'شارژر انکر', 'سلامت باتری'],
+  'سارا کاظمی',
+  5,
+  true,
+  now() - interval '4 days'
+),
+(
+  'best-smartwatches-fitness-health-guide',
+  'بهترین ساعت‌های هوشمند برای پایش سلامت و ورزش در سال ۱۴۰۳',
+  'تحلیل دقت سنسورهای ضربان قلب، نوار قلب ECG و دوام باتری در ساعت‌های هوشمند اپل و سامسونگ برای استفاده روزمره و حرفه‌ای.',
+  E'ساعت‌های هوشمند امروزی فراتر از نمایش اعلان‌های گوشی عمل می‌کنند و به یک دستیار دقیق پایش سلامت، کیفیت خواب و تحلیل تمرینات ورزشی تبدیل شده‌اند. در این راهنما معیارهای کلیدی انتخاب بهترین ساعت هوشمند متناسب با گوشی شما را بررسی می‌کنیم.\n\n## سازگاری اکوسیستم؛ اولین شرط انتخاب\nپیش از هر چیز باید توجه داشت که اپل واچ‌ها تنها با گوشی‌های آیفون جفت می‌شوند و بهترین هماهنگی را با iOS دارند. اگر از گوشی‌های اندرویدی استفاده می‌کنید، سری گلکسی واچ سامسونگ یا ساعت‌های مجهز به Wear OS امکانات کامل‌تری در پاسخ به پیام‌ها و پایش بدن ارائه می‌دهند.\n\n## دقت سنسورها و پایداری GPS\nبرای ورزشکاران فضای باز، دوچرخه‌سواران و کوهنوردان، پشتیبانی از GPS دوفرکانسه (L1+L5) در مدل‌هایی مانند اپل واچ اولترا ۲ دقت ثبت مسیر را به شکل چشمگیری افزایش می‌دهد. همچنین وجود سنسور اکسیژن خون، نوار قلب و تشخیص سقوط می‌تواند در شرایط اضطراری بسیار کاربردی باشد.\n\n## باتری و مقاومت بدنه\nبسته به سبک استفاده، اگر دوام باتری چندروزه و بدنه تیتانیومی مقاوم در برابر ضربه و عمق آب برایتان مهم است، مدل‌های اولترا بهترین گزینه‌اند؛ در حالی که سری‌های استاندارد وزن سبک‌تر و راحتی بیشتری برای پایش خواب شبانه دارند.',
+  'asset:audioWearables',
+  'بررسی گجت',
+  array['ساعت هوشمند', 'اپل واچ اولترا ۲', 'پایش سلامت'],
+  'کیوان رستگار',
+  8,
+  true,
+  now() - interval '7 days'
+),
+(
+  'hamta-registry-and-original-seal-checklist',
+  'راهنمای کامل استعلام رجیستری همتا و تشخیص پلمپ اصلی پیش از خرید موبایل',
+  'چک‌لیست گام‌به‌گام برای اطمینان از آکبند بودن دستگاه، تطابق IMEI روی جعبه با سامانه همتا و نکات مهم فعال‌سازی.',
+  E'یکی از دغدغه‌های اصلی هنگام خرید گوشی موبایل آنلاین یا حضوری، اطمینان از پلمپ کارخانه‌ای دستگاه و قانونی بودن رجیستری آن در شبکه ارتباطی کشور است. رعایت چند نکته ساده پیش از باز کردن پلمپ جعبه، ریسک خرید را به صفر می‌رساند.\n\n## تطابق شناسه IMEI روی جعبه و استعلام همتا\nپیش از باز کردن پلمپ، کد ۱۵ رقمی IMEI درج‌شده پشت جعبه را در سامانه همتا (از طریق کد دستوری #۷۷۷۷* یا اپلیکیشن همتا) استعلام بگیرید. در وضعیت قانونی باید مدل دقیق دستگاه و نام شرکت واردکننده رسمی نمایش داده شود.\n\n## بررسی پلمپ کارخانه و شماره سریال برند\nدر آیفون‌های جدید، اپل به جای سلفون پلاستیکی از نوار کاغذی کشیدنی با برچسب امنیتی ماوراءبنفش استفاده می‌کند. همچنین شماره سریال روی جعبه را می‌توانید پیش از فعال‌سازی در وب‌سایت رسمی اپل یا سامسونگ بررسی کنید تا مطمئن شوید دستگاه قبلاً اکتیو نشده است.\n\n## انتقال مالکیت قانونی پس از تحویل\nدر فروشگاه موبایل امیر، تمامی گوشی‌ها همراه با کد فعال‌سازی معتبر روی فاکتور رسمی و گارانتی ۱۸ ماهه امیر سرویس ارسال می‌شوند تا پس از دریافت بسته، بلافاصله دستگاه را به نام سیم‌کارت خود فعال کنید.',
+  'asset:promoShowcase',
+  'آموزش و رجیستری',
+  array['رجیستری همتا', 'تشخیص پلمپ', 'خرید امن موبایل'],
+  'تحریریه موبایل امیر',
+  6,
+  true,
+  now() - interval '10 days'
+)
+on conflict (slug) do nothing;
+
+

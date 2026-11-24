@@ -4,10 +4,11 @@ import {
   DEFAULT_BRANDS,
   hydrateOrderImages,
   hydrateProduct,
+  resolveProductImage,
   SEED_PRODUCTS,
 } from '../data/catalog';
 import { authApi, storeApi } from '../lib/authApi';
-import { storeRepository } from '../lib/supabase';
+import { localStore } from '../lib/localStore';
 import type {
   BrandItem,
   CartItem,
@@ -23,6 +24,7 @@ import type {
   ResendServiceStatus,
   StoreSettings,
   UserAddress,
+  UserNotification,
 } from '../types/store';
 import {
   calculateCartSummary,
@@ -34,11 +36,18 @@ import {
   toPersianDigits,
   type CartSummary,
 } from '../utils/storeLogic';
+import {
+  applyDocumentSeoMeta,
+  buildRouteSeoMetadata,
+  SITE_ORIGIN,
+} from '../utils/seo';
 
 export type AppRoute =
   | { page: 'home' }
   | { page: 'catalog' }
   | { page: 'product'; slug: string }
+  | { page: 'blog' }
+  | { page: 'blog-detail'; slug: string }
   | { page: 'compare' }
   | { page: 'installments' }
   | { page: 'cart' }
@@ -47,6 +56,7 @@ export type AppRoute =
   | { page: 'tracking'; code?: string }
   | { page: 'about' }
   | { page: 'contact' }
+  | { page: 'faq' }
   | { page: 'terms' }
   | { page: 'account' }
   | { page: 'public-profile'; username: string }
@@ -74,6 +84,7 @@ export const DEFAULT_FILTERS: FilterState = {
   storage: null,
   ram: null,
   colorId: null,
+  attributeFilters: {},
   sortBy: 'newest',
 };
 
@@ -107,6 +118,13 @@ function parseAppUrl(urlInput: string): {
     const slug = decodeURIComponent(path.replace('/product/', '').trim());
     return slug ? { route: { page: 'product', slug } } : { route: { page: 'not-found', path } };
   }
+  if (path === '/blog') {
+    return { route: { page: 'blog' } };
+  }
+  if (path.startsWith('/blog/')) {
+    const slug = decodeURIComponent(path.replace('/blog/', '').trim());
+    return slug ? { route: { page: 'blog-detail', slug } } : { route: { page: 'not-found', path } };
+  }
   if (path === '/compare') return { route: { page: 'compare' } };
   if (path === '/installments') return { route: { page: 'installments' } };
   if (path === '/cart') return { route: { page: 'cart' } };
@@ -124,6 +142,7 @@ function parseAppUrl(urlInput: string): {
   }
   if (path === '/about') return { route: { page: 'about' } };
   if (path === '/contact') return { route: { page: 'contact' } };
+  if (path === '/faq') return { route: { page: 'faq' } };
   if (path === '/terms') return { route: { page: 'terms' } };
   if (path === '/account') return { route: { page: 'account' } };
   if (path.startsWith('/u/')) {
@@ -213,7 +232,7 @@ interface StoreContextValue {
   removeCartItem: (key: string) => void;
   clearCart: () => void;
   appliedCoupon: string | null;
-  applyCoupon: (code: string) => { valid: boolean; message: string };
+  applyCoupon: (code: string) => Promise<{ valid: boolean; message: string }>;
   removeCoupon: () => void;
   wishlist: string[];
   toggleWishlist: (productId: string) => void;
@@ -223,13 +242,25 @@ interface StoreContextValue {
   recentlyViewedIds: string[];
   markProductViewed: (productId: string) => void;
   stockAlerts: string[];
-  toggleStockAlert: (productId: string) => void;
+  toggleStockAlert: (
+    productId: string,
+    opts?: { email?: string; variantId?: string | null }
+  ) => Promise<boolean>;
+  notifications: UserNotification[];
+  unreadNotificationCount: number;
+  notificationsLoading: boolean;
+  refreshNotifications: () => Promise<void>;
+  markNotificationRead: (id: string) => Promise<void>;
+  markAllNotificationsRead: () => Promise<void>;
+  deleteNotification: (id: string) => Promise<void>;
   orders: OrderRecord[];
   ordersLoading: boolean;
   productsLoading: boolean;
   refreshProducts: () => Promise<void>;
   upsertProduct: (fresh: Product) => void;
   createDemoOrder: (form: CheckoutFormData) => Promise<OrderRecord>;
+  cancelCustomerOrder: (orderCode: string, phone?: string) => Promise<OrderRecord>;
+  reorderFromOrder: (order: OrderRecord) => Promise<{ addedCount: number; skippedCount: number }>;
   findOrder: (code: string) => Promise<OrderRecord | null>;
   lookupOrder: (code: string) => Promise<OrderLookupResult>;
   verifyGuestOrder: (code: string, phone: string) => Promise<OrderRecord>;
@@ -294,24 +325,184 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     searchQuery: initialParsed.queryParam ?? '',
     brands: initialParsed.brandParam ? [initialParsed.brandParam] : [],
   }));
-  const [cart, setCart] = useState<CartItem[]>(() => storeRepository.loadCart());
-  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
-  const [guestWishlist, setGuestWishlist] = useState<string[]>(() => storeRepository.loadWishlist());
-  const [compareIds, setCompareIds] = useState<string[]>(() => storeRepository.loadCompare());
-  const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>(() => storeRepository.loadRecent());
-  const [stockAlerts, setStockAlerts] = useState<string[]>(() => storeRepository.loadStockAlerts());
-  const [guestOrders, setGuestOrders] = useState<OrderRecord[]>(() => storeRepository.loadOrders());
+  const [cart, setCart] = useState<CartItem[]>(() => localStore.loadCart());
+  const [appliedCoupon, setAppliedCoupon] = useState<string | null>(() =>
+    localStore.loadAppliedCoupon()
+  );
+  const [guestWishlist, setGuestWishlist] = useState<string[]>(() => localStore.loadWishlist());
+  const [compareIds, setCompareIds] = useState<string[]>(() => localStore.loadCompare());
+  const [recentlyViewedIds, setRecentlyViewedIds] = useState<string[]>(() => localStore.loadRecent());
+  const [stockAlerts, setStockAlerts] = useState<string[]>(() => localStore.loadStockAlerts());
+  const [notifications, setNotifications] = useState<UserNotification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState<boolean>(false);
+  const [guestOrders, setGuestOrders] = useState<OrderRecord[]>(() => localStore.loadOrders());
   const [ordersState, setOrdersState] = useState<{
     userId: string | null;
     list: OrderRecord[];
     loading: boolean;
   }>({ userId: null, list: [], loading: false });
-  const [user, setUser] = useState<DemoUser | null>(() => storeRepository.loadUser());
+  const [user, setUser] = useState<DemoUser | null>(() => localStore.loadUser());
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [productsLoading, setProductsLoading] = useState<boolean>(true);
   const [resendStatus, setResendStatus] = useState<ResendServiceStatus | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [cartPulseTick, setCartPulseTick] = useState<number>(0);
+
+  const userRef = useRef<DemoUser | null>(user);
+  const cartRef = useRef<CartItem[]>(cart);
+  const guestWishlistRef = useRef<string[]>(guestWishlist);
+  const stockAlertsRef = useRef<string[]>(stockAlerts);
+  const cartMutationQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const wishlistMutationQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  useEffect(() => {
+    guestWishlistRef.current = guestWishlist;
+  }, [guestWishlist]);
+
+  useEffect(() => {
+    stockAlertsRef.current = stockAlerts;
+  }, [stockAlerts]);
+
+  const hydrateCartList = useCallback((items: CartItem[]): CartItem[] => {
+    return items.map((item) => ({
+      ...item,
+      image: resolveProductImage(item.image, item.productId || item.slug, item.brand),
+    }));
+  }, []);
+
+  const syncAuthenticatedCart = useCallback(
+    (nextCart: CartItem[]) => {
+      cartMutationQueueRef.current = cartMutationQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          if (!userRef.current) return;
+          const res = await authApi.replaceCart(nextCart);
+          const hydrated = hydrateCartList(res.items || []);
+          cartRef.current = hydrated;
+          setCart(hydrated);
+          localStore.saveCart(hydrated);
+        })
+        .catch(() => undefined);
+    },
+    [hydrateCartList]
+  );
+
+  const hydrateAuthenticatedSession = useCallback(
+    async (authedUser: DemoUser, isExplicitLogin: boolean) => {
+      let nextUser = authedUser;
+      const pendingGuestWishlist = guestWishlistRef.current;
+      if (pendingGuestWishlist.length > 0) {
+        const mergedWishlist = Array.from(
+          new Set([...(authedUser.wishlist || []), ...pendingGuestWishlist])
+        );
+        try {
+          const savedWl = await authApi.saveWishlist(mergedWishlist);
+          nextUser = { ...authedUser, ...savedWl.user, wishlist: savedWl.wishlist };
+        } catch {
+          // Keep current user wishlist if offline
+        }
+        setGuestWishlist([]);
+        guestWishlistRef.current = [];
+        localStore.saveWishlist([]);
+      }
+
+      userRef.current = nextUser;
+      setUser(nextUser);
+      localStore.saveUser(nextUser);
+
+      const guestCartItems = cartRef.current;
+      const shouldMergeCart =
+        localStore.hasGuestCartDirty() || (isExplicitLogin && guestCartItems.length > 0);
+      try {
+        const res = shouldMergeCart
+          ? await authApi.mergeCart(guestCartItems)
+          : await authApi.getCart();
+        const hydrated = hydrateCartList(res.items || []);
+        cartRef.current = hydrated;
+        setCart(hydrated);
+        localStore.saveCart(hydrated);
+        localStore.setGuestCartDirty(false);
+      } catch {
+        // Keep existing local cart if offline
+      }
+
+      setNotificationsLoading(true);
+      const [alertsResult, notifResult] = await Promise.allSettled([
+        authApi.getStockAlerts(),
+        authApi.getNotifications(),
+      ]);
+      if (alertsResult.status === 'fulfilled' && Array.isArray(alertsResult.value.productIds)) {
+        const serverAlertIds = alertsResult.value.productIds;
+        stockAlertsRef.current = serverAlertIds;
+        setStockAlerts(serverAlertIds);
+      }
+      if (notifResult.status === 'fulfilled' && Array.isArray(notifResult.value.notifications)) {
+        setNotifications(notifResult.value.notifications);
+      }
+      setNotificationsLoading(false);
+
+      return nextUser;
+    },
+    [hydrateCartList]
+  );
+
+  const refreshNotifications = useCallback(async () => {
+    if (!userRef.current) {
+      setNotifications([]);
+      return;
+    }
+    setNotificationsLoading(true);
+    try {
+      const res = await authApi.getNotifications();
+      setNotifications(Array.isArray(res.notifications) ? res.notifications : []);
+    } catch {
+      // Keep current notifications if offline
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, []);
+
+  const markNotificationRead = useCallback(async (id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+    );
+    try {
+      await authApi.markNotificationRead(id);
+    } catch {
+      // Keep optimistic state if offline
+    }
+  }, []);
+
+  const markAllNotificationsRead = useCallback(async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    try {
+      await authApi.markAllNotificationsRead();
+    } catch {
+      // Keep optimistic state if offline
+    }
+  }, []);
+
+  const deleteNotification = useCallback(async (id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await authApi.deleteNotification(id);
+    } catch {
+      // Keep optimistic state if offline
+    }
+  }, []);
+
+  const unreadNotificationCount = useMemo(
+    () => notifications.filter((n) => !n.isRead).length,
+    [notifications]
+  );
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -432,12 +623,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           usingTestSender: authStatus.usingTestSender,
         });
         if (authStatus.authenticated && authStatus.user) {
+          userRef.current = authStatus.user;
           setUser(authStatus.user);
-          storeRepository.saveUser(authStatus.user);
+          localStore.saveUser(authStatus.user);
+          void hydrateAuthenticatedSession(authStatus.user, false);
         } else {
+          userRef.current = null;
           setUser(null);
+          setNotifications([]);
           setOrdersState({ userId: null, list: [], loading: false });
-          storeRepository.saveUser(null);
+          localStore.saveUser(null);
         }
       }
       setAuthLoading(false);
@@ -456,7 +651,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       active = false;
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [refreshCatalogMetadata, refreshProducts]);
+  }, [hydrateAuthenticatedSession, refreshCatalogMetadata, refreshProducts]);
 
   useEffect(() => {
     const uid = user?.id ?? null;
@@ -553,47 +748,15 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [triggerNavigationTransition]);
 
   useEffect(() => {
-    const baseTitle = 'فروشگاه موبایل امیر | خرید گوشی موبایل، تبلت و لوازم جانبی اصل';
-    const baseDesc =
-      'مرجع تخصصی فروش گوشی موبایل پرچمدار اپل، سامسونگ، شیائومی و هواوی با گارانتی ۱۸ ماهه امیر سرویس و رجیستری همتا.';
-    let title = baseTitle;
-    let description = baseDesc;
-
-    if (route.page === 'catalog') {
-      if (filters.category === 'offers') {
-        title = 'پیشنهادات طلایی و تخفیف‌های ویژه | فروشگاه موبایل امیر';
-      } else if (filters.category !== 'all') {
-        const activeCat = categories.find(
-          (c) => c.slug === filters.category || c.id === filters.category
-        );
-        if (activeCat) {
-          title = activeCat.seoTitle || `${activeCat.label} | فروشگاه موبایل امیر`;
-          description = activeCat.seoDescription || activeCat.subtitle || baseDesc;
-        }
-      } else if (filters.searchQuery.trim()) {
-        title = `نتایج جستجو: ${filters.searchQuery} | فروشگاه موبایل امیر`;
-      } else {
-        title = 'کاتالوگ محصولات | فروشگاه موبایل امیر';
-      }
-    } else if (route.page === 'product') {
-      const prod = products.find((p) => p.slug === route.slug);
-      if (prod) {
-        title = `${prod.nameFa} | فروشگاه موبایل امیر`;
-        description = `خرید و بررسی مشخصات ${prod.nameFa} (${prod.brand}) با گارانتی معتبر و ارسال سریع.`;
-      }
-    } else if (route.page === 'account') {
-      title = 'حساب کاربری | فروشگاه موبایل امیر';
-    } else if (route.page === 'public-profile') {
-      title = `پروفایل @${route.username} | فروشگاه موبایل امیر`;
-    } else if (route.page === 'cart' || route.page === 'checkout') {
-      title = 'سبد خرید و تکمیل سفارش | فروشگاه موبایل امیر';
-    }
-
-    document.title = title;
-    const metaDesc = document.querySelector('meta[name="description"]');
-    if (metaDesc) {
-      metaDesc.setAttribute('content', description);
-    }
+    const seoMeta = buildRouteSeoMetadata({
+      route,
+      categories,
+      products,
+      activeCategory: filters.category,
+      searchQuery: filters.searchQuery,
+      origin: SITE_ORIGIN,
+    });
+    applyDocumentSeoMeta(seoMeta);
   }, [categories, filters.category, filters.searchQuery, products, route]);
 
   const buildHref = useCallback((to: string): string => normalizeAppTarget(to), []);
@@ -707,43 +870,48 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const addQty = Math.max(1, opts?.qty ?? 1);
       const key = `${product.id}__${opts?.variantId || colorName}__${storageLabel}__${warranty}`;
 
-      setCart((prev) => {
-        const idx = prev.findIndex((item) => item.key === key);
-        let updated: CartItem[];
-        if (idx >= 0) {
-          updated = prev.map((item, i) =>
-            i === idx
-              ? { ...item, qty: Math.min(effectiveStock || 10, item.qty + addQty) }
-              : item
-          );
-        } else {
-          updated = [
-            ...prev,
-            {
-              key,
-              productId: product.id,
-              ...(opts?.variantId ? { variantId: opts.variantId } : {}),
-              ...(opts?.sku ? { sku: opts.sku } : {}),
-              ...(opts?.partNumber ? { partNumber: opts.partNumber } : {}),
-              ...(opts?.simType ? { simType: opts.simType } : {}),
-              slug: product.slug,
-              nameFa: product.nameFa,
-              brand: product.brand,
-              image: product.image,
-              colorName,
-              colorHex,
-              storageLabel,
-              warranty,
-              unitPrice,
-              originalUnitPrice,
-              qty: Math.min(effectiveStock || 10, addQty),
-              stockCount: effectiveStock,
-            },
-          ];
-        }
-        storeRepository.saveCart(updated);
-        return updated;
-      });
+      const prev = cartRef.current;
+      const idx = prev.findIndex((item) => item.key === key);
+      let updated: CartItem[];
+      if (idx >= 0) {
+        updated = prev.map((item, i) =>
+          i === idx
+            ? { ...item, qty: Math.min(effectiveStock || 10, item.qty + addQty) }
+            : item
+        );
+      } else {
+        updated = [
+          ...prev,
+          {
+            key,
+            productId: product.id,
+            ...(opts?.variantId ? { variantId: opts.variantId } : {}),
+            ...(opts?.sku ? { sku: opts.sku } : {}),
+            ...(opts?.partNumber ? { partNumber: opts.partNumber } : {}),
+            ...(opts?.simType ? { simType: opts.simType } : {}),
+            slug: product.slug,
+            nameFa: product.nameFa,
+            brand: product.brand,
+            image: product.image,
+            colorName,
+            colorHex,
+            storageLabel,
+            warranty,
+            unitPrice,
+            originalUnitPrice,
+            qty: Math.min(effectiveStock || 10, addQty),
+            stockCount: effectiveStock,
+          },
+        ];
+      }
+      cartRef.current = updated;
+      setCart(updated);
+      localStore.saveCart(updated);
+      if (userRef.current) {
+        syncAuthenticatedCart(updated);
+      } else {
+        localStore.setGuestCartDirty(true);
+      }
 
       setCartPulseTick((n) => n + 1);
 
@@ -753,12 +921,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         actionHref: '/cart',
       });
     },
-    [showToast]
+    [showToast, syncAuthenticatedCart]
   );
 
-  const updateCartQty = useCallback((key: string, delta: number) => {
-    setCart((prev) => {
-      const updated = prev
+  const updateCartQty = useCallback(
+    (key: string, delta: number) => {
+      const updated = cartRef.current
         .map((item) => {
           if (item.key !== key) return item;
           const nextQty = item.qty + delta;
@@ -766,28 +934,45 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return { ...item, qty: Math.min(item.stockCount || 10, nextQty) };
         })
         .filter((x): x is CartItem => x !== null);
-      storeRepository.saveCart(updated);
-      return updated;
-    });
-  }, []);
+      cartRef.current = updated;
+      setCart(updated);
+      localStore.saveCart(updated);
+      if (userRef.current) {
+        syncAuthenticatedCart(updated);
+      } else {
+        localStore.setGuestCartDirty(true);
+      }
+    },
+    [syncAuthenticatedCart]
+  );
 
   const removeCartItem = useCallback(
     (key: string) => {
-      setCart((prev) => {
-        const updated = prev.filter((item) => item.key !== key);
-        storeRepository.saveCart(updated);
-        return updated;
-      });
+      const updated = cartRef.current.filter((item) => item.key !== key);
+      cartRef.current = updated;
+      setCart(updated);
+      localStore.saveCart(updated);
+      if (userRef.current) {
+        syncAuthenticatedCart(updated);
+      } else {
+        localStore.setGuestCartDirty(true);
+      }
       showToast('کالا از سبد خرید حذف شد.', 'info');
     },
-    [showToast]
+    [showToast, syncAuthenticatedCart]
   );
 
   const clearCart = useCallback(() => {
+    cartRef.current = [];
     setCart([]);
     setAppliedCoupon(null);
-    storeRepository.saveCart([]);
-  }, []);
+    localStore.saveCart([]);
+    localStore.saveAppliedCoupon(null);
+    localStore.setGuestCartDirty(false);
+    if (userRef.current) {
+      syncAuthenticatedCart([]);
+    }
+  }, [syncAuthenticatedCart]);
 
   const cartSummary = useMemo(
     () =>
@@ -801,57 +986,94 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const applyCoupon = useCallback(
-    (code: string) => {
-      const evaluation = evaluateCoupon(code, cartSummary.netSubtotal, couponRules);
-      if (evaluation.valid && evaluation.code) {
-        setAppliedCoupon(evaluation.code);
-        showToast(evaluation.message, 'success');
-      } else {
-        showToast(evaluation.message, 'error');
+    async (code: string): Promise<{ valid: boolean; message: string }> => {
+      try {
+        const evaluation = await storeApi.validateCoupon(code, cartSummary.netSubtotal);
+        if (evaluation.valid && evaluation.code) {
+          setAppliedCoupon(evaluation.code);
+          localStore.saveAppliedCoupon(evaluation.code);
+          showToast(evaluation.message, 'success');
+        } else {
+          showToast(evaluation.message, 'error');
+        }
+        return { valid: evaluation.valid, message: evaluation.message };
+      } catch {
+        const fallback = evaluateCoupon(code, cartSummary.netSubtotal, couponRules);
+        if (fallback.valid && fallback.code) {
+          setAppliedCoupon(fallback.code);
+          localStore.saveAppliedCoupon(fallback.code);
+          showToast(fallback.message, 'success');
+        } else {
+          showToast(fallback.message, 'error');
+        }
+        return { valid: fallback.valid, message: fallback.message };
       }
-      return { valid: evaluation.valid, message: evaluation.message };
     },
     [cartSummary.netSubtotal, couponRules, showToast]
   );
 
   const removeCoupon = useCallback(() => {
     setAppliedCoupon(null);
+    localStore.saveAppliedCoupon(null);
     showToast('کد تخفیف حذف شد.', 'info');
   }, [showToast]);
 
   const toggleWishlist = useCallback(
     (productId: string) => {
-      if (user) {
-        const previousWishlist = user.wishlist ?? [];
+      const activeUser = userRef.current;
+      if (activeUser) {
+        const previousWishlist = activeUser.wishlist ?? [];
         const exists = previousWishlist.includes(productId);
         const optimisticWishlist = exists
           ? previousWishlist.filter((id) => id !== productId)
           : [...previousWishlist, productId];
 
-        const optimisticUser = { ...user, wishlist: optimisticWishlist };
-        setUser(optimisticUser);
-        storeRepository.saveUser(optimisticUser);
+        setUser((prev) => {
+          if (!prev) return prev;
+          const next = { ...prev, wishlist: optimisticWishlist };
+          userRef.current = next;
+          localStore.saveUser(next);
+          return next;
+        });
 
-        void authApi
-          .toggleWishlist(productId)
-          .then((res) => {
-            setUser(res.user);
-            storeRepository.saveUser(res.user);
-            showToast(
-              res.added
-                ? 'به لیست علاقه‌مندی‌های حساب کاربری اضافه شد.'
-                : 'از لیست علاقه‌مندی‌ها حذف شد.',
-              'info'
-            );
-          })
-          .catch((err) => {
-            const revertedUser = { ...user, wishlist: previousWishlist };
-            setUser(revertedUser);
-            storeRepository.saveUser(revertedUser);
-            showToast(
-              err instanceof Error ? err.message : 'خطا در ذخیره علاقه‌مندی در پایگاه داده.',
-              'error'
-            );
+        wishlistMutationQueueRef.current = wishlistMutationQueueRef.current
+          .catch(() => undefined)
+          .then(async () => {
+            try {
+              const res = await authApi.toggleWishlist(productId);
+              setUser((prev) => {
+                const next = prev
+                  ? { ...prev, ...res.user, wishlist: res.wishlist }
+                  : res.user;
+                userRef.current = next;
+                localStore.saveUser(next);
+                return next;
+              });
+              showToast(
+                res.added
+                  ? 'به لیست علاقه‌مندی‌های حساب کاربری اضافه شد.'
+                  : 'از لیست علاقه‌مندی‌ها حذف شد.',
+                'info'
+              );
+            } catch (err) {
+              setUser((prev) => {
+                if (!prev) return prev;
+                const curr = prev.wishlist ?? [];
+                const reverted = exists
+                  ? curr.includes(productId)
+                    ? curr
+                    : [...curr, productId]
+                  : curr.filter((id) => id !== productId);
+                const next = { ...prev, wishlist: reverted };
+                userRef.current = next;
+                localStore.saveUser(next);
+                return next;
+              });
+              showToast(
+                err instanceof Error ? err.message : 'خطا در ذخیره علاقه‌مندی در پایگاه داده.',
+                'error'
+              );
+            }
           });
         return;
       }
@@ -859,7 +1081,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setGuestWishlist((prev) => {
         const exists = prev.includes(productId);
         const updated = exists ? prev.filter((id) => id !== productId) : [...prev, productId];
-        storeRepository.saveWishlist(updated);
+        guestWishlistRef.current = updated;
+        localStore.saveWishlist(updated);
         showToast(
           exists ? 'از لیست علاقه‌مندی‌ها حذف شد.' : 'به لیست علاقه‌مندی‌های شما اضافه شد.',
           'info'
@@ -867,7 +1090,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return updated;
       });
     },
-    [showToast, user]
+    [showToast]
   );
 
   const toggleCompare = useCallback(
@@ -875,7 +1098,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setCompareIds((prev) => {
         if (prev.includes(productId)) {
           const updated = prev.filter((id) => id !== productId);
-          storeRepository.saveCompare(updated);
+          localStore.saveCompare(updated);
           showToast('محصول از لیست مقایسه حذف شد.', 'info');
           return updated;
         }
@@ -884,7 +1107,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return prev;
         }
         const updated = [...prev, productId];
-        storeRepository.saveCompare(updated);
+        localStore.saveCompare(updated);
         showToast('محصول به لیست مقایسه اضافه شد.', 'success');
         return updated;
       });
@@ -894,20 +1117,68 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const clearCompare = useCallback(() => {
     setCompareIds([]);
-    storeRepository.saveCompare([]);
+    localStore.saveCompare([]);
   }, []);
 
   const markProductViewed = useCallback((productId: string) => {
     setRecentlyViewedIds((prev) => {
       const updated = [productId, ...prev.filter((id) => id !== productId)].slice(0, 6);
-      storeRepository.saveRecent(updated);
+      localStore.saveRecent(updated);
       return updated;
     });
   }, []);
 
   const toggleStockAlert = useCallback(
-    (productId: string) => {
-      const updated = storeRepository.toggleStockAlert(productId);
+    async (
+      productId: string,
+      opts?: { email?: string; variantId?: string | null }
+    ): Promise<boolean> => {
+      const currentlySubscribed = stockAlertsRef.current.includes(productId);
+      const guestEmail = opts?.email?.trim();
+
+      if (userRef.current || guestEmail) {
+        try {
+          if (currentlySubscribed) {
+            await storeApi.removeStockAlert(productId, guestEmail || undefined);
+            const updated = stockAlertsRef.current.filter((id) => id !== productId);
+            stockAlertsRef.current = updated;
+            setStockAlerts(updated);
+            if (!userRef.current) {
+              localStore.toggleStockAlert(productId);
+            }
+            showToast('اطلاع‌رسانی موجودی لغو شد.', 'info');
+            return false;
+          } else {
+            await storeApi.subscribeStockAlert({
+              productId,
+              variantId: opts?.variantId ?? null,
+              email: guestEmail || undefined,
+            });
+            const updated = stockAlertsRef.current.includes(productId)
+              ? stockAlertsRef.current
+              : [...stockAlertsRef.current, productId];
+            stockAlertsRef.current = updated;
+            setStockAlerts(updated);
+            if (!userRef.current && !localStore.loadStockAlerts().includes(productId)) {
+              localStore.toggleStockAlert(productId);
+            }
+            showToast(
+              'درخواست اطلاع‌رسانی موجودی ثبت شد؛ به محض شارژ شدن به شما اطلاع می‌دهیم.',
+              'success'
+            );
+            return true;
+          }
+        } catch (err) {
+          showToast(
+            err instanceof Error ? err.message : 'خطا در ثبت درخواست اطلاع‌رسانی موجودی.',
+            'error'
+          );
+          return currentlySubscribed;
+        }
+      }
+
+      const updated = localStore.toggleStockAlert(productId);
+      stockAlertsRef.current = updated;
       setStockAlerts(updated);
       const isAdded = updated.includes(productId);
       showToast(
@@ -916,6 +1187,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           : 'اطلاع‌رسانی موجودی لغو شد.',
         'info'
       );
+      return isAdded;
     },
     [showToast]
   );
@@ -926,21 +1198,24 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         cart,
         appliedCoupon,
         couponRules,
-        storeSettings.freeShippingThreshold
+        storeSettings.freeShippingThreshold,
+        { city: form.city, deliverySlot: form.deliverySlot }
       );
       const code = generateOrderCode();
       const now = new Date();
       const hh = String(now.getHours()).padStart(2, '0');
       const mm = String(now.getMinutes()).padStart(2, '0');
+      const cleanEmail = form.email?.trim() || undefined;
       const draftOrder: OrderRecord = {
         orderCode: code,
         shaparakRef: String(Math.floor(10000000 + Math.random() * 89999999)),
         customerName: form.fullName.trim(),
         customerPhone: toEnglishDigits(form.phone.trim()),
+        ...(cleanEmail ? { customerEmail: cleanEmail } : {}),
         city: form.city.trim(),
         shippingAddress: form.address.trim(),
         postalCode: toEnglishDigits(form.postalCode.trim()),
-        deliverySlot: form.deliverySlot,
+        deliverySlot: summary.deliverySlot,
         couponCode: appliedCoupon,
         subtotal: summary.netSubtotal,
         productDiscount: summary.productDiscount,
@@ -965,7 +1240,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           loading: false,
         }));
       } else {
-        setGuestOrders((prev) => [saved, ...prev.filter((o) => o.orderCode !== saved.orderCode)]);
+        setGuestOrders((prev) => {
+          const next = [saved, ...prev.filter((o) => o.orderCode !== saved.orderCode)];
+          localStore.saveOrders(next);
+          return next;
+        });
       }
 
       clearCart();
@@ -974,6 +1253,161 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       return saved;
     },
     [appliedCoupon, cart, clearCart, couponRules, refreshProducts, showToast, storeSettings.freeShippingThreshold, user]
+  );
+
+  const cancelCustomerOrder = useCallback(
+    async (orderCode: string, phone?: string): Promise<OrderRecord> => {
+      const res = await authApi.cancelOrder(orderCode, { phone });
+      const updated = hydrateOrderImages(res.order);
+      if (userRef.current) {
+        setOrdersState((prev) => ({
+          ...prev,
+          list: prev.list.map((o) => (o.orderCode === updated.orderCode ? updated : o)),
+        }));
+      } else {
+        setGuestOrders((prev) => {
+          const next = prev.map((o) => (o.orderCode === updated.orderCode ? updated : o));
+          localStore.saveOrders(next);
+          return next;
+        });
+      }
+      showToast(`سفارش ${updated.orderCode} با موفقیت لغو شد.`, 'info');
+      return updated;
+    },
+    [showToast]
+  );
+
+  const reorderFromOrder = useCallback(
+    async (order: OrderRecord): Promise<{ addedCount: number; skippedCount: number }> => {
+      let liveProducts = products;
+      try {
+        const fetched = await storeApi.getProducts();
+        if (Array.isArray(fetched) && fetched.length > 0) {
+          liveProducts = fetched.map(hydrateProduct);
+          setProducts(liveProducts);
+        }
+      } catch {
+        // Fallback to current cached products if network fails
+      }
+
+      const pdpCache = new Map<string, Product>();
+      let addedCount = 0;
+      let skippedCount = 0;
+      let nextCart = [...cartRef.current];
+
+      for (const item of order.items) {
+        const baseProduct = liveProducts.find(
+          (p) => p.id === item.productId || p.slug === item.slug
+        );
+        if (!baseProduct) {
+          skippedCount += 1;
+          continue;
+        }
+        let detailedProduct = pdpCache.get(baseProduct.slug);
+        if (!detailedProduct) {
+          try {
+            const pdpRes = await storeApi.getProductBySlug(baseProduct.slug);
+            detailedProduct = hydrateProduct(pdpRes.product);
+          } catch {
+            detailedProduct = baseProduct;
+          }
+          pdpCache.set(baseProduct.slug, detailedProduct);
+        }
+
+        const matchedVariant = item.variantId
+          ? detailedProduct.variants?.find((v) => v.id === item.variantId)
+          : item.sku
+          ? detailedProduct.variants?.find((v) => v.sku === item.sku)
+          : undefined;
+
+        const availableStock =
+          typeof matchedVariant?.availableStock === 'number'
+            ? matchedVariant.availableStock
+            : detailedProduct.stockCount;
+
+        if (!detailedProduct.inStock || availableStock <= 0) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const unitPrice = matchedVariant ? matchedVariant.priceToman : detailedProduct.price;
+        const originalUnitPrice = matchedVariant
+          ? matchedVariant.originalPriceToman || matchedVariant.priceToman
+          : detailedProduct.originalPrice || detailedProduct.price;
+        const colorName = matchedVariant?.colorNameFa || item.colorName;
+        const colorHex = matchedVariant?.colorHex || item.colorHex;
+        const storageLabel = matchedVariant?.storage || item.storageLabel;
+        const warranty = item.warranty || matchedVariant?.warrantyName || detailedProduct.warranty;
+        const key = `${detailedProduct.id}__${matchedVariant?.id || colorName}__${storageLabel}__${warranty}`;
+        const addQty = Math.min(availableStock, Math.max(1, item.qty));
+
+        const existingIdx = nextCart.findIndex((c) => c.key === key);
+        if (existingIdx >= 0) {
+          nextCart[existingIdx] = {
+            ...nextCart[existingIdx],
+            unitPrice,
+            originalUnitPrice,
+            stockCount: availableStock,
+            qty: Math.min(availableStock, nextCart[existingIdx].qty + addQty),
+          };
+        } else {
+          nextCart = [
+            ...nextCart,
+            {
+              key,
+              productId: detailedProduct.id,
+              ...(matchedVariant
+                ? {
+                    variantId: matchedVariant.id,
+                    sku: matchedVariant.sku,
+                    partNumber: matchedVariant.partNumber || undefined,
+                    simType: matchedVariant.simType || undefined,
+                  }
+                : {}),
+              slug: detailedProduct.slug,
+              nameFa: detailedProduct.nameFa,
+              brand: detailedProduct.brand,
+              image: detailedProduct.image,
+              colorName,
+              colorHex,
+              storageLabel,
+              warranty,
+              unitPrice,
+              originalUnitPrice,
+              qty: addQty,
+              stockCount: availableStock,
+            },
+          ];
+        }
+        addedCount += 1;
+      }
+
+      if (addedCount > 0) {
+        cartRef.current = nextCart;
+        setCart(nextCart);
+        localStore.saveCart(nextCart);
+        if (userRef.current) {
+          syncAuthenticatedCart(nextCart);
+        } else {
+          localStore.setGuestCartDirty(true);
+        }
+        setCartPulseTick((n) => n + 1);
+        if (skippedCount > 0) {
+          showToast(
+            `${toPersianDigits(addedCount)} کالا به سبد خرید اضافه شد (${toPersianDigits(skippedCount)} کالا ناموجود بود).`,
+            'info'
+          );
+        } else {
+          showToast('کالاهای این سفارش با موجودی روز به سبد خرید اضافه شدند.', 'success');
+        }
+        navigate('/cart');
+      } else {
+        showToast('متاسفانه کالاهای این سفارش در حال حاضر موجود نیستند.', 'error');
+      }
+
+      return { addedCount, skippedCount };
+    },
+    [navigate, products, showToast, syncAuthenticatedCart]
   );
 
   const lookupOrder = useCallback(async (code: string): Promise<OrderLookupResult> => {
@@ -1011,17 +1445,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const setAuthenticatedUser = useCallback((nextUser: DemoUser) => {
-    storeRepository.saveUser(nextUser);
+    userRef.current = nextUser;
+    localStore.saveUser(nextUser);
     setUser(nextUser);
   }, []);
 
   const loginDemoUser = useCallback(
     (nextUser: DemoUser) => {
-      storeRepository.saveUser(nextUser);
+      userRef.current = nextUser;
+      localStore.saveUser(nextUser);
       setUser(nextUser);
+      void hydrateAuthenticatedSession(nextUser, true);
       showToast(`خوش آمدید، ${nextUser.fullName}!`, 'success');
     },
-    [showToast]
+    [hydrateAuthenticatedSession, showToast]
   );
 
   const logoutDemoUser = useCallback(
@@ -1031,7 +1468,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       } catch {
         // Ignore offline fallback
       }
-      storeRepository.saveUser(null);
+      userRef.current = null;
+      cartRef.current = [];
+      guestWishlistRef.current = [];
+      localStore.saveUser(null);
+      localStore.saveCart([]);
+      localStore.saveAppliedCoupon(null);
+      localStore.saveWishlist([]);
+      localStore.setGuestCartDirty(false);
+      setCart([]);
+      setAppliedCoupon(null);
+      setGuestWishlist([]);
+      setNotifications([]);
+      const guestAlerts = localStore.loadStockAlerts();
+      stockAlertsRef.current = guestAlerts;
+      setStockAlerts(guestAlerts);
       setOrdersState({ userId: null, list: [], loading: false });
       setUser(null);
       showToast(
@@ -1073,7 +1524,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const deleteUserAccount = useCallback(
     async (currentPassword?: string) => {
       await authApi.deleteAccount({ currentPassword });
-      storeRepository.saveUser(null);
+      userRef.current = null;
+      cartRef.current = [];
+      guestWishlistRef.current = [];
+      localStore.saveUser(null);
+      localStore.saveCart([]);
+      localStore.saveAppliedCoupon(null);
+      localStore.saveWishlist([]);
+      localStore.setGuestCartDirty(false);
+      setCart([]);
+      setAppliedCoupon(null);
+      setGuestWishlist([]);
+      setNotifications([]);
+      const guestAlerts = localStore.loadStockAlerts();
+      stockAlertsRef.current = guestAlerts;
+      setStockAlerts(guestAlerts);
       setOrdersState({ userId: null, list: [], loading: false });
       setUser(null);
       showToast('حساب کاربری شما با موفقیت حذف شد.', 'info');
@@ -1163,12 +1628,21 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         markProductViewed,
         stockAlerts,
         toggleStockAlert,
+        notifications,
+        unreadNotificationCount,
+        notificationsLoading,
+        refreshNotifications,
+        markNotificationRead,
+        markAllNotificationsRead,
+        deleteNotification,
         orders,
         ordersLoading,
         productsLoading,
         refreshProducts,
         upsertProduct,
         createDemoOrder,
+        cancelCustomerOrder,
+        reorderFromOrder,
         findOrder,
         lookupOrder,
         verifyGuestOrder,

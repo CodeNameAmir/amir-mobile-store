@@ -37,7 +37,15 @@ function slugifyProductInput(raw: string): string {
     .replace(/^-|-$/g, '');
 }
 
-export function createAdminRouter(storage: AuthStorageAdapter) {
+export interface AdminRouterOptions {
+  onStockRestocked?: (info: {
+    productId: string;
+    variantId?: string | null;
+    stockCount: number;
+  }) => Promise<void> | void;
+}
+
+export function createAdminRouter(storage: AuthStorageAdapter, options?: AdminRouterOptions) {
   const router = express.Router();
 
   router.get('/me', (req: AdminAuthenticatedRequest, res: Response) => {
@@ -195,6 +203,11 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
           os: String(body.specs?.os || 'نسخه رسمی گلوبال'),
         },
         customSpecs: customSpecs.length > 0 ? customSpecs : undefined,
+        editorialReview:
+          typeof (body.editorialReview ?? body.editorial_review) === 'string' &&
+          String(body.editorialReview ?? body.editorial_review).trim()
+            ? String(body.editorialReview ?? body.editorial_review).trim()
+            : undefined,
         priceUpdatedAt: String(body.priceUpdatedAt || nowIso),
         isFeaturedDeal: Boolean(body.isFeaturedDeal),
         isPopular: Boolean(body.isPopular),
@@ -298,6 +311,10 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
           }))
           .filter((item: CustomSpecItemDTO) => item.label && item.value);
       }
+      if (body.editorialReview !== undefined || body.editorial_review !== undefined) {
+        const rawEditorial = body.editorialReview ?? body.editorial_review;
+        patch.editorialReview = rawEditorial ? String(rawEditorial).trim() : undefined;
+      }
       if (typeof body.isFeaturedDeal === 'boolean') patch.isFeaturedDeal = body.isFeaturedDeal;
       if (typeof body.isPopular === 'boolean') patch.isPopular = body.isPopular;
       if (body.salesRank !== undefined) patch.salesRank = Number(body.salesRank);
@@ -323,6 +340,15 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
           inStock: updated.inStock,
         }),
       });
+
+      if ((existing.stockCount <= 0 || !existing.inStock) && updated.inStock && updated.stockCount > 0) {
+        void Promise.resolve(
+          options?.onStockRestocked?.({
+            productId: updated.id,
+            stockCount: updated.stockCount,
+          })
+        ).catch(() => undefined);
+      }
 
       res.json({ product: updated });
     } catch (err) {
@@ -371,6 +397,15 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
           inStock: updated.inStock,
         }),
       });
+
+      if ((existing.stockCount <= 0 || !existing.inStock) && updated.inStock && updated.stockCount > 0) {
+        void Promise.resolve(
+          options?.onStockRestocked?.({
+            productId: updated.id,
+            stockCount: updated.stockCount,
+          })
+        ).catch(() => undefined);
+      }
 
       res.json({ product: updated });
     } catch (err) {
@@ -451,7 +486,7 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
     try {
       const code = String(req.params.code || '').trim();
       const rawStatus = String(req.body?.status || '').trim().toLowerCase();
-      if (!['paid', 'preparing', 'shipped', 'delivered', 'cancelled'].includes(rawStatus)) {
+      if (!['pending_payment', 'paid', 'preparing', 'shipped', 'delivered', 'cancelled'].includes(rawStatus)) {
         res.status(400).json({ error: 'وضعیت سفارش معتبر نیست.' });
         return;
       }
@@ -1110,6 +1145,13 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
         return;
       }
 
+      const variantBefore = await storage.findVariantByIdOrSku(variantId).catch(() => null);
+      const productBefore = variantBefore
+        ? await storage.findProductByIdOrSlug(variantBefore.productId).catch(() => null)
+        : null;
+      const prevProductStock = productBefore?.stockCount ?? 0;
+      const prevVariantStock = variantBefore?.availableStock ?? 0;
+
       const admin = req.authUser!;
       const result = await storage.recordStockMovement({
         warehouseId,
@@ -1144,6 +1186,21 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
             idempotencyKey: result.movement.idempotencyKey,
           }),
         });
+
+        const restockedProductId = result.stock.productId || variantBefore?.productId;
+        if (
+          restockedProductId &&
+          result.stock.availableQty > 0 &&
+          (prevProductStock <= 0 || prevVariantStock <= 0)
+        ) {
+          void Promise.resolve(
+            options?.onStockRestocked?.({
+              productId: restockedProductId,
+              variantId: result.stock.variantId,
+              stockCount: result.stock.availableQty,
+            })
+          ).catch(() => undefined);
+        }
       }
 
       res.status(result.deduplicated ? 200 : 201).json(result);
@@ -1152,6 +1209,152 @@ export function createAdminRouter(storage: AuthStorageAdapter) {
         res.status(err.statusCode).json({ error: err.message });
         return;
       }
+      next(err);
+    }
+  });
+
+  // Review Moderation & Rating Recalculation
+  router.get('/reviews', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const page = Math.max(1, Math.floor(Number(req.query.page || 1)));
+      const limit = Math.min(200, Math.max(1, Math.floor(Number(req.query.limit || 50))));
+      const offset = (page - 1) * limit;
+      const statusParam = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : 'all';
+      const isApproved =
+        statusParam === 'pending'
+          ? false
+          : statusParam === 'approved'
+          ? true
+          : typeof req.query.isApproved === 'string'
+          ? req.query.isApproved === 'true'
+          : undefined;
+      const result = await storage.listAllReviews({
+        isApproved,
+        productId: typeof req.query.productId === 'string' ? req.query.productId : undefined,
+        limit,
+        offset,
+      });
+      res.json({
+        reviews: result.reviews,
+        total: result.total,
+        page,
+        limit,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.patch('/reviews/:id', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const reviewId = String(req.params.id || '').trim();
+      if (!reviewId || typeof req.body?.isApproved !== 'boolean') {
+        res.status(400).json({ error: 'وضعیت تایید دیدگاه (isApproved) باید به‌صورت boolean ارسال شود.' });
+        return;
+      }
+      const existing = await storage.findProductReviewById(reviewId);
+      if (!existing) {
+        res.status(404).json({ error: 'دیدگاه مورد نظر یافت نشد.' });
+        return;
+      }
+      const updated = await storage.moderateProductReview(reviewId, req.body.isApproved);
+      if (!updated) {
+        res.status(404).json({ error: 'دیدگاه مورد نظر یافت نشد.' });
+        return;
+      }
+      const product = await storage.findProductByIdOrSlug(updated.productId);
+      const admin = req.authUser!;
+      await storage.createAuditLog({
+        adminUserId: admin.id,
+        adminEmail: admin.email,
+        action: updated.isApproved ? 'review.approve' : 'review.reject',
+        entityType: 'product_review',
+        entityId: updated.id,
+        details: sanitizeAuditDetails({
+          productId: updated.productId,
+          rating: updated.rating,
+          verified: updated.verified,
+          isApproved: updated.isApproved,
+        }),
+      });
+      res.json({
+        review: updated,
+        productRating: product
+          ? { rating: product.rating, reviewCount: product.reviewCount }
+          : undefined,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/reviews/:id', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const reviewId = String(req.params.id || '').trim();
+      const existing = await storage.findProductReviewById(reviewId);
+      if (!existing) {
+        res.status(404).json({ error: 'دیدگاه مورد نظر یافت نشد.' });
+        return;
+      }
+      const deleted = await storage.deleteProductReview(reviewId);
+      if (!deleted) {
+        res.status(404).json({ error: 'دیدگاه مورد نظر یافت نشد.' });
+        return;
+      }
+      const admin = req.authUser!;
+      await storage.createAuditLog({
+        adminUserId: admin.id,
+        adminEmail: admin.email,
+        action: 'review.delete',
+        entityType: 'product_review',
+        entityId: reviewId,
+        details: sanitizeAuditDetails({ productId: existing.productId }),
+      });
+      res.json({ ok: true, id: reviewId });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // Product Q&A Moderation & Answer
+  router.patch('/questions/:id', async (req: AdminAuthenticatedRequest, res: Response, next) => {
+    try {
+      const questionId = String(req.params.id || '').trim();
+      if (!questionId) {
+        res.status(400).json({ error: 'شناسه پرسش معتبر نیست.' });
+        return;
+      }
+      const answer =
+        req.body?.answer !== undefined
+          ? req.body.answer
+            ? String(req.body.answer).trim()
+            : null
+          : undefined;
+      const isApproved =
+        typeof req.body?.isApproved === 'boolean' ? req.body.isApproved : undefined;
+      const updated = await storage.answerProductQuestion(questionId, {
+        ...(answer !== undefined ? { answer } : {}),
+        ...(isApproved !== undefined ? { isApproved } : {}),
+      });
+      if (!updated) {
+        res.status(404).json({ error: 'پرسش مورد نظر یافت نشد.' });
+        return;
+      }
+      const admin = req.authUser!;
+      await storage.createAuditLog({
+        adminUserId: admin.id,
+        adminEmail: admin.email,
+        action: 'question.answer',
+        entityType: 'product_question',
+        entityId: updated.id,
+        details: sanitizeAuditDetails({
+          productId: updated.productId,
+          hasAnswer: Boolean(updated.answer),
+          isApproved: updated.isApproved,
+        }),
+      });
+      res.json({ question: updated });
+    } catch (err) {
       next(err);
     }
   });

@@ -23,12 +23,14 @@ import { ProductCardSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { DEFAULT_FILTERS, useStore } from '../context/StoreContext';
 import { STORE_ASSETS } from '../data/assets';
-import { CUSTOMER_TESTIMONIALS, TECH_ARTICLES } from '../data/catalog';
-import type { BrandId, CategoryId } from '../types/store';
+import { CUSTOMER_TESTIMONIALS, resolveBlogCoverImage, TECH_ARTICLES } from '../data/catalog';
+import { storeApi } from '../lib/authApi';
+import type { BlogPostItem, BrandId, CategoryId } from '../types/store';
 import { UI_EASE } from '../utils/motionHelpers';
 import {
   extractAvailableBrands,
   filterAndSortProducts,
+  formatPersianDate,
   formatToman,
   toPersianDigits,
 } from '../utils/storeLogic';
@@ -71,6 +73,21 @@ export const HomePage: React.FC = () => {
   const [popularBrand, setPopularBrand] = useState<'ALL' | BrandId>('ALL');
   const [activeSlide, setActiveSlide] = useState(0);
   const [sliderPaused, setSliderPaused] = useState(false);
+  const [blogPosts, setBlogPosts] = useState<BlogPostItem[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    storeApi
+      .getBlogPosts({ limit: 3, page: 1 })
+      .then((res) => {
+        if (!active || !Array.isArray(res.posts)) return;
+        setBlogPosts(res.posts);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const flagshipIphone = useMemo(
     () => products.find((p) => p.slug === 'iphone-16-pro-max') || products[0],
@@ -682,9 +699,9 @@ export const HomePage: React.FC = () => {
           <div className="w-10 h-10 rounded-lg bg-[#F1F3F6] text-[#4A5464] flex items-center justify-center">
             <Award className="w-5 h-5" strokeWidth={1.5} />
           </div>
-          <h3 className="text-base font-semibold text-[#11161E]">کد تخفیف خوش‌آمدگویی دمو</h3>
+          <h3 className="text-base font-semibold text-[#11161E]">کد تخفیف خوش‌آمدگویی ویژه</h3>
           <p className="text-xs text-[#4A5464] leading-6">
-            برای تست سبد خرید می‌توانید از کد <span className="font-mono font-medium text-[#1453D6]" dir="ltr">AMIR-OFF</span> (۵۰۰ هزار تومان) یا <span className="font-mono font-medium text-[#1453D6]" dir="ltr">VIP-10</span> (۱۰٪ تخفیف) استفاده کنید.
+            برای خرید اول می‌توانید از کد <span className="font-mono font-medium text-[#1453D6]" dir="ltr">AMIR-OFF</span> (۵۰۰ هزار تومان) یا <span className="font-mono font-medium text-[#1453D6]" dir="ltr">VIP-10</span> (۱۰٪ تخفیف) استفاده کنید.
           </p>
         </div>
       </section>
@@ -694,24 +711,51 @@ export const HomePage: React.FC = () => {
 
       {/* Tech Magazine Articles */}
       <section className="max-w-[1440px] mx-auto px-4 lg:px-8 space-y-6">
-        <div className="flex items-end justify-between gap-4">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h2 className="text-xl sm:text-2xl font-semibold text-[#11161E]">مجله تخصصی موبایل امیر</h2>
             <p className="text-xs sm:text-sm text-[#4A5464] mt-1">
               نقد و بررسی پرچمداران و راهنمای خرید دقیق
             </p>
           </div>
+          <a
+            href={buildHref('/blog')}
+            onClick={(e) => handleLinkClick(e, '/blog')}
+            className="text-xs sm:text-sm font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1"
+          >
+            <span>مشاهده همه مقالات</span>
+            <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
+          </a>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {TECH_ARTICLES.map((art) => (
+          {(blogPosts.length > 0
+            ? blogPosts.map((post) => ({
+                id: post.id,
+                slug: post.slug,
+                tag: post.category,
+                date: `${formatPersianDate(post.publishedAt)} · زمان مطالعه: ${toPersianDigits(post.readingTimeMinutes)} دقیقه`,
+                title: post.title,
+                excerpt: post.excerpt,
+                image: resolveBlogCoverImage(post.coverImage),
+              }))
+            : TECH_ARTICLES.map((art) => ({
+                id: art.id,
+                slug: art.slug,
+                tag: art.tag,
+                date: art.date,
+                title: art.title,
+                excerpt: art.excerpt,
+                image: art.image,
+              }))
+          ).map((art) => (
             <article
               key={art.id}
               className="group card-lift bg-white rounded-xl border border-[#E4E8EE] overflow-hidden flex flex-col hover:border-[#C5CEDB] hover:shadow-md"
             >
               <a
-                href={buildHref(`/product/${art.targetSlug}`)}
-                onClick={(e) => handleLinkClick(e, `/product/${art.targetSlug}`)}
+                href={buildHref(`/blog/${art.slug}`)}
+                onClick={(e) => handleLinkClick(e, `/blog/${art.slug}`)}
                 className="aspect-[16/9] bg-[#F3F5F8] overflow-hidden block"
               >
                 <SmartImage
@@ -727,14 +771,22 @@ export const HomePage: React.FC = () => {
                   </span>
                   <span>{art.date}</span>
                 </div>
-                <h3 className="text-sm font-semibold text-[#11161E] leading-6">{art.title}</h3>
+                <h3 className="text-sm font-semibold text-[#11161E] leading-6">
+                  <a
+                    href={buildHref(`/blog/${art.slug}`)}
+                    onClick={(e) => handleLinkClick(e, `/blog/${art.slug}`)}
+                    className="hover:text-[#1453D6] transition-colors"
+                  >
+                    {art.title}
+                  </a>
+                </h3>
                 <p className="text-xs text-[#4A5464] leading-6 flex-1">{art.excerpt}</p>
                 <a
-                  href={buildHref(`/product/${art.targetSlug}`)}
-                  onClick={(e) => handleLinkClick(e, `/product/${art.targetSlug}`)}
+                  href={buildHref(`/blog/${art.slug}`)}
+                  onClick={(e) => handleLinkClick(e, `/blog/${art.slug}`)}
                   className="self-start text-xs font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1 pt-2"
                 >
-                  <span>بررسی محصول مرتبط</span>
+                  <span>مطالعه مقاله</span>
                   <ArrowLeft className="w-3.5 h-3.5" strokeWidth={1.5} />
                 </a>
               </div>

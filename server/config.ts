@@ -1,3 +1,5 @@
+import type { HelmetOptions } from 'helmet';
+
 export interface CookieOptionsShape {
   httpOnly: boolean;
   sameSite: 'none' | 'lax' | 'strict';
@@ -8,6 +10,93 @@ export interface CookieOptionsShape {
 }
 
 const DEV_FALLBACK_SESSION_SECRET = 'amir-mobile-dev-session-secret-not-for-prod-0000';
+
+export const RATE_LIMIT_RULES = {
+  STRICT_WINDOW_MS: 15 * 60 * 1000,
+  STRICT_MAX: 10,
+  MODERATE_WINDOW_MS: 15 * 60 * 1000,
+  MODERATE_MAX: 15,
+} as const;
+
+export function getHelmetOptions(enableStrictFrameguard: boolean): HelmetOptions {
+  return {
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    frameguard: enableStrictFrameguard ? { action: 'deny' } : false,
+  };
+}
+
+function normalizeDigitsForPolicy(input: string): string {
+  return input
+    .replace(/[۰-۹]/g, (ch) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(ch)))
+    .replace(/[٠-٩]/g, (ch) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(ch)));
+}
+
+export function isValidPasswordPolicy(password: string): boolean {
+  if (typeof password !== 'string' || password.length < 8) {
+    return false;
+  }
+  const normalizedDigits = normalizeDigitsForPolicy(password);
+  const hasLetter = /[a-zA-Z\u0600-\u06FF]/.test(normalizedDigits);
+  const hasNumber = /\d/.test(normalizedDigits);
+  return hasLetter && hasNumber;
+}
+
+const ALLOWED_AVATAR_DATA_PREFIXES = [
+  'data:image/jpeg;base64,',
+  'data:image/png;base64,',
+  'data:image/webp;base64,',
+] as const;
+
+export function validateAvatarUrlServer(
+  raw: unknown
+): { ok: true; value: string | undefined } | { ok: false; error: string } {
+  const value = String(raw ?? '').trim();
+  if (!value) {
+    return { ok: true, value: undefined };
+  }
+
+  const lower = value.toLowerCase();
+  if (lower.startsWith('data:')) {
+    const matchedPrefix = ALLOWED_AVATAR_DATA_PREFIXES.find((prefix) => lower.startsWith(prefix));
+    if (!matchedPrefix) {
+      return {
+        ok: false,
+        error: 'فرمت تصویر پروفایل مجاز نیست. تنها فرمت‌های JPEG، PNG و WebP پشتیبانی می‌شوند.',
+      };
+    }
+    if (value.length > 480_000) {
+      return {
+        ok: false,
+        error: 'حجم تصویر پروفایل بسیار زیاد است. لطفاً تصویر کوچک‌تری انتخاب کنید.',
+      };
+    }
+    const base64Body = value.slice(matchedPrefix.length).trim();
+    if (!base64Body || !/^[A-Za-z0-9+/=]+$/.test(base64Body)) {
+      return {
+        ok: false,
+        error: 'محتوای تصویر پروفایل معتبر نیست.',
+      };
+    }
+    return { ok: true, value: `${matchedPrefix}${base64Body}` };
+  }
+
+  if (value.length <= 1024) {
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return { ok: true, value };
+      }
+    } catch {
+      // Invalid URL syntax
+    }
+  }
+
+  return { ok: false, error: 'فرمت تصویر پروفایل معتبر نیست.' };
+}
 
 export function parseCorsOrigins(raw?: string): string[] {
   if (!raw) return [];

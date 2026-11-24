@@ -166,3 +166,36 @@ export function buildOrderReceiptEmailContent(params: {
   );
   return { subject, html };
 }
+
+export function buildBackInStockEmailContent(params: {
+  productName: string;
+  productSlug: string;
+  priceFormatted: string;
+  siteUrl?: string;
+}): { subject: string; html: string } {
+  const safeName = escapeHtml(params.productName);
+  const safePrice = escapeHtml(params.priceFormatted);
+  const baseUrl = (params.siteUrl || 'https://codenameamir.ir').replace(/\/+$/, '');
+  const safeUrl = escapeHtml(`${baseUrl}/#/product/${encodeURIComponent(params.productSlug)}`);
+  const subject = `موجود شد: ${params.productName} — فروشگاه موبایل امیر`;
+  const html = wrapEmailLayout(
+    subject,
+    `
+      <p style="margin:0 0 12px 0;font-weight:bold;font-size:16px;color:#0b1c30;">خبر خوش! کالای مورد نظر شما دوباره موجود شد</p>
+      <p style="margin:0 0 14px 0;color:#434655;">
+        محصول <strong style="color:#0b1c30;">${safeName}</strong> هم‌اکنون در انبار فروشگاه موبایل امیر شارژ شده و آماده ثبت سفارش است.
+      </p>
+      <div style="margin:18px 0;padding:16px;background-color:#eff4ff;border:1px solid #bfdbfe;border-radius:14px;">
+        <div style="font-size:12px;color:#434655;margin-bottom:6px;">قیمت روز کالا:</div>
+        <div style="font-size:20px;font-weight:bold;color:#004ac6;">${safePrice} تومان</div>
+      </div>
+      <div style="text-align:center;margin:22px 0 8px 0;">
+        <a href="${safeUrl}" style="display:inline-block;padding:12px 26px;background-color:#1453d6;color:#ffffff;text-decoration:none;border-radius:10px;font-weight:bold;font-size:13px;">
+          مشاهده و خرید محصول
+        </a>
+      </div>
+    `
+  );
+  return { subject, html };
+}
+

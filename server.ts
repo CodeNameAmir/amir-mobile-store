@@ -4,6 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
 import { createAdminRouter } from './server/adminRoutes.ts';
 import {
   AuthService,
@@ -14,16 +16,23 @@ import {
   type AuthStorageAdapter,
   type OtpPurpose,
   type StoredAddress,
+  type StoredCartItemRecord,
+  type StoredOrderItem,
   type StoredOrderRecord,
   type StoredUserRecord,
 } from './server/authStore.ts';
 import {
+  getHelmetOptions,
   getSessionCookieOptions,
   isOriginAllowed,
+  isValidPasswordPolicy,
+  RATE_LIMIT_RULES,
   resolveCorsConfig,
   resolveSessionSecret,
+  validateAvatarUrlServer,
 } from './server/config.ts';
 import {
+  buildBackInStockEmailContent,
   buildOrderReceiptEmailContent,
   buildOtpEmailContent,
   buildSecurityAlertEmailContent,
@@ -140,7 +149,91 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   const app = express();
   app.set('trust proxy', 1);
+  app.use(helmet(getHelmetOptions(isProd && !isAiStudioPreview)));
   app.use(express.json({ limit: '2mb' }));
+
+  const rateLimitMessage = {
+    error: 'تعداد درخواست‌های شما از حد مجاز فراتر رفته است. لطفاً دقایقی دیگر مجدداً تلاش کنید.',
+  };
+
+  const createStrictRateLimiter = () =>
+    rateLimit({
+      windowMs: RATE_LIMIT_RULES.STRICT_WINDOW_MS,
+      limit: RATE_LIMIT_RULES.STRICT_MAX,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: rateLimitMessage,
+    });
+
+  const createModerateRateLimiter = () =>
+    rateLimit({
+      windowMs: RATE_LIMIT_RULES.MODERATE_WINDOW_MS,
+      limit: RATE_LIMIT_RULES.MODERATE_MAX,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: rateLimitMessage,
+    });
+
+  const loginPasswordLimiter = createStrictRateLimiter();
+  const orderVerifyLimiter = createStrictRateLimiter();
+  const orderCreateLimiter = createModerateRateLimiter();
+  const reviewCreateLimiter = createModerateRateLimiter();
+  const supportTicketLimiter = createModerateRateLimiter();
+  const moderateWriteLimiter = createModerateRateLimiter();
+
+  async function triggerBackInStockAlerts(info: {
+    productId: string;
+    variantId?: string | null;
+    stockCount: number;
+  }): Promise<void> {
+    if (info.stockCount <= 0) return;
+    const [product, pendingAlerts] = await Promise.all([
+      storage.findProductByIdOrSlug(info.productId).catch(() => null),
+      storage.findPendingStockAlerts(info.productId, info.variantId).catch(() => []),
+    ]);
+    if (!product || pendingAlerts.length === 0) return;
+
+    await storage.markStockAlertsNotified(pendingAlerts.map((a) => a.id)).catch(() => undefined);
+
+    const notifiedUsers = new Set<string>();
+    const notifiedEmails = new Set<string>();
+    const appOrigin =
+      env.APP_URL || corsCfg.allowedOrigins[0] || 'https://codenameamir.ir';
+
+    for (const alert of pendingAlerts) {
+      if (alert.userId && !notifiedUsers.has(alert.userId)) {
+        notifiedUsers.add(alert.userId);
+        await storage
+          .createUserNotification({
+            userId: alert.userId,
+            type: 'stock_alert',
+            title: `موجود شدن «${product.nameFa}»`,
+            message: `کالای «${product.nameFa}» با قیمت روز در انبار شارژ شد و اکنون قابل سفارش است.`,
+            link: `/product/${product.slug}`,
+          })
+          .catch(() => undefined);
+      }
+
+      const cleanEmail = alert.email.trim().toLowerCase();
+      if (cleanEmail && !notifiedEmails.has(cleanEmail)) {
+        notifiedEmails.add(cleanEmail);
+        const priceFormatted = new Intl.NumberFormat('fa-IR').format(product.price);
+        const emailContent = buildBackInStockEmailContent({
+          productName: product.nameFa,
+          productSlug: product.slug,
+          priceFormatted,
+          siteUrl: appOrigin,
+        });
+        void dispatchEmail({
+          to: cleanEmail,
+          subject: emailContent.subject,
+          html: emailContent.html,
+          idempotencyKey: `stock-alert-${alert.id}`,
+          tags: [{ name: 'category', value: 'back_in_stock' }],
+        });
+      }
+    }
+  }
 
   // Strict CORS middleware for /api/* routes (never block same-origin Vite/static ES module & CSS assets behind reverse proxies)
   app.use((req: Request, res: Response, next: NextFunction) => {
@@ -609,8 +702,8 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           res.status(400).json({ error: 'شماره موبایل باید ۱۱ رقم و با ۰۹ شروع شود.' });
           return;
         }
-        if (password.length < 8 || !/\d/.test(toEnglishDigits(password))) {
-          res.status(400).json({ error: 'رمز عبور باید حداقل ۸ کاراکتر و شامل عدد باشد.' });
+        if (!isValidPasswordPolicy(password)) {
+          res.status(400).json({ error: 'رمز عبور باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد.' });
           return;
         }
 
@@ -817,8 +910,8 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         }));
       } else if (purpose === 'reset-password') {
         const newPassword = String(req.body?.newPassword || '');
-        if (newPassword.length < 8 || !/\d/.test(toEnglishDigits(newPassword))) {
-          res.status(400).json({ error: 'رمز عبور جدید باید حداقل ۸ کاراکتر و شامل عدد باشد.' });
+        if (!isValidPasswordPolicy(newPassword)) {
+          res.status(400).json({ error: 'رمز عبور جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد.' });
           return;
         }
         const existing = await authService.findUserByEmail(email);
@@ -892,7 +985,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
-  app.post('/api/auth/login-password', async (req, res, next) => {
+  app.post('/api/auth/login-password', loginPasswordLimiter, async (req, res, next) => {
     try {
       const rawIdentifier = String(req.body?.identifier ?? req.body?.email ?? '').trim();
       const password = String(req.body?.password || '');
@@ -1184,21 +1277,12 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
       let nextAvatarUrl = currentUser.avatarUrl;
       if (req.body?.avatarUrl !== undefined) {
-        const rawAvatar = String(req.body.avatarUrl ?? '').trim();
-        if (!rawAvatar) {
-          nextAvatarUrl = undefined;
-        } else if (rawAvatar.startsWith('data:image/')) {
-          if (rawAvatar.length > 480_000) {
-            res.status(400).json({ error: 'حجم تصویر پروفایل بسیار زیاد است. لطفاً تصویر کوچک‌تری انتخاب کنید.' });
-            return;
-          }
-          nextAvatarUrl = rawAvatar;
-        } else if (/^https?:\/\//i.test(rawAvatar) && rawAvatar.length <= 1024) {
-          nextAvatarUrl = rawAvatar;
-        } else {
-          res.status(400).json({ error: 'فرمت تصویر پروفایل معتبر نیست.' });
+        const avatarCheck = validateAvatarUrlServer(req.body.avatarUrl);
+        if (!avatarCheck.ok) {
+          res.status(400).json({ error: avatarCheck.error });
           return;
         }
+        nextAvatarUrl = avatarCheck.value;
       }
 
       if (fullName.length < 3) {
@@ -1261,8 +1345,8 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           res.status(400).json({ error: 'رمز عبور فعلی نادرست است.' });
           return;
         }
-        if (newPassword.length < 8 || !/\d/.test(toEnglishDigits(newPassword))) {
-          res.status(400).json({ error: 'رمز عبور جدید باید حداقل ۸ کاراکتر و شامل عدد باشد.' });
+        if (!isValidPasswordPolicy(newPassword)) {
+          res.status(400).json({ error: 'رمز عبور جدید باید حداقل ۸ کاراکتر و شامل حرف و عدد باشد.' });
           return;
         }
 
@@ -1568,6 +1652,169 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   });
 
   // ============================================================================
+  // Authenticated User Cart Persistence & Merge APIs
+  // ============================================================================
+  function sanitizeIncomingCartItems(rawList: unknown[]): StoredCartItemRecord[] {
+    const out: StoredCartItemRecord[] = [];
+    for (const entry of rawList) {
+      if (!entry || typeof entry !== 'object') continue;
+      const item = entry as Record<string, unknown>;
+      const productId = String(item.productId || item.slug || '').trim();
+      if (!productId || productId.length > 120) continue;
+      const colorName = String(item.colorName || item.color || 'مشکی').trim() || 'مشکی';
+      const colorHex = String(item.colorHex || '#1e293b').trim() || '#1e293b';
+      const storageLabel = String(item.storageLabel || item.storage || '۲۵۶ گیگابایت').trim() || '۲۵۶ گیگابایت';
+      const warranty = String(item.warranty || '۱۸ ماهه امیر سرویس').trim() || '۱۸ ماهه امیر سرویس';
+      const variantId = item.variantId ? String(item.variantId).trim() : null;
+      const sku = item.sku ? String(item.sku).trim() : null;
+      const key =
+        String(item.key || item.itemKey || '').trim() ||
+        `${productId}__${variantId || colorName}__${storageLabel}__${warranty}`;
+      const qty = Math.min(20, Math.max(1, Math.floor(Number(item.qty ?? item.quantity ?? 1) || 1)));
+      out.push({
+        key,
+        productId,
+        variantId,
+        sku,
+        colorName,
+        colorHex,
+        storageLabel,
+        warranty,
+        qty,
+      });
+    }
+    return out.slice(0, 50);
+  }
+
+  async function hydrateStoredCartItems(records: StoredCartItemRecord[]): Promise<StoredOrderItem[]> {
+    if (records.length === 0) return [];
+    const catalogProducts = await storage.listProducts().catch(() => []);
+    const byIdOrSlug = new Map<string, (typeof catalogProducts)[number]>();
+    for (const p of catalogProducts) {
+      byIdOrSlug.set(p.id, p);
+      byIdOrSlug.set(p.slug, p);
+    }
+
+    const hydrated: StoredOrderItem[] = [];
+    const variantsCache = new Map<string, Awaited<ReturnType<typeof storage.listProductVariants>>>();
+
+    for (const rec of records) {
+      const product = byIdOrSlug.get(rec.productId);
+      if (!product) continue;
+
+      let variants = variantsCache.get(product.id);
+      if (!variants) {
+        variants = await storage.listProductVariants(product.id, false).catch(() => []);
+        variantsCache.set(product.id, variants);
+      }
+
+      const matchedVariant =
+        (rec.variantId
+          ? variants.find((v) => v.id === rec.variantId)
+          : undefined) ||
+        (rec.sku
+          ? variants.find((v) => v.sku.toLowerCase() === rec.sku!.toLowerCase())
+          : undefined);
+
+      const storageMatch =
+        product.storageOptions.find((s) => s.label === rec.storageLabel) ||
+        product.storageOptions[0];
+      const storageDelta = matchedVariant ? 0 : storageMatch?.priceDelta || 0;
+      const baseUnitPrice = (matchedVariant ? matchedVariant.priceToman : product.price) + storageDelta;
+      const baseOriginalPrice = matchedVariant
+        ? matchedVariant.originalPriceToman || matchedVariant.priceToman
+        : (product.originalPrice || product.price) + storageDelta;
+
+      const hasCare = rec.warranty.includes('Amir Care+');
+      const careRate = product.category === 'phones' ? 0.035 : 0.045;
+      const carePrice = hasCare ? Math.round((baseUnitPrice * careRate) / 1000) * 1000 : 0;
+
+      const unitPrice = baseUnitPrice + carePrice;
+      const originalUnitPrice = Math.max(unitPrice, baseOriginalPrice + carePrice);
+      const stockCount =
+        typeof matchedVariant?.availableStock === 'number'
+          ? matchedVariant.availableStock
+          : product.stockCount;
+
+      hydrated.push({
+        key: rec.key,
+        productId: product.id,
+        ...(matchedVariant
+          ? {
+              variantId: matchedVariant.id,
+              sku: matchedVariant.sku,
+              partNumber: matchedVariant.partNumber || undefined,
+              simType: matchedVariant.simType || undefined,
+            }
+          : rec.variantId || rec.sku
+          ? {
+              ...(rec.variantId ? { variantId: rec.variantId } : {}),
+              ...(rec.sku ? { sku: rec.sku } : {}),
+            }
+          : {}),
+        slug: product.slug,
+        nameFa: product.nameFa,
+        brand: product.brand,
+        image: product.image,
+        colorName: matchedVariant?.colorNameFa || rec.colorName || product.colorLabel,
+        colorHex: matchedVariant?.colorHex || rec.colorHex || '#1e293b',
+        storageLabel: matchedVariant?.storage || rec.storageLabel || product.storageOptions[0]?.label || '',
+        warranty: rec.warranty || matchedVariant?.warrantyName || product.warranty,
+        unitPrice,
+        originalUnitPrice,
+        qty: rec.qty,
+        stockCount,
+      });
+    }
+    return hydrated;
+  }
+
+  app.get('/api/auth/cart', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const currentUser = req.authUser!;
+      const stored = await authService.getUserCart(currentUser.id);
+      const items = await hydrateStoredCartItems(stored);
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.put('/api/auth/cart', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const currentUser = req.authUser!;
+      const rawItems = Array.isArray(req.body?.items) ? (req.body.items as unknown[]) : null;
+      if (!rawItems) {
+        res.status(400).json({ error: 'لیست اقلام سبد خرید باید به‌صورت آرایه ارسال شود.' });
+        return;
+      }
+      const sanitized = sanitizeIncomingCartItems(rawItems);
+      const saved = await authService.replaceUserCart(currentUser.id, sanitized);
+      const items = await hydrateStoredCartItems(saved);
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/auth/cart/merge', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const currentUser = req.authUser!;
+      const rawItems = Array.isArray(req.body?.items) ? (req.body.items as unknown[]) : null;
+      if (!rawItems) {
+        res.status(400).json({ error: 'لیست اقلام سبد خرید باید به‌صورت آرایه ارسال شود.' });
+        return;
+      }
+      const sanitized = sanitizeIncomingCartItems(rawItems);
+      const merged = await authService.mergeUserCart(currentUser.id, sanitized);
+      const items = await hydrateStoredCartItems(merged);
+      res.json({ items });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  // ============================================================================
   // Storefront Public Catalog, Reviews, Coupons, Config, Support & Newsletter APIs
   // ============================================================================
   app.get('/api/categories', async (_req, res, next) => {
@@ -1632,7 +1879,15 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         categoryParam && categoryParam !== 'all' && categoryParam !== 'offers'
           ? await storage.listCategories(true).catch(() => [...CATEGORY_ITEMS])
           : undefined;
-      const products = await storage.listProducts({
+
+      const attributeFilters: Record<string, string> = {};
+      for (const [k, v] of Object.entries(req.query)) {
+        if (k.startsWith('attr_') && typeof v === 'string' && v.trim()) {
+          attributeFilters[k.slice(5)] = v.trim();
+        }
+      }
+
+      const matchingProducts = await storage.listProducts({
         category: categoryParam,
         q: typeof req.query.q === 'string' ? req.query.q : undefined,
         brand: typeof req.query.brand === 'string' ? req.query.brand : undefined,
@@ -1641,10 +1896,35 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         express: req.query.express === 'true',
         minPrice: Number.isFinite(minPrice) ? minPrice : undefined,
         maxPrice: Number.isFinite(maxPrice) ? maxPrice : undefined,
+        storage: typeof req.query.storage === 'string' && req.query.storage.trim() ? req.query.storage.trim() : undefined,
+        ram: typeof req.query.ram === 'string' && req.query.ram.trim() ? req.query.ram.trim() : undefined,
+        colorId: typeof req.query.colorId === 'string' && req.query.colorId.trim() ? req.query.colorId.trim() : undefined,
+        attributes: Object.keys(attributeFilters).length > 0 ? attributeFilters : undefined,
         sort: typeof req.query.sort === 'string' ? req.query.sort : undefined,
         categories,
       });
-      res.json({ products, total: products.length });
+
+      const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
+      if (!hasPagination) {
+        res.json({ products: matchingProducts, total: matchingProducts.length });
+        return;
+      }
+
+      const limit = Math.min(60, Math.max(1, Math.floor(Number(req.query.limit || 12))));
+      const total = matchingProducts.length;
+      const totalPages = Math.max(1, Math.ceil(total / limit));
+      const requestedPage = Math.max(1, Math.floor(Number(req.query.page || 1)));
+      const page = Math.min(requestedPage, totalPages);
+      const offset = (page - 1) * limit;
+      const pagedProducts = matchingProducts.slice(offset, offset + limit);
+
+      res.json({
+        products: pagedProducts,
+        total,
+        page,
+        limit,
+        totalPages,
+      });
     } catch (err) {
       next(err);
     }
@@ -1723,7 +2003,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
-  app.post('/api/products/:id/reviews', async (req, res, next) => {
+  app.post('/api/products/:id/reviews', reviewCreateLimiter, async (req, res, next) => {
     try {
       const id = String(req.params.id || '').trim();
       const product = await storage.findProductByIdOrSlug(id);
@@ -1749,6 +2029,16 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         return;
       }
 
+      let hasDeliveredOrderForProduct = false;
+      if (auth) {
+        const userOrders = await authService.listUserOrders(auth.user.id);
+        hasDeliveredOrderForProduct = userOrders.some(
+          (o) =>
+            o.status === 'delivered' &&
+            o.items.some((item) => item.productId === product.id || item.slug === product.slug)
+        );
+      }
+
       const review = await storage.createProductReview({
         id: crypto.randomUUID(),
         productId: product.id,
@@ -1757,21 +2047,245 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         dateLabel: 'هم‌اکنون',
         rating,
         comment,
-        verified: Boolean(auth),
-        isApproved: true,
+        verified: hasDeliveredOrderForProduct,
+        isApproved: false,
         createdAt: new Date().toISOString(),
       });
 
-      res.status(201).json({ review });
+      res.status(201).json({ review, pendingApproval: true });
     } catch (err) {
       next(err);
     }
   });
 
-  app.post('/api/support-tickets', async (req, res, next) => {
+  app.get('/api/products/:id/questions', async (req, res, next) => {
     try {
-      const fullName = String(req.body?.fullName || '').trim();
-      const phone = normalizePhone(req.body?.phone);
+      const id = String(req.params.id || '').trim();
+      const product = await storage.findProductByIdOrSlug(id);
+      if (!product) {
+        res.status(404).json({ error: 'محصول یافت نشد.' });
+        return;
+      }
+      const questions = await storage.listProductQuestions(product.id);
+      res.json({ questions });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/products/:id/questions', moderateWriteLimiter, async (req, res, next) => {
+    try {
+      const id = String(req.params.id || '').trim();
+      const product = await storage.findProductByIdOrSlug(id);
+      if (!product) {
+        res.status(404).json({ error: 'محصول یافت نشد.' });
+        return;
+      }
+      const auth = await getAuthFromRequest(req);
+      const authorName = String(req.body?.authorName || auth?.user.fullName || 'کاربر فروشگاه').trim();
+      const question = String(req.body?.question || '').trim();
+      if (authorName.length < 2 || question.length < 8) {
+        res.status(400).json({ error: 'لطفاً نام و متن پرسش (حداقل ۸ کاراکتر) را وارد کنید.' });
+        return;
+      }
+      const created = await storage.createProductQuestion({
+        productId: product.id,
+        userId: auth?.user.id ?? null,
+        authorName,
+        question,
+        answer: null,
+        answeredAt: null,
+        isApproved: true,
+      });
+      res.status(201).json({ question: created });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/blog', async (req, res, next) => {
+    try {
+      const category = typeof req.query.category === 'string' ? req.query.category.trim() : '';
+      const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+      const tag = typeof req.query.tag === 'string' ? req.query.tag.trim() : '';
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 9));
+
+      const result = await storage.listBlogPosts({
+        category: category && category !== 'all' ? category : undefined,
+        q: q || undefined,
+        tag: tag || undefined,
+        page,
+        limit,
+      });
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/blog/:slug', async (req, res, next) => {
+    try {
+      const slug = decodeURIComponent(String(req.params.slug || '').trim());
+      if (!slug) {
+        res.status(404).json({ error: 'مقاله مورد نظر یافت نشد.' });
+        return;
+      }
+      const post = await storage.findBlogPostBySlug(slug);
+      if (!post) {
+        res.status(404).json({ error: 'مقاله مورد نظر یافت نشد.' });
+        return;
+      }
+
+      const pool = await storage.listBlogPosts({ page: 1, limit: 20 });
+      const tagSet = new Set(post.tags.map((t) => t.toLowerCase()));
+      const relatedPosts = pool.posts
+        .filter((item) => item.slug !== post.slug)
+        .map((item) => {
+          const sameCategory = item.category === post.category ? 2 : 0;
+          const sharedTags = item.tags.filter((t) => tagSet.has(t.toLowerCase())).length;
+          return { item, score: sameCategory + sharedTags };
+        })
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((entry) => entry.item);
+
+      res.json({ post, relatedPosts });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/stock-alerts', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const alerts = await storage.listUserStockAlerts(req.authUser!.id);
+      res.json({
+        alerts,
+        productIds: Array.from(new Set(alerts.map((a) => a.productId))),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/stock-alerts', moderateWriteLimiter, async (req, res, next) => {
+    try {
+      const auth = await getAuthFromRequest(req);
+      const productId = String(req.body?.productId || '').trim();
+      const variantId = req.body?.variantId ? String(req.body.variantId).trim() : null;
+      const rawEmail = auth?.user.email || req.body?.email;
+      const email = normalizeEmail(rawEmail);
+
+      if (!productId) {
+        res.status(400).json({ error: 'شناسه محصول الزامی است.' });
+        return;
+      }
+      if (!isValidEmail(email)) {
+        res.status(400).json({ error: 'لطفاً یک نشانی ایمیل معتبر وارد کنید یا وارد حساب کاربری خود شوید.' });
+        return;
+      }
+      const product = await storage.findProductByIdOrSlug(productId);
+      if (!product) {
+        res.status(404).json({ error: 'محصول مورد نظر یافت نشد.' });
+        return;
+      }
+
+      const result = await storage.subscribeStockAlert({
+        userId: auth?.user.id ?? null,
+        email,
+        productId: product.id,
+        variantId,
+      });
+      res.status(result.alreadySubscribed ? 200 : 201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.delete('/api/stock-alerts/:productId', async (req, res, next) => {
+    try {
+      const auth = await getAuthFromRequest(req);
+      const rawProductId = String(req.params.productId || '').trim();
+      const queryEmail = normalizeEmail(req.query.email);
+      if (!auth && !isValidEmail(queryEmail)) {
+        res.status(401).json({ error: 'برای لغو اطلاع‌رسانی وارد حساب خود شوید یا ایمیل ثبت‌شده را ارسال کنید.' });
+        return;
+      }
+      const product = await storage.findProductByIdOrSlug(rawProductId).catch(() => null);
+      const targetId = product?.id || rawProductId;
+      const removed = await storage.removeStockAlertByProduct({
+        userId: auth?.user.id ?? null,
+        email: auth ? auth.user.email : queryEmail,
+        productId: targetId,
+      });
+      res.json({ ok: true, removed });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/notifications', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const notifications = await storage.listUserNotifications(req.authUser!.id);
+      const unreadCount = notifications.filter((n) => !n.isRead).length;
+      res.json({ notifications, unreadCount });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.patch('/api/notifications/read-all', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const updatedCount = await storage.markAllNotificationsRead(req.authUser!.id);
+      res.json({ ok: true, updatedCount });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.patch('/api/notifications/:id/read', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const notificationId = String(req.params.id || '').trim();
+      const notification = await storage.markNotificationRead(req.authUser!.id, notificationId);
+      if (!notification) {
+        res.status(404).json({ error: 'اعلان مورد نظر یافت نشد.' });
+        return;
+      }
+      res.json({ notification });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.delete('/api/notifications/:id', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const notificationId = String(req.params.id || '').trim();
+      const deleted = await storage.deleteUserNotification(req.authUser!.id, notificationId);
+      if (!deleted) {
+        res.status(404).json({ error: 'اعلان مورد نظر یافت نشد.' });
+        return;
+      }
+      res.json({ ok: true, id: notificationId });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/support-tickets/mine', requireAuth, async (req: AuthenticatedRequest, res, next) => {
+    try {
+      const user = req.authUser!;
+      const tickets = await storage.listUserSupportTickets(user.id, user.phone);
+      res.json({ tickets });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/support-tickets', supportTicketLimiter, async (req, res, next) => {
+    try {
+      const auth = await getAuthFromRequest(req);
+      const fullName = String(req.body?.fullName || auth?.user.fullName || '').trim();
+      const phone = normalizePhone(req.body?.phone || auth?.user.phone);
       const department = String(req.body?.department || 'فروش و مشاوره تخصصی').trim();
       const orderCode = String(req.body?.orderCode || '').trim().toUpperCase();
       const message = String(req.body?.message || '').trim();
@@ -1782,6 +2296,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       }
 
       const ticket = await storage.createSupportTicket({
+        userId: auth?.user.id ?? null,
         ticketCode: `TKT-${crypto.randomInt(1000, 99999)}`,
         fullName,
         phone,
@@ -1824,17 +2339,24 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
-  app.post('/api/orders', async (req, res, next) => {
+  app.post('/api/orders', orderCreateLimiter, async (req, res, next) => {
     try {
       const auth = await getAuthFromRequest(req);
       const body = req.body || {};
 
       const customerName = String(body.customerName || '').trim();
       const customerPhone = normalizePhone(body.customerPhone);
+      const rawEmail = String(body.customerEmail ?? body.email ?? '').trim();
+      const guestEmail = rawEmail ? normalizeEmail(rawEmail) : '';
       const city = String(body.city || '').trim();
       const shippingAddress = String(body.shippingAddress || '').trim();
       const postalCode = toEnglishDigits(String(body.postalCode || '')).replace(/[\s-]/g, '').trim();
       const items = Array.isArray(body.items) ? body.items : [];
+
+      if (guestEmail && !isValidEmail(guestEmail)) {
+        res.status(400).json({ error: 'فرمت ایمیل وارد شده معتبر نیست.' });
+        return;
+      }
 
       if (
         customerName.length < 3 ||
@@ -1880,6 +2402,8 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         couponCode: body.couponCode ? String(body.couponCode) : null,
         couponRules: activeCoupons,
         freeShippingThreshold: storeSettings.freeShippingThreshold,
+        city,
+        deliverySlot: body.deliverySlot === 'standard' ? 'standard' : 'express',
       });
 
       if (!totals.ok) {
@@ -1899,16 +2423,19 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         orderCode = `AMIR-${crypto.randomInt(100000, 999999)}`;
       }
 
+      const recipientEmail = auth?.user.email || guestEmail || undefined;
+
       const orderPayload: StoredOrderRecord = {
         orderCode,
         userId: auth?.user.id ?? null,
         shaparakRef: String(crypto.randomInt(10000000, 99999999)),
         customerName,
         customerPhone,
+        ...(recipientEmail ? { customerEmail: recipientEmail } : {}),
         city,
         shippingAddress,
         postalCode,
-        deliverySlot: body.deliverySlot === 'standard' ? 'standard' : 'express',
+        deliverySlot: totals.deliverySlot,
         couponCode: totals.couponCode,
         subtotal: totals.subtotal,
         productDiscount: totals.productDiscount,
@@ -1952,17 +2479,17 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
       const trackingToken = issueOrderTrackingToken(saved.orderCode);
 
-      if (auth?.user) {
+      if (recipientEmail) {
         const totalFormatted = new Intl.NumberFormat('fa-IR').format(saved.totalAmount);
         const emailContent = buildOrderReceiptEmailContent({
-          fullName: auth.user.fullName,
+          fullName: auth?.user.fullName || customerName,
           orderCode: saved.orderCode,
           totalFormatted,
           itemsCount: saved.items.length,
         });
 
         void dispatchEmail({
-          to: auth.user.email,
+          to: recipientEmail,
           subject: emailContent.subject,
           html: emailContent.html,
           idempotencyKey: `order-receipt-${saved.orderCode}`,
@@ -1980,7 +2507,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
-  app.post('/api/orders/:code/verify', async (req, res, next) => {
+  app.post('/api/orders/:code/verify', orderVerifyLimiter, async (req, res, next) => {
     try {
       const code = String(req.params.code || '').trim();
       const phone = normalizePhone(req.body?.phone);
@@ -2070,6 +2597,66 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
+  app.post('/api/orders/:code/cancel', async (req, res, next) => {
+    try {
+      const code = String(req.params.code || '').trim();
+      if (!code) {
+        res.status(400).json({ error: 'کد سفارش الزامی است.' });
+        return;
+      }
+
+      const order = await authService.findOrderByCode(code);
+      if (!order) {
+        res.status(404).json({ error: 'سفارش یافت نشد.' });
+        return;
+      }
+
+      const auth = await getAuthFromRequest(req);
+      const isAdmin = Boolean(auth && normalizeRole(auth.user.role) === 'admin');
+      const isOwner = Boolean(auth && order.userId && auth.user.id === order.userId);
+      const isGuestOrder = !order.userId;
+
+      const headerToken = req.headers['x-order-tracking-token'];
+      const bodyToken = typeof req.body?.trackingToken === 'string' ? req.body.trackingToken : undefined;
+      const bodyPhone = typeof req.body?.phone === 'string' ? normalizePhone(req.body.phone) : '';
+
+      const guestTokenValid =
+        isGuestOrder &&
+        (verifyOrderTrackingToken(order.orderCode, headerToken) ||
+          verifyOrderTrackingToken(order.orderCode, bodyToken) ||
+          (Boolean(bodyPhone) && bodyPhone === normalizePhone(order.customerPhone)));
+
+      if (!isAdmin && !isOwner && !guestTokenValid) {
+        res.status(403).json({ error: 'شما مجوز لغو این سفارش را ندارید.' });
+        return;
+      }
+
+      if (!['pending_payment', 'paid', 'preparing'].includes(order.status)) {
+        res.status(409).json({
+          error:
+            order.status === 'cancelled'
+              ? 'این سفارش قبلاً لغو شده است.'
+              : 'سفارش پس از ارسال یا تحویل قابل لغو نیست.',
+        });
+        return;
+      }
+
+      const cancelReason =
+        typeof req.body?.reason === 'string' && req.body.reason.trim()
+          ? req.body.reason.trim()
+          : undefined;
+      const updated = await storage.updateOrderStatus(
+        order.orderCode,
+        'cancelled',
+        cancelReason ? `لغو توسط خریدار: ${cancelReason}` : order.adminNote
+      );
+
+      res.json({ order: updated || { ...order, status: 'cancelled' } });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   app.post('/api/orders/notify', requireAuth, async (req: AuthenticatedRequest, res, next) => {
     try {
       const currentUser = req.authUser!;
@@ -2117,7 +2704,12 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   // ============================================================================
   // Admin Panel Protected APIs (/api/admin/*) — RBAC: requireAuth + requireAdmin
   // ============================================================================
-  app.use('/api/admin', requireAuth, requireAdmin, createAdminRouter(storage));
+  app.use(
+    '/api/admin',
+    requireAuth,
+    requireAdmin,
+    createAdminRouter(storage, { onStockRestocked: triggerBackInStockAlerts })
+  );
 
   const distDir = path.resolve(process.cwd(), 'dist');
   const indexPath = path.join(distDir, 'index.html');

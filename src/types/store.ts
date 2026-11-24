@@ -10,7 +10,13 @@ export type BrandId =
   | 'Motorola'
   | (string & {});
 
-export type SortOption = 'newest' | 'bestselling' | 'cheapest' | 'expensive' | 'popular';
+export type SortOption =
+  | 'newest'
+  | 'bestselling'
+  | 'cheapest'
+  | 'expensive'
+  | 'popular'
+  | 'biggest_discount';
 
 export interface ProductColor {
   id: string;
@@ -183,6 +189,7 @@ export interface Product {
   nameEn: string;
   modelName?: string;
   descriptionFa?: string;
+  editorialReview?: string;
   brand: BrandId;
   category: string;
   price: number;
@@ -249,25 +256,42 @@ export interface FilterState {
   storage: string | null;
   ram: string | null;
   colorId: string | null;
+  attributeFilters?: Record<string, string>;
   sortBy: SortOption;
+}
+
+export interface PaginatedProductsResponse {
+  products: Product[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }
 
 export interface CheckoutFormData {
   fullName: string;
   phone: string;
+  email?: string;
   city: string;
   address: string;
   postalCode: string;
   deliverySlot: 'express' | 'standard';
 }
 
-export type OrderStatus = 'paid' | 'preparing' | 'shipped' | 'delivered' | 'cancelled';
+export type OrderStatus =
+  | 'pending_payment'
+  | 'paid'
+  | 'preparing'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled';
 
 export interface OrderRecord {
   orderCode: string;
   shaparakRef: string;
   customerName: string;
   customerPhone: string;
+  customerEmail?: string;
   city: string;
   shippingAddress: string;
   postalCode: string;
@@ -314,6 +338,8 @@ export interface ContactFormData {
 }
 
 export interface SupportTicket {
+  id?: string;
+  userId?: string | null;
   ticketCode: string;
   fullName: string;
   phone: string;
@@ -324,6 +350,43 @@ export interface SupportTicket {
   adminReply?: string;
   createdAt: string;
 }
+
+export interface StockAlertItem {
+  id: string;
+  userId?: string | null;
+  email: string;
+  productId: string;
+  variantId?: string | null;
+  notifiedAt?: string | null;
+  createdAt: string;
+}
+
+export interface UserNotificationItem {
+  id: string;
+  userId: string;
+  type: 'back_in_stock' | 'order_update' | 'ticket_reply' | 'system' | string;
+  title: string;
+  message: string;
+  link?: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export type UserNotification = UserNotificationItem;
+
+export interface ProductQuestionItem {
+  id: string;
+  productId: string;
+  userId?: string | null;
+  authorName: string;
+  question: string;
+  answer?: string | null;
+  answeredAt?: string | null;
+  isApproved: boolean;
+  createdAt: string;
+}
+
+export type ProductQuestion = ProductQuestionItem;
 
 export interface UserAddress {
   id: string;
@@ -382,6 +445,7 @@ export interface ProductReview {
   rating: number;
   comment: string;
   verified: boolean;
+  isApproved?: boolean;
 }
 
 export interface CouponRule {
@@ -410,3 +474,30 @@ export interface StoreSettings {
   freeShippingThreshold: number;
   supportPhone: string;
 }
+
+export interface BlogPostItem {
+  id: string;
+  slug: string;
+  title: string;
+  excerpt: string;
+  content: string;
+  coverImage: string;
+  category: string;
+  tags: string[];
+  authorName: string;
+  readingTimeMinutes: number;
+  isPublished: boolean;
+  publishedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BlogListResponse {
+  posts: BlogPostItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+  categories: string[];
+}
+

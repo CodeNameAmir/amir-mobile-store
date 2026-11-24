@@ -333,7 +333,9 @@ test('Full HTTP RBAC, Admin Panel APIs, Storefront APIs, and Order Security', as
       }),
     });
     assert.equal(reviewPost.res.status, 201);
-    assert.equal(reviewPost.body.review.verified, true);
+    assert.equal(reviewPost.body.pendingApproval, true);
+    assert.equal(reviewPost.body.review.verified, false);
+    assert.equal(reviewPost.body.review.isApproved, false);
 
     const ticketPost = await guestFetch('/api/support-tickets', {
       method: 'POST',
@@ -1553,6 +1555,698 @@ test('V3 HTTP Integration: public warranties/attributes/variants privacy, RBAC a
     );
   }
 });
+
+test('Phase 2: trust proxy IP rate limit isolation, city shipping, server cart, verified/moderated reviews, and order cancel', async () => {
+  const storage = createMemoryAuthStorage();
+  const issuedOtps = new Map<string, string>();
+  const adminPassword = 'AdminSecret2026!';
+  await storage.createUser({
+    email: 'admin@codenameamir.ir',
+    fullName: 'مدیر کل فروشگاه',
+    phone: '09120009999',
+    passwordHash: hashPassword(adminPassword),
+    role: 'admin',
+  });
+
+  const app = await createServerApp({
+    env: {
+      NODE_ENV: 'production',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      CORS_ORIGIN: `${STOREFRONT_ORIGIN},${ADMIN_ORIGIN}`,
+    },
+    storage,
+    disableVite: true,
+    onOtpIssued: ({ email, purpose, code }) => {
+      issuedOtps.set(`${purpose}::${email}`, code);
+    },
+    sendEmail: async () => ({
+      sent: true,
+      provider: 'resend',
+      emailId: 'mock_email_phase2',
+    }),
+  });
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const createClient = () => {
+    const jar = createCookieJar();
+    return async (
+      path: string,
+      init: RequestInit = {},
+      origin: string | null = STOREFRONT_ORIGIN
+    ) => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Proto': 'https',
+        ...(init.headers as Record<string, string> | undefined),
+      };
+      if (origin) headers.Origin = origin;
+      const cookieHeader = jar.header();
+      if (cookieHeader) headers.Cookie = cookieHeader;
+
+      const res = await fetch(`${baseUrl}${path}`, { ...init, headers });
+      jar.capture(res);
+      const body = await res.json().catch(() => null);
+      return { res, body };
+    };
+  };
+
+  try {
+    const guest = createClient();
+    const customer = createClient();
+    const otherCustomer = createClient();
+    const admin = createClient();
+
+    const adminLogin = await admin(
+      '/api/auth/login-password',
+      {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': '198.51.100.1' },
+        body: JSON.stringify({ email: 'admin@codenameamir.ir', password: adminPassword }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(adminLogin.res.status, 200);
+
+    // Sign up two distinct customers
+    const signupCust = async (client: ReturnType<typeof createClient>, email: string, name: string, ip: string) => {
+      const otp = await client('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': ip },
+        body: JSON.stringify({
+          email,
+          purpose: 'signup',
+          fullName: name,
+          phone: '09121112233',
+          password: 'UserPass#2026',
+        }),
+      });
+      assert.equal(otp.res.status, 200);
+      const code = issuedOtps.get(`signup::${email}`);
+      assert.ok(code);
+      const verify = await client('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': ip },
+        body: JSON.stringify({
+          email,
+          purpose: 'signup',
+          code,
+        }),
+      });
+      assert.equal(verify.res.status, 200);
+    };
+
+    await signupCust(customer, 'phase2cust1@codenameamir.ir', 'مشتری فاز دو', '198.51.100.2');
+    await signupCust(otherCustomer, 'phase2cust2@codenameamir.ir', 'مشتری دوم', '198.51.100.3');
+
+    // 1. Trust proxy IP isolation check on strict rate-limited route
+    const authProbe = createClient();
+    for (let i = 0; i < 10; i++) {
+      const attempt = await authProbe('/api/auth/login-password', {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': '203.0.113.55' },
+        body: JSON.stringify({ email: 'phase2cust1@codenameamir.ir', password: 'WrongPassword#1' }),
+      });
+      assert.equal(attempt.res.status, 401);
+    }
+    const blocked11th = await authProbe('/api/auth/login-password', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '203.0.113.55' },
+      body: JSON.stringify({ email: 'phase2cust1@codenameamir.ir', password: 'WrongPassword#1' }),
+    });
+    assert.equal(blocked11th.res.status, 429);
+
+    const differentIpAttempt = await authProbe('/api/auth/login-password', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '203.0.113.99' },
+      body: JSON.stringify({ email: 'phase2cust1@codenameamir.ir', password: 'UserPass#2026' }),
+    });
+    assert.equal(differentIpAttempt.res.status, 200);
+
+    // 2. City-based shipping fees & separate discount breakdown
+    const lowProdRes = await admin(
+      '/api/admin/products',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 'low-fee-cable',
+          slug: 'low-fee-cable',
+          nameFa: 'کابل تست ارسال',
+          nameEn: 'Shipping Test Cable',
+          brand: 'Anker',
+          category: 'chargers',
+          price: 400_000,
+          originalPrice: 500_000,
+          stockCount: 10,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(lowProdRes.res.status, 201);
+
+    // Non-Tehran address requesting 'express' -> auto-forced to 'standard' (95,000 fee)
+    const shirazOrder = await customer('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        customerName: 'خریدار شیراز',
+        customerPhone: '09171112233',
+        city: 'شیراز',
+        shippingAddress: 'خیابان زند، کوچه چهارم، پلاک ۱۱',
+        postalCode: '7135712345',
+        deliverySlot: 'express',
+        items: [{ productId: 'low-fee-cable', qty: 1 }],
+      }),
+    });
+    assert.equal(shirazOrder.res.status, 201);
+    assert.equal(shirazOrder.body.order.deliverySlot, 'standard');
+    assert.equal(shirazOrder.body.order.shippingCost, 95_000);
+    assert.equal(shirazOrder.body.order.productDiscount, 100_000);
+    assert.equal(shirazOrder.body.order.couponDiscount, 0);
+    assert.equal(shirazOrder.body.order.totalAmount, 495_000);
+
+    // Tehran express below threshold -> 150,000 fee
+    const tehranOrder = await guest('/api/orders', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '198.51.100.7' },
+      body: JSON.stringify({
+        customerName: 'مهمان تهران',
+        customerPhone: '09128881122',
+        email: 'guest.receipt@codenameamir.ir',
+        city: 'تهران',
+        shippingAddress: 'خیابان شریعتی، کوچه پنجم، پلاک ۸',
+        postalCode: '1939511223',
+        deliverySlot: 'express',
+        items: [{ productId: 'low-fee-cable', qty: 1 }],
+      }),
+    });
+    assert.equal(tehranOrder.res.status, 201);
+    assert.equal(tehranOrder.body.order.deliverySlot, 'express');
+    assert.equal(tehranOrder.body.order.shippingCost, 150_000);
+    assert.equal(tehranOrder.body.order.customerEmail, 'guest.receipt@codenameamir.ir');
+    const guestCancelCode = tehranOrder.body.order.orderCode as string;
+    const guestToken = tehranOrder.body.trackingToken as string;
+
+    // Invalid guest email rejected cleanly
+    const badEmailOrder = await guest('/api/orders', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '198.51.100.8' },
+      body: JSON.stringify({
+        customerName: 'مهمان ایمیل نامعتبر',
+        customerPhone: '09128881123',
+        email: 'not-an-email',
+        city: 'تهران',
+        shippingAddress: 'خیابان ولیعصر، پلاک ۴۰، واحد ۳',
+        postalCode: '1511912346',
+        items: [{ productId: 'low-fee-cable', qty: 1 }],
+      }),
+    });
+    assert.equal(badEmailOrder.res.status, 400);
+
+    // 3. Server-side cart persistence & merge
+    const putCart = await customer('/api/auth/cart', {
+      method: 'PUT',
+      body: JSON.stringify({
+        items: [{ productId: 'low-fee-cable', qty: 2, colorName: 'مشکی', storageLabel: '۱.۸ متر' }],
+      }),
+    });
+    assert.equal(putCart.res.status, 200);
+    assert.equal(putCart.body.items.length, 1);
+    assert.equal(putCart.body.items[0].qty, 2);
+
+    const mergeCart = await customer('/api/auth/cart/merge', {
+      method: 'POST',
+      body: JSON.stringify({
+        items: [
+          {
+            key: putCart.body.items[0].key,
+            productId: 'low-fee-cable',
+            qty: 1,
+            colorName: 'مشکی',
+            storageLabel: '۱.۸ متر',
+          },
+          {
+            productId: 'iphone-16-pro-max',
+            qty: 1,
+          },
+        ],
+      }),
+    });
+    assert.equal(mergeCart.res.status, 200);
+    assert.equal(mergeCart.body.items.length, 2);
+    const mergedCable = mergeCart.body.items.find((i: { productId: string }) => i.productId === 'low-fee-cable');
+    assert.equal(mergedCable.qty, 3);
+
+    // 4. Verified buyer review + moderation + rating recalculation
+    const shirazOrderCode = shirazOrder.body.order.orderCode as string;
+    const deliverRes = await admin(
+      `/api/admin/orders/${shirazOrderCode}/status`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'delivered' }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(deliverRes.res.status, 200);
+
+    const verifiedReviewRes = await customer('/api/products/low-fee-cable/reviews', {
+      method: 'POST',
+      body: JSON.stringify({
+        author: 'مشتری تحویل گرفته',
+        rating: 2,
+        comment: 'کابل خوب است ولی کمی سفت است و بسته‌بندی متوسط بود.',
+      }),
+    });
+    assert.equal(verifiedReviewRes.res.status, 201);
+    assert.equal(verifiedReviewRes.body.review.verified, true);
+    assert.equal(verifiedReviewRes.body.review.isApproved, false);
+    const revId = verifiedReviewRes.body.review.id as string;
+
+    // Hidden publicly until approved
+    const pubBeforeApprove = await guest('/api/products/low-fee-cable', { method: 'GET' });
+    assert.equal(
+      pubBeforeApprove.body.reviews.some((r: { id: string }) => r.id === revId),
+      false
+    );
+
+    const approveRes = await admin(
+      `/api/admin/reviews/${revId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ isApproved: true }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(approveRes.res.status, 200);
+    assert.equal(approveRes.body.review.isApproved, true);
+
+    const pubAfterApprove = await guest('/api/products/low-fee-cable', { method: 'GET' });
+    assert.equal(
+      pubAfterApprove.body.reviews.some((r: { id: string }) => r.id === revId),
+      true
+    );
+    assert.equal(pubAfterApprove.body.product.reviewCount, 1);
+    assert.equal(pubAfterApprove.body.product.rating, 2);
+
+    // 5. Customer & guest order cancellation rules
+    // Delivered order cannot be cancelled
+    const cancelDelivered = await customer(`/api/orders/${shirazOrderCode}/cancel`, {
+      method: 'POST',
+    });
+    assert.equal(cancelDelivered.res.status, 409);
+
+    // Unauthorized customer cannot cancel guest order
+    const forbiddenCancel = await otherCustomer(`/api/orders/${guestCancelCode}/cancel`, {
+      method: 'POST',
+    });
+    assert.equal(forbiddenCancel.res.status, 403);
+
+    // Guest with valid tracking token cancels preparing order and restores stock
+    const validGuestCancel = await guest(`/api/orders/${guestCancelCode}/cancel`, {
+      method: 'POST',
+      headers: { 'X-Order-Tracking-Token': guestToken },
+    });
+    assert.equal(validGuestCancel.res.status, 200);
+    assert.equal(validGuestCancel.body.order.status, 'cancelled');
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err?: Error) => (err ? reject(err) : resolve()))
+    );
+  }
+});
+
+test('Phase 3: Server pagination, dynamic attributes, back-in-stock alerts + restock trigger, notifications, support ticket history & Q&A', async () => {
+  const storage = createMemoryAuthStorage();
+  const issuedOtps = new Map<string, string>();
+  const sentEmails: Array<{ to: string; subject: string; html?: string; text?: string }> = [];
+
+  const adminPassword = 'AdminSecret2026!';
+  await storage.createUser({
+    email: 'admin@codenameamir.ir',
+    fullName: 'مدیر کل فروشگاه',
+    phone: '09120009999',
+    passwordHash: hashPassword(adminPassword),
+    role: 'admin',
+  });
+
+  const app = await createServerApp({
+    env: {
+      NODE_ENV: 'production',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      CORS_ORIGIN: `${STOREFRONT_ORIGIN},${ADMIN_ORIGIN}`,
+    },
+    storage,
+    disableVite: true,
+    onOtpIssued: ({ email, purpose, code }) => {
+      issuedOtps.set(`${purpose}::${email}`, code);
+    },
+    sendEmail: async (payload) => {
+      sentEmails.push({
+        to: payload.to,
+        subject: payload.subject,
+        html: payload.html,
+      });
+      return {
+        sent: true,
+        provider: 'resend',
+        emailId: `mock_email_p3_${sentEmails.length}`,
+      };
+    },
+  });
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const createClient = () => {
+    const jar = createCookieJar();
+    return async (
+      path: string,
+      init: RequestInit = {},
+      origin: string | null = STOREFRONT_ORIGIN
+    ) => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Proto': 'https',
+        ...(init.headers as Record<string, string> | undefined),
+      };
+      if (origin) headers.Origin = origin;
+      const cookieHeader = jar.header();
+      if (cookieHeader) headers.Cookie = cookieHeader;
+
+      const res = await fetch(`${baseUrl}${path}`, { ...init, headers });
+      jar.capture(res);
+      const body = await res.json().catch(() => null);
+      return { res, body };
+    };
+  };
+
+  try {
+    const guest = createClient();
+    const customer = createClient();
+    const otherCustomer = createClient();
+    const admin = createClient();
+
+    const adminLogin = await admin(
+      '/api/auth/login-password',
+      {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': '198.51.101.1' },
+        body: JSON.stringify({ email: 'admin@codenameamir.ir', password: adminPassword }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(adminLogin.res.status, 200);
+
+    const signupCust = async (
+      client: ReturnType<typeof createClient>,
+      email: string,
+      name: string,
+      phone: string,
+      ip: string
+    ) => {
+      const otp = await client('/api/auth/send-otp', {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': ip },
+        body: JSON.stringify({
+          email,
+          purpose: 'signup',
+          fullName: name,
+          phone,
+          password: 'Phase3User#2026',
+        }),
+      });
+      assert.equal(otp.res.status, 200);
+      const code = issuedOtps.get(`signup::${email}`);
+      assert.ok(code);
+      const verify = await client('/api/auth/verify-otp', {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': ip },
+        body: JSON.stringify({ email, purpose: 'signup', code }),
+      });
+      assert.equal(verify.res.status, 200);
+    };
+
+    await signupCust(customer, 'phase3.user1@codenameamir.ir', 'کاربر اول فاز سه', '09123334455', '198.51.101.2');
+    await signupCust(otherCustomer, 'phase3.user2@codenameamir.ir', 'کاربر دوم فاز سه', '09123334466', '198.51.101.3');
+
+    // 1. Server-side pagination + backward-compatible unpaginated response + biggest_discount + editorialReview + attr filter
+    const allUnpaginated = await guest('/api/products', { method: 'GET' });
+    assert.equal(allUnpaginated.res.status, 200);
+    assert.equal(allUnpaginated.body.page, undefined);
+    assert.ok(allUnpaginated.body.total >= 5);
+
+    const page1 = await guest('/api/products?page=1&limit=3&sort=biggest_discount', { method: 'GET' });
+    assert.equal(page1.res.status, 200);
+    assert.equal(page1.body.products.length, 3);
+    assert.equal(page1.body.page, 1);
+    assert.equal(page1.body.limit, 3);
+    assert.ok(page1.body.totalPages >= 2);
+
+    const page2 = await guest('/api/products?page=2&limit=3&sort=biggest_discount', { method: 'GET' });
+    assert.equal(page2.res.status, 200);
+    assert.equal(page2.body.page, 2);
+    assert.notEqual(page2.body.products[0]?.id, page1.body.products[0]?.id);
+
+    // Create out-of-stock product with editorialReview & attributes to test dynamic filter + stock alert trigger
+    const oosProd = await admin(
+      '/api/admin/products',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 'p3-restock-phone',
+          slug: 'p3-restock-phone',
+          nameFa: 'گوشی تست شارژ موجودی فاز ۳',
+          nameEn: 'Phase3 Restock Phone',
+          brand: 'Nothing',
+          category: 'phones',
+          price: 38_000_000,
+          originalPrice: 42_000_000,
+          stockCount: 0,
+          inStock: false,
+          editorialReview: 'پاراگراف اول نقد تخصصی\nپاراگراف دوم بررسی باتری',
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(oosProd.res.status, 201);
+    assert.match(oosProd.body.product.editorialReview, /نقد تخصصی/);
+
+    // Set structured attribute values on the product so attr_ filter can match it
+    const attrsRes = await guest('/api/attributes', { method: 'GET' });
+    assert.equal(attrsRes.res.status, 200);
+    const hzAttr = attrsRes.body.attributes.find((a: { code: string }) => a.code === 'refresh_rate');
+    assert.ok(hzAttr);
+    const setAttrs = await admin(
+      '/api/admin/products/p3-restock-phone/attributes',
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          values: [{ attributeId: hzAttr.id, valueNumber: 165 }],
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(setAttrs.res.status, 200);
+
+    const attrFiltered = await guest('/api/products?attr_refresh_rate=165&page=1&limit=10', { method: 'GET' });
+    assert.equal(attrFiltered.res.status, 200);
+    assert.deepEqual(
+      attrFiltered.body.products.map((p: { id: string }) => p.id),
+      ['p3-restock-phone']
+    );
+
+    // 2. Back-in-stock alerts (authenticated + guest) & restock trigger
+    const custAlert = await customer('/api/stock-alerts', {
+      method: 'POST',
+      body: JSON.stringify({ productId: 'p3-restock-phone' }),
+    });
+    assert.equal(custAlert.res.status, 201);
+
+    const guestAlert = await guest('/api/stock-alerts', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '198.51.101.9' },
+      body: JSON.stringify({
+        productId: 'p3-restock-phone',
+        email: 'guest.alert@codenameamir.ir',
+      }),
+    });
+    assert.equal(guestAlert.res.status, 201);
+
+    const myAlertsBefore = await customer('/api/stock-alerts', { method: 'GET' });
+    assert.equal(myAlertsBefore.res.status, 200);
+    assert.ok(myAlertsBefore.body.productIds.includes('p3-restock-phone'));
+
+    // Restock 0 -> 5 via Admin inventory endpoint triggers email + in-app notification!
+    sentEmails.length = 0;
+    const restockRes = await admin(
+      '/api/admin/products/p3-restock-phone/inventory',
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ stockCount: 5, inStock: true }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(restockRes.res.status, 200);
+    assert.equal(restockRes.body.product.stockCount, 5);
+
+    const backInStockEmails = sentEmails.filter((e) => e.subject.includes('موجود شد'));
+    assert.equal(backInStockEmails.length, 2);
+    assert.ok(backInStockEmails.some((e) => e.to === 'phase3.user1@codenameamir.ir'));
+    assert.ok(backInStockEmails.some((e) => e.to === 'guest.alert@codenameamir.ir'));
+
+    // Notification Center checks & cross-user ownership isolation
+    const notifsRes = await customer('/api/notifications', { method: 'GET' });
+    assert.equal(notifsRes.res.status, 200);
+    assert.equal(notifsRes.body.unreadCount, 1);
+    assert.equal(notifsRes.body.notifications[0].type, 'stock_alert');
+    assert.equal(notifsRes.body.notifications[0].link, '/product/p3-restock-phone');
+    const notifId = notifsRes.body.notifications[0].id as string;
+
+    const otherMarkRead = await otherCustomer(`/api/notifications/${notifId}/read`, {
+      method: 'PATCH',
+    });
+    assert.equal(otherMarkRead.res.status, 404);
+
+    const markOneRead = await customer(`/api/notifications/${notifId}/read`, { method: 'PATCH' });
+    assert.equal(markOneRead.res.status, 200);
+    assert.equal(markOneRead.body.notification.isRead, true);
+
+    const deleteNotif = await customer(`/api/notifications/${notifId}`, { method: 'DELETE' });
+    assert.equal(deleteNotif.res.status, 200);
+
+    // 3. Support ticket history linked to authenticated customer
+    const ticketRes = await customer('/api/support-tickets', {
+      method: 'POST',
+      body: JSON.stringify({
+        fullName: 'کاربر اول فاز سه',
+        phone: '09123334455',
+        department: 'پشتیبانی فنی',
+        orderCode: 'AMIR-12345',
+        message: 'لطفاً وضعیت فعال‌سازی گارانتی دستگاه را بررسی بفرمایید.',
+      }),
+    });
+    assert.equal(ticketRes.res.status, 201);
+
+    const myTickets = await customer('/api/support-tickets/mine', { method: 'GET' });
+    assert.equal(myTickets.res.status, 200);
+    assert.equal(myTickets.body.tickets.length, 1);
+    assert.equal(myTickets.body.tickets[0].ticketCode, ticketRes.body.ticket.ticketCode);
+    assert.equal(myTickets.body.tickets[0].status, 'open');
+
+    const otherTickets = await otherCustomer('/api/support-tickets/mine', { method: 'GET' });
+    assert.equal(otherTickets.res.status, 200);
+    assert.equal(otherTickets.body.tickets.length, 0);
+
+    // 4. Product Q&A create + admin answer
+    const qPost = await customer('/api/products/p3-restock-phone/questions', {
+      method: 'POST',
+      body: JSON.stringify({
+        authorName: 'کاربر اول فاز سه',
+        question: 'آیا این مدل با رجیستری رسمی همتا و آداپتور اورجینال عرضه می‌شود؟',
+      }),
+    });
+    assert.equal(qPost.res.status, 201);
+    const qId = qPost.body.question.id as string;
+
+    const qAnswer = await admin(
+      `/api/admin/questions/${qId}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          answer: 'بله، تمامی دستگاه‌ها دارای کد رجیستری همتا و پلمپ رسمی هستند.',
+          isApproved: true,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(qAnswer.res.status, 200);
+    assert.match(qAnswer.body.question.answer, /همتا/);
+
+    const qList = await guest('/api/products/p3-restock-phone/questions', { method: 'GET' });
+    assert.equal(qList.res.status, 200);
+    assert.equal(qList.body.questions.length, 1);
+    assert.match(qList.body.questions[0].answer, /همتا/);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err?: Error) => (err ? reject(err) : resolve()))
+    );
+  }
+});
+
+test('Phase 4 HTTP Integration: Blog list filtering, search, pagination, and detail with related posts', async () => {
+  const storage = createMemoryAuthStorage();
+  const app = await createServerApp({
+    env: {
+      NODE_ENV: 'production',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      CORS_ORIGIN: `${STOREFRONT_ORIGIN},${ADMIN_ORIGIN}`,
+    },
+    storage,
+    disableVite: true,
+  });
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    // 1. Default paginated list returns 4 seeded articles & categories
+    const listRes = await fetch(`${baseUrl}/api/blog?page=1&limit=2`);
+    assert.equal(listRes.status, 200);
+    const listBody = await listRes.json();
+    assert.equal(listBody.total, 4);
+    assert.equal(listBody.totalPages, 2);
+    assert.equal(listBody.posts.length, 2);
+    assert.ok(Array.isArray(listBody.categories) && listBody.categories.length >= 3);
+
+    // 2. Category filter + search query
+    const catRes = await fetch(
+      `${baseUrl}/api/blog?category=${encodeURIComponent('راهنمای خرید')}`
+    );
+    assert.equal(catRes.status, 200);
+    const catBody = await catRes.json();
+    assert.equal(catBody.posts.length, 1);
+    assert.equal(catBody.posts[0].slug, 'fast-charging-gan-cable-buying-guide');
+
+    const qRes = await fetch(`${baseUrl}/api/blog?q=${encodeURIComponent('همتا')}`);
+    assert.equal(qRes.status, 200);
+    const qBody = await qRes.json();
+    assert.ok(qBody.posts.some((p: { slug: string }) => p.slug === 'hamta-registry-and-original-seal-checklist'));
+
+    // 3. Detail endpoint returns article & related posts
+    const detailRes = await fetch(
+      `${baseUrl}/api/blog/iphone-16-pro-max-vs-s24-ultra-camera`
+    );
+    assert.equal(detailRes.status, 200);
+    const detailBody = await detailRes.json();
+    assert.equal(detailBody.post.slug, 'iphone-16-pro-max-vs-s24-ultra-camera');
+    assert.ok(Array.isArray(detailBody.relatedPosts));
+    assert.ok(detailBody.relatedPosts.length >= 1 && detailBody.relatedPosts.length <= 3);
+    assert.equal(
+      detailBody.relatedPosts.some((r: { slug: string }) => r.slug === detailBody.post.slug),
+      false
+    );
+
+    // 4. Unknown slug returns 404
+    const missingRes = await fetch(`${baseUrl}/api/blog/non-existent-slug`);
+    assert.equal(missingRes.status, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err?: Error) => (err ? reject(err) : resolve()))
+    );
+  }
+});
+
+
+
 
 
 

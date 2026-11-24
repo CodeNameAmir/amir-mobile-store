@@ -208,9 +208,10 @@ export interface PasswordStrength {
 }
 
 export function getPasswordStrength(password: string): PasswordStrength {
+  const normalizedDigits = toEnglishDigits(password);
   const minLength = password.length >= 8;
-  const hasLetter = /[a-zA-Z\u0600-\u06FF]/.test(password);
-  const hasNumber = /\d/.test(toEnglishDigits(password));
+  const hasLetter = /[a-zA-Z\u0600-\u06FF]/.test(normalizedDigits);
+  const hasNumber = /\d/.test(normalizedDigits);
   const hasSymbolOrUpper = /[A-Z!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password);
 
   const count = [minLength, hasLetter, hasNumber, hasSymbolOrUpper].filter(Boolean).length as
