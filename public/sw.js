@@ -1,7 +1,6 @@
-const CACHE_VERSION = 'amir-mobile-store-v1';
+const CACHE_VERSION = 'amir-mobile-store-v2';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const CORE_SHELL_ASSETS = [
-  '/',
   '/manifest.webmanifest',
   '/favicon.svg',
   '/icons/icon-192.png',
@@ -33,12 +32,13 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-function isStaticAssetRequest(url) {
+function isCacheableIconOrManifest(url) {
   const path = url.pathname;
   return (
-    path.startsWith('/assets/') ||
     path.startsWith('/icons/') ||
-    /\.(?:js|css|woff2?|ttf|png|jpe?g|webp|svg|ico|webmanifest)$/i.test(path)
+    path === '/manifest.webmanifest' ||
+    path === '/favicon.svg' ||
+    path === '/apple-touch-icon.png'
   );
 }
 
@@ -51,17 +51,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Never intercept or cache API calls
-  if (url.pathname.startsWith('/api/')) {
+  // Never intercept API calls or content-hashed Vite bundle assets (/assets/*)
+  // so lazy route chunks always load directly from the network/browser cache
+  // without stale-shell hash mismatches or undefined SW responses.
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/assets/')) {
     return;
   }
 
-  // Navigation requests: network-first with cached SPA shell fallback
+  // Navigation requests: always revalidate HTML shell from network (`no-cache`)
+  // to avoid GitHub Pages / CDN max-age=600 serving an outdated index.html
+  // that references deleted lazy JS chunks after a deployment.
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req)
+      fetch(req, { cache: 'no-cache' })
         .then((res) => {
-          if (res && res.ok) {
+          const contentType = res.headers.get('content-type') || '';
+          if (res && res.ok && url.pathname === '/' && contentType.includes('text/html')) {
             const copy = res.clone();
             caches.open(STATIC_CACHE).then((cache) => cache.put('/', copy)).catch(() => undefined);
           }
@@ -82,21 +87,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: stale-while-revalidate
-  if (isStaticAssetRequest(url)) {
+  // Brand icons and manifest only: cache-first with safe network fallback (never resolves to undefined)
+  if (isCacheableIconOrManifest(url)) {
     event.respondWith(
       caches.match(req).then((cached) => {
-        const networkFetch = fetch(req)
-          .then((res) => {
-            if (res && res.ok) {
-              const copy = res.clone();
-              caches.open(STATIC_CACHE).then((cache) => cache.put(req, copy)).catch(() => undefined);
-            }
-            return res;
-          })
-          .catch(() => undefined);
-
-        return cached || networkFetch;
+        if (cached) return cached;
+        return fetch(req).then((res) => {
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(STATIC_CACHE).then((cache) => cache.put(req, copy)).catch(() => undefined);
+          }
+          return res;
+        });
       })
     );
   }

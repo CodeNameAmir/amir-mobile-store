@@ -8,57 +8,63 @@ import { Navbar } from './components/Navbar';
 import { RouteTransitionBar } from './components/RouteTransitionBar';
 import { StoreProvider, useStore } from './context/StoreContext';
 import { UI_EASE } from './utils/motionHelpers';
+import {
+  isChunkLoadError,
+  lazyWithRetry,
+  purgeBrowserCachesAndUpdateSW,
+  triggerCacheBustingReload,
+} from './utils/lazyWithRetry';
 import { HomePage } from './pages/HomePage';
 
-const AboutPage = React.lazy(() =>
+const AboutPage = lazyWithRetry(() =>
   import('./pages/AboutPage').then((m) => ({ default: m.AboutPage }))
 );
-const AccountPage = React.lazy(() =>
+const AccountPage = lazyWithRetry(() =>
   import('./pages/AccountPage').then((m) => ({ default: m.AccountPage }))
 );
-const BlogDetailPage = React.lazy(() =>
+const BlogDetailPage = lazyWithRetry(() =>
   import('./pages/BlogDetailPage').then((m) => ({ default: m.BlogDetailPage }))
 );
-const BlogListPage = React.lazy(() =>
+const BlogListPage = lazyWithRetry(() =>
   import('./pages/BlogListPage').then((m) => ({ default: m.BlogListPage }))
 );
-const CartCheckoutPage = React.lazy(() =>
+const CartCheckoutPage = lazyWithRetry(() =>
   import('./pages/CartCheckoutPage').then((m) => ({ default: m.CartCheckoutPage }))
 );
-const CatalogPage = React.lazy(() =>
+const CatalogPage = lazyWithRetry(() =>
   import('./pages/CatalogPage').then((m) => ({ default: m.CatalogPage }))
 );
-const ComparePage = React.lazy(() =>
+const ComparePage = lazyWithRetry(() =>
   import('./pages/ComparePage').then((m) => ({ default: m.ComparePage }))
 );
-const ContactPage = React.lazy(() =>
+const ContactPage = lazyWithRetry(() =>
   import('./pages/ContactPage').then((m) => ({ default: m.ContactPage }))
 );
-const FaqPage = React.lazy(() =>
+const FaqPage = lazyWithRetry(() =>
   import('./pages/FaqPage').then((m) => ({ default: m.FaqPage }))
 );
-const InstallmentsPage = React.lazy(() =>
+const InstallmentsPage = lazyWithRetry(() =>
   import('./pages/InstallmentsPage').then((m) => ({ default: m.InstallmentsPage }))
 );
-const OrderConfirmationPage = React.lazy(() =>
+const OrderConfirmationPage = lazyWithRetry(() =>
   import('./pages/OrderConfirmationPage').then((m) => ({ default: m.OrderConfirmationPage }))
 );
-const OrderTrackingPage = React.lazy(() =>
+const OrderTrackingPage = lazyWithRetry(() =>
   import('./pages/OrderTrackingPage').then((m) => ({ default: m.OrderTrackingPage }))
 );
-const ProductDetailPage = React.lazy(() =>
+const ProductDetailPage = lazyWithRetry(() =>
   import('./pages/ProductDetailPage').then((m) => ({ default: m.ProductDetailPage }))
 );
-const PublicProfilePage = React.lazy(() =>
+const PublicProfilePage = lazyWithRetry(() =>
   import('./pages/PublicProfilePage').then((m) => ({ default: m.PublicProfilePage }))
 );
-const NotFoundPage = React.lazy(() =>
+const NotFoundPage = lazyWithRetry(() =>
   import('./pages/StatusPages').then((m) => ({ default: m.NotFoundPage }))
 );
-const ServerStatusPage = React.lazy(() =>
+const ServerStatusPage = lazyWithRetry(() =>
   import('./pages/StatusPages').then((m) => ({ default: m.ServerStatusPage }))
 );
-const TermsPage = React.lazy(() =>
+const TermsPage = lazyWithRetry(() =>
   import('./pages/TermsPage').then((m) => ({ default: m.TermsPage }))
 );
 
@@ -83,21 +89,43 @@ const PageRouteFallback: React.FC = () => (
 
 interface ErrorBoundaryState {
   hasError: boolean;
+  isChunkError: boolean;
 }
 
 class StoreErrorBoundary extends React.Component<
   { children: React.ReactNode },
   ErrorBoundaryState
 > {
-  state: ErrorBoundaryState = { hasError: false };
+  state: ErrorBoundaryState = { hasError: false, isChunkError: false };
 
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return {
+      hasError: true,
+      isChunkError: isChunkLoadError(error),
+    };
   }
 
   componentDidCatch(error: Error) {
     console.error('[StoreErrorBoundary]', error);
   }
+
+  private handleReloadFresh = () => {
+    void purgeBrowserCachesAndUpdateSW().finally(() => {
+      triggerCacheBustingReload();
+    });
+  };
+
+  private handleResetAndGoHome = () => {
+    try {
+      window.localStorage.removeItem('amir_mobile_cart_v1');
+      window.localStorage.removeItem('amir_mobile_user_v1');
+    } catch {
+      // Ignore storage errors
+    }
+    void purgeBrowserCachesAndUpdateSW().finally(() => {
+      triggerCacheBustingReload('/');
+    });
+  };
 
   render() {
     if (this.state.hasError) {
@@ -111,27 +139,39 @@ class StoreErrorBoundary extends React.Component<
               <AlertTriangle className="w-5 h-5" strokeWidth={1.5} />
             </div>
             <h1 className="text-lg font-semibold text-[#11161E]">
-              خطایی در نمایش صفحه رخ داد
+              {this.state.isChunkError
+                ? 'نسخه جدیدی از فروشگاه منتشر شده است'
+                : 'خطایی در نمایش صفحه رخ داد'}
             </h1>
             <p className="text-sm text-[#4A5464] leading-7">
-              ممکن است داده‌های ذخیره‌شده مرورگر قدیمی شده باشد. با بازنشانی صفحه می‌توانید دوباره وارد فروشگاه شوید.
+              {this.state.isChunkError
+                ? 'برای دریافت فایل‌های به‌روزشده و نمایش بدون خطای صفحه، روی دکمه زیر کلیک کنید.'
+                : 'ممکن است نسخه ذخیره‌شده مرورگر قدیمی شده باشد. با بارگذاری مجدد می‌توانید بدون مشکل ادامه دهید.'}
             </p>
-            <div className="flex items-center justify-center gap-3 pt-2">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
               <button
                 type="button"
-                onClick={() => {
-                  try {
-                    window.localStorage.removeItem('amir_mobile_cart_v1');
-                    window.localStorage.removeItem('amir_mobile_user_v1');
-                  } catch {
-                    // Ignore storage errors
-                  }
-                  window.location.assign('/');
-                }}
-                className="h-10 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-sm font-medium inline-flex items-center gap-2 transition-colors"
+                onClick={this.handleReloadFresh}
+                className="w-full sm:w-auto h-10 px-5 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-sm font-medium inline-flex items-center justify-center gap-2 transition-colors"
               >
                 <RotateCcw className="w-4 h-4" strokeWidth={1.5} />
-                <span>بارگذاری مجدد فروشگاه</span>
+                <span>به‌روزرسانی و بارگذاری مجدد</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => this.setState({ hasError: false, isChunkError: false })}
+                className="w-full sm:w-auto h-10 px-4 rounded-lg border border-[#DCE1E8] bg-white hover:bg-[#F7F8FA] text-[#11161E] text-sm font-medium inline-flex items-center justify-center transition-colors"
+              >
+                تلاش مجدد
+              </button>
+            </div>
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={this.handleResetAndGoHome}
+                className="text-xs text-[#6E7889] hover:text-[#11161E] underline underline-offset-4 transition-colors"
+              >
+                پاک‌سازی حافظه موقت و بازگشت به صفحه اصلی
               </button>
             </div>
           </div>

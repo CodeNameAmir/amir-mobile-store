@@ -159,8 +159,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     let mounted = true;
     setActiveImageIndex(0);
     setLightboxOpen(false);
-    setSelectedColorId(product.colors[0]?.id || 'default');
-    setSelectedStorage(product.storageOptions[0]?.label || product.specs.storageDefault);
+    setSelectedColorId(product.colors?.[0]?.id || 'default');
+    setSelectedStorage(product.storageOptions?.[0]?.label || product.specs?.storageDefault || '');
     setIncludeCarePlus(false);
     setQty(1);
     markProductViewed(productId);
@@ -251,7 +251,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
 
   const galleryImages = useMemo(() => {
     if (!product) return [];
-    const list = [product.image, ...(product.images || [])]
+    const list = [product.image, ...(Array.isArray(product.images) ? product.images : [])]
+      .filter((u): u is string => typeof u === 'string')
       .map((u) => u.trim())
       .filter(Boolean);
     return [...new Set(list)];
@@ -323,7 +324,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     );
   }
 
-  const activeColor = product.colors.find((c) => c.id === selectedColorId) ?? product.colors[0];
+  const productColors = Array.isArray(product.colors) ? product.colors : [];
+  const activeColor = productColors.find((c) => c.id === selectedColorId) ?? productColors[0];
 
   const activeVariant = (() => {
     if (!product.variants || product.variants.length === 0) return null;
@@ -334,7 +336,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         (!v.storage || v.storage === selectedStorage) &&
         (v.colorId === activeColor?.id ||
           v.colorNameFa === colorName ||
-          v.colorHex.toLowerCase() === colorHexLow)
+          (v.colorHex || '').toLowerCase() === colorHexLow)
     );
     if (exact) return exact;
     return product.variants.find((v) => v.storage === selectedStorage) || null;
