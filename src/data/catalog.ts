@@ -1,5 +1,6 @@
 import type { BrandItem, CategoryItem, OrderRecord, Product, ProductReview } from '../types/store';
 import { STORE_ASSETS } from './assets';
+import { DIGIKALA_EXTRA_BRANDS, DIGIKALA_EXTRA_PRODUCTS } from './digikalaProducts';
 
 export const CATEGORY_ITEMS: CategoryItem[] = [
   {
@@ -108,6 +109,7 @@ export const DEFAULT_BRANDS: BrandItem[] = [
   { id: 'honor', name: 'Honor', labelFa: 'آنر', isActive: true },
   { id: 'anker', name: 'Anker', labelFa: 'انکر', isActive: true },
   { id: 'motorola', name: 'Motorola', labelFa: 'موتورولا', isActive: true },
+  ...DIGIKALA_EXTRA_BRANDS,
 ];
 
 export const SEED_PRODUCTS: Product[] = [
@@ -759,6 +761,7 @@ export const SEED_PRODUCTS: Product[] = [
     salesRank: 14,
     releaseOrder: 14,
   },
+  ...DIGIKALA_EXTRA_PRODUCTS,
 ];
 
 export const INITIAL_REVIEWS: ProductReview[] = [

@@ -1,3 +1,5 @@
+import { DIGIKALA_EXTRA_BRANDS, DIGIKALA_EXTRA_PRODUCTS } from '../src/data/digikalaProducts.ts';
+
 export type UserRole = 'customer' | 'admin';
 
 export type OrderStatus =
@@ -557,6 +559,7 @@ export const DEFAULT_DEV_BRANDS: BrandDTO[] = [
   { id: 'honor', name: 'Honor', labelFa: 'آنر', isActive: true },
   { id: 'anker', name: 'Anker', labelFa: 'انکر', isActive: true },
   { id: 'motorola', name: 'Motorola', labelFa: 'موتورولا', isActive: true },
+  ...DIGIKALA_EXTRA_BRANDS,
 ];
 
 export const DEFAULT_DEV_COUPONS: CouponRuleDTO[] = [
@@ -1252,6 +1255,7 @@ export const DEFAULT_DEV_PRODUCTS: ProductDTO[] = [
     salesRank: 14,
     releaseOrder: 14,
   },
+  ...DIGIKALA_EXTRA_PRODUCTS,
 ];
 
 export const VALID_STOCK_MOVEMENT_TYPES: StockMovementType[] = [
