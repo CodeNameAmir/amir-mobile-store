@@ -360,7 +360,7 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
                           ? 'text-[#067647]'
                           : isActive
                           ? 'text-[#1453D6]'
-                          : 'text-[#6E7889]'
+                          : 'text-[#576071]'
                       }`}
                       strokeWidth={1.5}
                     />
@@ -370,7 +370,7 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
                           ? 'text-[#067647]'
                           : isActive
                           ? 'text-[#1453D6] font-semibold'
-                          : 'text-[#6E7889]'
+                          : 'text-[#576071]'
                       }`}
                     >
                       {statusText}

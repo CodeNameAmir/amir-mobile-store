@@ -267,19 +267,19 @@ export const Navbar: React.FC = () => {
         <div className="max-w-[1440px] mx-auto px-4 lg:px-8 flex items-center justify-between gap-4">
           <div className="flex items-center gap-6 whitespace-nowrap">
             <span className="inline-flex items-center gap-2">
-              <Truck className="w-4 h-4 text-[#6E7889]" strokeWidth={1.5} />
+              <Truck className="w-4 h-4 text-[#576071]" strokeWidth={1.5} />
               {storeSettings.announcementText}
             </span>
           </div>
           <div className="flex items-center gap-6 whitespace-nowrap">
             <span className="inline-flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-[#6E7889]" strokeWidth={1.5} />
+              <ShieldCheck className="w-4 h-4 text-[#576071]" strokeWidth={1.5} />
               ضمانت اصالت ۱۰۰٪ و کد رجیستری همتا
             </span>
             <a
               href={buildHref('/contact')}
               onClick={(e) => handleLinkClick(e, '/contact')}
-              className="hover:text-[#11161E] transition-colors tabular-nums-fa"
+              className="py-1 inline-flex items-center hover:text-[#11161E] transition-colors tabular-nums-fa"
             >
               پشتیبانی: {toPersianDigits(storeSettings.supportPhone)}
             </a>
@@ -317,7 +317,7 @@ export const Navbar: React.FC = () => {
                 <span className="text-sm md:text-base font-semibold text-[#11161E] whitespace-nowrap">
                   فروشگاه موبایل امیر
                 </span>
-                <span className="text-[11px] font-normal text-[#6E7889] hidden sm:block">
+                <span className="text-[11px] font-normal text-[#576071] hidden sm:block">
                   تخصصی موبایل و تجهیزات شارژ
                 </span>
               </div>
@@ -349,12 +349,12 @@ export const Navbar: React.FC = () => {
                 placeholder="جستجوی مدل، برند یا دسته‌بندی"
                 aria-label="جستجوی محصولات"
                 data-testid="navbar-search-input"
-                className="w-full h-11 pr-10 pl-10 rounded-lg bg-[#F1F3F6] text-sm text-[#11161E] placeholder:text-[#6E7889] border border-transparent focus:border-[#1453D6] focus:bg-white focus:outline-none transition-colors"
+                className="w-full h-11 pr-11 pl-10 rounded-lg bg-[#F1F3F6] text-sm text-[#11161E] placeholder:text-[#576071] border border-transparent focus:border-[#1453D6] focus:bg-white focus:outline-none transition-colors"
               />
               <button
                 type="submit"
                 aria-label="جستجو"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#6E7889] hover:text-[#1453D6] transition-colors"
+                className="w-9 h-9 rounded-md flex items-center justify-center absolute right-1.5 top-1/2 -translate-y-1/2 text-[#576071] hover:text-[#1453D6] transition-colors"
               >
                 <Search className="w-4 h-4" strokeWidth={1.5} />
               </button>
@@ -367,7 +367,7 @@ export const Navbar: React.FC = () => {
                     setSearchValue('');
                     setSearchFocused(true);
                   }}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-[#6E7889] hover:text-[#B42318] transition-colors"
+                  className="w-8 h-8 rounded-md flex items-center justify-center absolute left-1.5 top-1/2 -translate-y-1/2 text-[#576071] hover:text-[#B42318] transition-colors"
                 >
                   <X className="w-4 h-4" strokeWidth={1.5} />
                 </button>
@@ -386,7 +386,7 @@ export const Navbar: React.FC = () => {
                 >
                 <div className="flex items-center justify-between text-xs font-medium text-[#4A5464]">
                   <span className="inline-flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-[#6E7889]" strokeWidth={1.5} />
+                    <Clock className="w-4 h-4 text-[#576071]" strokeWidth={1.5} />
                     تاریخچه جستجوهای اخیر
                   </span>
                   {recentSearches.length > 0 && (
@@ -426,7 +426,7 @@ export const Navbar: React.FC = () => {
                           aria-label={`حذف ${q} از تاریخچه`}
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => removeRecentSearch(q)}
-                          className="pl-2 pr-1 py-1.5 text-[#6E7889] hover:text-[#B42318] transition-colors"
+                          className="w-7 h-7 flex items-center justify-center text-[#576071] hover:text-[#B42318] transition-colors"
                         >
                           <X className="w-3.5 h-3.5" strokeWidth={1.5} />
                         </button>
@@ -434,7 +434,7 @@ export const Navbar: React.FC = () => {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-[#6E7889]">
+                  <p className="text-xs text-[#576071]">
                     پس از اولین جستجو، عبارت‌های اخیر در این بخش نمایش داده می‌شوند.
                   </p>
                 )}
@@ -510,7 +510,7 @@ export const Navbar: React.FC = () => {
                         }}
                         className="px-2.5 py-1 rounded-lg bg-white border border-[#E4E8EE] text-[11px] font-medium text-[#11161E] hover:border-[#1453D6] inline-flex items-center gap-1 transition-colors"
                       >
-                        <Layers className="w-3.5 h-3.5 text-[#6E7889]" strokeWidth={1.5} />
+                        <Layers className="w-3.5 h-3.5 text-[#576071]" strokeWidth={1.5} />
                         دسته {cat.label}
                       </a>
                     ))}
@@ -536,7 +536,7 @@ export const Navbar: React.FC = () => {
                           className="w-full p-3 flex items-center gap-3 hover:bg-[#F7F8FA] text-right transition-colors"
                         >
                           <div className="w-11 h-11 rounded-lg bg-[#F3F5F8] overflow-hidden shrink-0">
-                            <SmartImage src={item.image} alt={item.nameFa} className="w-full h-full object-cover" />
+                            <SmartImage src={item.image} alt={item.nameFa} optimizeWidth={120} width={44} height={44} className="w-full h-full object-cover" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-[#11161E] truncate">{item.nameFa}</p>
@@ -560,7 +560,7 @@ export const Navbar: React.FC = () => {
                 {recentSearches.length > 0 && (
                   <div className="px-3 py-2 bg-[#F7F8FA] border-t border-[#E4E8EE] flex flex-wrap items-center gap-1.5">
                     <span className="text-[11px] font-medium text-[#4A5464] inline-flex items-center gap-1">
-                      <Clock className="w-3.5 h-3.5 text-[#6E7889]" strokeWidth={1.5} />
+                      <Clock className="w-3.5 h-3.5 text-[#576071]" strokeWidth={1.5} />
                       اخیر
                     </span>
                     {recentSearches.slice(0, 4).map((q) => (
@@ -683,7 +683,7 @@ export const Navbar: React.FC = () => {
                             در حال دریافت اعلان‌ها...
                           </p>
                         ) : notifications.length === 0 ? (
-                          <p className="p-6 text-xs text-[#6E7889] text-center">
+                          <p className="p-6 text-xs text-[#576071] text-center">
                             هنوز اعلانی برای حساب شما ثبت نشده است.
                           </p>
                         ) : (
@@ -725,7 +725,7 @@ export const Navbar: React.FC = () => {
                                       {notif.message}
                                     </p>
                                   </button>
-                                  <p className="text-[10px] text-[#6E7889] tabular-nums-fa">
+                                  <p className="text-[10px] text-[#576071] tabular-nums-fa">
                                     {formatPersianDate(notif.createdAt)}
                                   </p>
                                 </div>
@@ -733,7 +733,7 @@ export const Navbar: React.FC = () => {
                                   type="button"
                                   aria-label={`حذف اعلان ${notif.title}`}
                                   onClick={() => void deleteNotification(notif.id)}
-                                  className="p-1 rounded-md text-[#6E7889] hover:text-[#B42318] hover:bg-[#FEF3F2] shrink-0 transition-colors"
+                                  className="w-7 h-7 flex items-center justify-center rounded-md text-[#576071] hover:text-[#B42318] hover:bg-[#FEF3F2] shrink-0 transition-colors"
                                 >
                                   <Trash2 className="w-3.5 h-3.5" strokeWidth={1.5} />
                                 </button>
@@ -872,11 +872,11 @@ export const Navbar: React.FC = () => {
               })}
             </ul>
 
-            <div className="flex items-center gap-4 text-xs font-medium text-[#4A5464] shrink-0">
+            <div className="flex items-center gap-3 text-xs font-medium text-[#4A5464] shrink-0">
               <a
                 href={buildHref('/terms')}
                 onClick={(e) => handleLinkClick(e, '/terms')}
-                className={`transition-colors whitespace-nowrap ${
+                className={`py-1.5 px-1 inline-flex items-center transition-colors whitespace-nowrap ${
                   route.page === 'terms' ? 'text-[#1453D6] font-semibold' : 'hover:text-[#11161E]'
                 }`}
               >
@@ -885,7 +885,7 @@ export const Navbar: React.FC = () => {
               <a
                 href={buildHref('/about')}
                 onClick={(e) => handleLinkClick(e, '/about')}
-                className={`transition-colors whitespace-nowrap ${
+                className={`py-1.5 px-1 inline-flex items-center transition-colors whitespace-nowrap ${
                   route.page === 'about' ? 'text-[#1453D6] font-semibold' : 'hover:text-[#11161E]'
                 }`}
               >
@@ -894,7 +894,7 @@ export const Navbar: React.FC = () => {
               <a
                 href={buildHref('/contact')}
                 onClick={(e) => handleLinkClick(e, '/contact')}
-                className={`transition-colors whitespace-nowrap ${
+                className={`py-1.5 px-1 inline-flex items-center transition-colors whitespace-nowrap ${
                   route.page === 'contact' ? 'text-[#1453D6] font-semibold' : 'hover:text-[#11161E]'
                 }`}
               >
@@ -920,9 +920,9 @@ export const Navbar: React.FC = () => {
                   value={searchValue}
                   onChange={(e) => setSearchValue(e.target.value)}
                   placeholder="جستجوی موبایل، برند یا لوازم جانبی"
-                  className="w-full h-10 pr-10 pl-3 rounded-lg bg-[#F1F3F6] text-sm text-[#11161E] placeholder:text-[#6E7889] focus:outline-none focus:ring-2 focus:ring-[#1453D6]"
+                  className="w-full h-10 pr-10 pl-3 rounded-lg bg-[#F1F3F6] text-sm text-[#11161E] placeholder:text-[#576071] focus:outline-none focus:ring-2 focus:ring-[#1453D6]"
                 />
-                <Search className="w-4 h-4 text-[#6E7889] absolute right-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
+                <Search className="w-4 h-4 text-[#576071] absolute right-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
               </form>
 
               {recentSearches.length > 0 && (
@@ -983,18 +983,21 @@ export const Navbar: React.FC = () => {
                 <a
                   href={buildHref('/terms')}
                   onClick={(e) => handleLinkClick(e, '/terms', () => setMobileMenuOpen(false))}
+                  className="py-1.5 inline-flex items-center"
                 >
                   شرایط گارانتی
                 </a>
                 <a
                   href={buildHref('/about')}
                   onClick={(e) => handleLinkClick(e, '/about', () => setMobileMenuOpen(false))}
+                  className="py-1.5 inline-flex items-center"
                 >
                   درباره فروشگاه
                 </a>
                 <a
                   href={buildHref('/contact')}
                   onClick={(e) => handleLinkClick(e, '/contact', () => setMobileMenuOpen(false))}
+                  className="py-1.5 inline-flex items-center"
                 >
                   پشتیبانی و تماس
                 </a>

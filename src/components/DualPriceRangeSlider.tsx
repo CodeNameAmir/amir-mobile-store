@@ -37,13 +37,13 @@ export const DualPriceRangeSlider: React.FC<DualPriceRangeSliderProps> = ({
     <div className="space-y-3" data-testid="dual-price-slider">
       <div className="flex items-center justify-between text-[11px] gap-2">
         <div className="flex flex-col text-right">
-          <span className="text-[#6E7889]">از</span>
+          <span className="text-[#576071]">از</span>
           <span className="font-semibold text-[#11161E] tabular-nums-fa">
             {formatToman(clampedMin)} <span className="font-normal text-[#4A5464]">تومان</span>
           </span>
         </div>
         <div className="flex flex-col text-left">
-          <span className="text-[#6E7889]">تا</span>
+          <span className="text-[#576071]">تا</span>
           <span className="font-semibold text-[#1453D6] tabular-nums-fa">
             {formatToman(clampedMax)} <span className="font-normal text-[#4A5464]">تومان</span>
           </span>
@@ -101,7 +101,7 @@ export const DualPriceRangeSlider: React.FC<DualPriceRangeSliderProps> = ({
         />
       </div>
 
-      <div className="flex items-center justify-between text-[11px] font-normal text-[#6E7889] tabular-nums-fa">
+      <div className="flex items-center justify-between text-[11px] font-normal text-[#576071] tabular-nums-fa">
         <span>ارزان‌ترین ({formatToman(min)})</span>
         <span>گران‌ترین ({formatToman(safeMax)})</span>
       </div>

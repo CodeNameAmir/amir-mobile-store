@@ -72,6 +72,7 @@ export const HomePage: React.FC = () => {
   } = useStore();
   const [popularBrand, setPopularBrand] = useState<'ALL' | BrandId>('ALL');
   const [activeSlide, setActiveSlide] = useState(0);
+  const [hasInteractedWithSlider, setHasInteractedWithSlider] = useState(false);
   const [sliderPaused, setSliderPaused] = useState(false);
   const [blogPosts, setBlogPosts] = useState<BlogPostItem[]>([]);
 
@@ -151,6 +152,7 @@ export const HomePage: React.FC = () => {
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (reduced || sliderPaused) return;
     const timer = window.setInterval(() => {
+      setHasInteractedWithSlider(true);
       setActiveSlide((prev) => (prev + 1) % promoSlides.length);
     }, 6000);
     return () => window.clearInterval(timer);
@@ -214,7 +216,7 @@ export const HomePage: React.FC = () => {
             <div className="lg:col-span-7 space-y-5 z-10">
               <motion.div
                 key={currentSlide.id}
-                initial={{ opacity: 0.01, y: 8 }}
+                initial={hasInteractedWithSlider ? { opacity: 0.01, y: 8 } : false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.28, ease: UI_EASE }}
                 className="space-y-5"
@@ -257,9 +259,10 @@ export const HomePage: React.FC = () => {
                     type="button"
                     whileTap={{ scale: 0.92 }}
                     data-testid="promo-slider-prev"
-                    onClick={() =>
-                      setActiveSlide((prev) => (prev - 1 + promoSlides.length) % promoSlides.length)
-                    }
+                    onClick={() => {
+                      setHasInteractedWithSlider(true);
+                      setActiveSlide((prev) => (prev - 1 + promoSlides.length) % promoSlides.length);
+                    }}
                     aria-label="اسلاید قبلی"
                     className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-white flex items-center justify-center transition-colors"
                   >
@@ -269,7 +272,10 @@ export const HomePage: React.FC = () => {
                     type="button"
                     whileTap={{ scale: 0.92 }}
                     data-testid="promo-slider-next"
-                    onClick={() => setActiveSlide((prev) => (prev + 1) % promoSlides.length)}
+                    onClick={() => {
+                      setHasInteractedWithSlider(true);
+                      setActiveSlide((prev) => (prev + 1) % promoSlides.length);
+                    }}
                     aria-label="اسلاید بعدی"
                     className="w-9 h-9 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-white flex items-center justify-center transition-colors"
                   >
@@ -280,17 +286,26 @@ export const HomePage: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-0.5">
                   {promoSlides.map((slide, idx) => (
                     <button
                       key={slide.id}
                       type="button"
-                      onClick={() => setActiveSlide(idx)}
+                      onClick={() => {
+                        setHasInteractedWithSlider(true);
+                        setActiveSlide(idx);
+                      }}
                       aria-label={`نمایش بنر ${toPersianDigits(idx + 1)}`}
-                      className={`h-1.5 rounded-full transition-[width,background-color] duration-200 ${
-                        idx === activeSlide ? 'w-6 bg-white' : 'w-1.5 bg-white/30 hover:bg-white/55'
-                      }`}
-                    />
+                      className="group h-7 min-w-[24px] px-1.5 inline-flex items-center justify-center rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                    >
+                      <span
+                        className={`h-1.5 rounded-full transition-opacity duration-200 ${
+                          idx === activeSlide
+                            ? 'w-6 bg-white opacity-100'
+                            : 'w-2 bg-white opacity-35 group-hover:opacity-65'
+                        }`}
+                      />
+                    </button>
                   ))}
                 </div>
               </div>
@@ -299,7 +314,7 @@ export const HomePage: React.FC = () => {
             <div className="lg:col-span-5 flex flex-col items-center">
               <motion.div
                 key={`${currentSlide.id}-card`}
-                initial={{ opacity: 0.01, scale: 0.97 }}
+                initial={hasInteractedWithSlider ? { opacity: 0.01, scale: 0.97 } : false}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.28, ease: UI_EASE }}
                 className="relative w-full max-w-[440px] rounded-xl overflow-hidden bg-[#1B212C] border border-white/10"
@@ -309,6 +324,10 @@ export const HomePage: React.FC = () => {
                     src={currentSlide.image}
                     alt={currentSlide.title}
                     loading="eager"
+                    fetchPriority="high"
+                    optimizeWidth={960}
+                    width={960}
+                    height={720}
                     className="w-full h-full object-cover"
                   />
                 </div>
@@ -447,7 +466,7 @@ export const HomePage: React.FC = () => {
           <a
             href={buildHref('/catalog')}
             onClick={(e) => handleLinkClick(e, '/catalog')}
-            className="text-xs sm:text-sm font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1"
+            className="text-xs sm:text-sm font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1 py-1.5"
           >
             <span>همه محصولات</span>
             <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
@@ -472,6 +491,9 @@ export const HomePage: React.FC = () => {
                   <SmartImage
                     src={cat.image}
                     alt={cat.label}
+                    optimizeWidth={160}
+                    width={56}
+                    height={56}
                     className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
                   />
                 </div>
@@ -482,7 +504,7 @@ export const HomePage: React.FC = () => {
               )}
               <div>
                 <p className="text-xs sm:text-sm font-semibold text-[#11161E] group-hover:text-[#1453D6] transition-colors">{cat.label}</p>
-                <p className="text-[11px] text-[#6E7889] mt-0.5 line-clamp-1">{cat.subtitle}</p>
+                <p className="text-[11px] text-[#576071] mt-0.5 line-clamp-1">{cat.subtitle}</p>
               </div>
             </a>
           ))}
@@ -504,7 +526,7 @@ export const HomePage: React.FC = () => {
             <a
               href={buildHref('/catalog')}
               onClick={(e) => handleLinkClick(e, '/catalog')}
-              className="text-xs sm:text-sm font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1 shrink-0"
+              className="text-xs sm:text-sm font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1 py-1.5 shrink-0"
             >
               <span>مشاهده همه کالاها</span>
               <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
@@ -632,6 +654,7 @@ export const HomePage: React.FC = () => {
             <SmartImage
               src={STORE_ASSETS.ankerCharger}
               alt="شارژر و پاوربانک انکر سری GaN"
+              optimizeWidth={640}
               className="w-full h-full object-cover"
             />
           </div>
@@ -721,7 +744,7 @@ export const HomePage: React.FC = () => {
           <a
             href={buildHref('/blog')}
             onClick={(e) => handleLinkClick(e, '/blog')}
-            className="text-xs sm:text-sm font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1"
+            className="text-xs sm:text-sm font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1 py-1.5"
           >
             <span>مشاهده همه مقالات</span>
             <ArrowLeft className="w-4 h-4" strokeWidth={1.5} />
@@ -761,11 +784,12 @@ export const HomePage: React.FC = () => {
                 <SmartImage
                   src={art.image}
                   alt={art.title}
+                  optimizeWidth={640}
                   className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.03]"
                 />
               </a>
               <div className="p-5 flex-1 flex flex-col gap-2.5">
-                <div className="flex items-center justify-between text-[11px] text-[#6E7889]">
+                <div className="flex items-center justify-between text-[11px] text-[#576071]">
                   <span className="px-2 py-0.5 rounded-md bg-[#EEF3FC] text-[#1453D6] font-medium">
                     {art.tag}
                   </span>
@@ -775,7 +799,7 @@ export const HomePage: React.FC = () => {
                   <a
                     href={buildHref(`/blog/${art.slug}`)}
                     onClick={(e) => handleLinkClick(e, `/blog/${art.slug}`)}
-                    className="hover:text-[#1453D6] transition-colors"
+                    className="hover:text-[#1453D6] transition-colors inline-block py-0.5"
                   >
                     {art.title}
                   </a>
@@ -784,7 +808,7 @@ export const HomePage: React.FC = () => {
                 <a
                   href={buildHref(`/blog/${art.slug}`)}
                   onClick={(e) => handleLinkClick(e, `/blog/${art.slug}`)}
-                  className="self-start text-xs font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1 pt-2"
+                  className="self-start text-xs font-medium text-[#1453D6] hover:underline inline-flex items-center gap-1 py-1.5 mt-0.5"
                 >
                   <span>مطالعه مقاله</span>
                   <ArrowLeft className="w-3.5 h-3.5" strokeWidth={1.5} />
@@ -810,7 +834,7 @@ export const HomePage: React.FC = () => {
               key={item.id}
               className="bg-white rounded-xl border border-[#E4E8EE] p-6 space-y-4 flex flex-col"
             >
-              <Quote className="w-5 h-5 text-[#6E7889]" strokeWidth={1.5} />
+              <Quote className="w-5 h-5 text-[#576071]" strokeWidth={1.5} />
               <p className="text-xs sm:text-sm text-[#11161E] leading-7 flex-1">{item.quote}</p>
               <div className="flex items-center gap-3 pt-3 border-t border-[#E4E8EE]">
                 <div className="w-10 h-10 rounded-full bg-[#F1F3F6] text-[#11161E] font-semibold text-xs flex items-center justify-center shrink-0">
@@ -818,7 +842,7 @@ export const HomePage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-[#11161E]">{item.name}</p>
-                  <p className="text-[11px] text-[#6E7889]">{item.role}</p>
+                  <p className="text-[11px] text-[#576071]">{item.role}</p>
                 </div>
               </div>
             </div>

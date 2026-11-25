@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'amir-mobile-store-v2';
+const CACHE_VERSION = 'amir-mobile-store-v3';
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const CORE_SHELL_ASSETS = [
   '/manifest.webmanifest',
@@ -51,10 +51,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Never intercept API calls or content-hashed Vite bundle assets (/assets/*)
-  // so lazy route chunks always load directly from the network/browser cache
-  // without stale-shell hash mismatches or undefined SW responses.
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/assets/')) {
+  // Never intercept API calls, crawler metadata files, or content-hashed Vite bundle assets (/assets/*)
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/assets/') ||
+    url.pathname === '/robots.txt' ||
+    url.pathname === '/sitemap.xml' ||
+    url.pathname === '/llms.txt'
+  ) {
     return;
   }
 

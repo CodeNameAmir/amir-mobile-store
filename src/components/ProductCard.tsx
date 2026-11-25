@@ -119,7 +119,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
 
       {/* Body */}
       <div className={`flex-1 flex flex-col ${compact ? 'p-4' : 'p-5'} gap-2.5`}>
-        <div className="flex items-center justify-between gap-2 text-[11px] text-[#6E7889]">
+        <div className="flex items-center justify-between gap-2 text-[11px] text-[#576071]">
           <span className="font-medium text-[#4A5464]">{product.brand}</span>
           <span className="inline-flex items-center gap-1 font-medium text-[#4A5464] tabular-nums-fa">
             <Star className="w-3.5 h-3.5 text-[#A84500] fill-[#A84500]" strokeWidth={1.5} />
@@ -135,7 +135,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
           {product.nameFa}
         </a>
 
-        <div className="flex items-center justify-between gap-2 text-xs text-[#6E7889]">
+        <div className="flex items-center justify-between gap-2 text-xs text-[#576071]">
           <span className="line-clamp-1">
             {product.specs.storageDefault} · {product.specs.ram} رم · {product.colorLabel}
           </span>
@@ -150,7 +150,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
         <div className="mt-auto pt-3 border-t border-[#E4E8EE] flex items-end justify-between gap-2">
           <div>
             {product.originalPrice && product.originalPrice > product.price && product.inStock && (
-              <p className="text-[11px] text-[#6E7889] line-through tabular-nums-fa">
+              <p className="text-[11px] text-[#576071] line-through tabular-nums-fa">
                 {formatToman(product.originalPrice)} تومان
               </p>
             )}
@@ -161,7 +161,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
                   <span className="text-[11px] font-normal text-[#4A5464]">تومان</span>
                 </>
               ) : (
-                <span className="text-xs font-medium text-[#6E7889]">اتمام موجودی انبار</span>
+                <span className="text-xs font-medium text-[#576071]">اتمام موجودی انبار</span>
               )}
             </p>
           </div>
@@ -191,16 +191,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
                   <span>اضافه شد</span>
                 </motion.span>
               ) : (
-                <motion.span
-                  key="buy"
-                  initial={{ opacity: 0.2, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ duration: 0.16, ease: UI_EASE }}
-                  className="inline-flex items-center gap-1.5"
-                >
+                <span className="inline-flex items-center gap-1.5">
                   <ShoppingBag className="w-4 h-4" strokeWidth={1.5} />
                   <span>خرید</span>
-                </motion.span>
+                </span>
               )}
             </motion.button>
           ) : (

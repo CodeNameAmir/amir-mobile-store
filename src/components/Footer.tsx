@@ -91,7 +91,7 @@ export const Footer: React.FC = () => {
             </div>
             <div>
               <h2 className="text-base font-semibold text-[#11161E]">فروشگاه موبایل امیر</h2>
-              <p className="text-xs font-normal text-[#6E7889]">فروشگاه تخصصی پرچمداران و تجهیزات شارژ</p>
+              <p className="text-xs font-normal text-[#576071]">فروشگاه تخصصی پرچمداران و تجهیزات شارژ</p>
             </div>
           </div>
           <p className="text-xs leading-6 text-[#4A5464]">
@@ -104,14 +104,14 @@ export const Footer: React.FC = () => {
         </div>
 
         {/* Quick Access */}
-        <div className="lg:col-span-2 space-y-3">
+        <div className="lg:col-span-2 space-y-2.5">
           <h3 className="text-sm font-semibold text-[#11161E]">دسترسی سریع</h3>
-          <ul className="space-y-2 text-xs text-[#4A5464]">
+          <ul className="space-y-0.5 text-xs text-[#4A5464]">
             <li>
               <a
                 href={buildHref('/catalog?cat=phones')}
                 onClick={(e) => handleLinkClick(e, '/catalog?cat=phones')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 گوشی‌های پرچمدار
               </a>
@@ -120,7 +120,7 @@ export const Footer: React.FC = () => {
               <a
                 href={buildHref('/catalog?cat=chargers')}
                 onClick={(e) => handleLinkClick(e, '/catalog?cat=chargers')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 شارژر و پاوربانک GaN
               </a>
@@ -129,7 +129,7 @@ export const Footer: React.FC = () => {
               <a
                 href={buildHref('/catalog?cat=audio')}
                 onClick={(e) => handleLinkClick(e, '/catalog?cat=audio')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 هدفون و ایرپاد
               </a>
@@ -138,7 +138,7 @@ export const Footer: React.FC = () => {
               <a
                 href={buildHref('/catalog?cat=offers')}
                 onClick={(e) => handleLinkClick(e, '/catalog?cat=offers')}
-                className="hover:text-[#A84500] transition-colors inline-block"
+                className="hover:text-[#A84500] transition-colors inline-flex items-center py-1"
               >
                 تخفیف‌های شگفت‌انگیز
               </a>
@@ -147,7 +147,7 @@ export const Footer: React.FC = () => {
               <a
                 href={buildHref('/compare')}
                 onClick={(e) => handleLinkClick(e, '/compare')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 مقایسه تخصصی موبایل‌ها
               </a>
@@ -156,7 +156,7 @@ export const Footer: React.FC = () => {
               <a
                 href={buildHref('/installments')}
                 onClick={(e) => handleLinkClick(e, '/installments')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 محاسبه‌گر خرید اقساطی و تعویض
               </a>
@@ -165,7 +165,7 @@ export const Footer: React.FC = () => {
               <a
                 href={buildHref('/tracking')}
                 onClick={(e) => handleLinkClick(e, '/tracking')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 پیگیری سفارش‌ها
               </a>
@@ -175,7 +175,7 @@ export const Footer: React.FC = () => {
                 href={buildHref('/blog')}
                 onClick={(e) => handleLinkClick(e, '/blog')}
                 data-testid="footer-blog-link"
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 مجله تخصصی موبایل
               </a>
@@ -184,14 +184,14 @@ export const Footer: React.FC = () => {
         </div>
 
         {/* Customer Service */}
-        <div className="lg:col-span-2 space-y-3">
+        <div className="lg:col-span-2 space-y-2.5">
           <h3 className="text-sm font-semibold text-[#11161E]">خدمات مشتریان</h3>
-          <ul className="space-y-2 text-xs text-[#4A5464]">
+          <ul className="space-y-0.5 text-xs text-[#4A5464]">
             <li>
               <a
                 href={buildHref('/about')}
                 onClick={(e) => handleLinkClick(e, '/about')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 درباره فروشگاه امیر
               </a>
@@ -200,7 +200,7 @@ export const Footer: React.FC = () => {
               <a
                 href={buildHref('/terms')}
                 onClick={(e) => handleLinkClick(e, '/terms')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 شرایط گارانتی و حریم خصوصی
               </a>
@@ -210,7 +210,7 @@ export const Footer: React.FC = () => {
                 href={buildHref('/faq')}
                 onClick={(e) => handleLinkClick(e, '/faq')}
                 data-testid="footer-faq-link"
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 پرسش‌های متداول (FAQ)
               </a>
@@ -219,7 +219,7 @@ export const Footer: React.FC = () => {
               <a
                 href={buildHref('/contact')}
                 onClick={(e) => handleLinkClick(e, '/contact')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 تماس و ثبت تیکت پشتیبانی
               </a>
@@ -228,7 +228,7 @@ export const Footer: React.FC = () => {
               <a
                 href={buildHref('/account')}
                 onClick={(e) => handleLinkClick(e, '/account')}
-                className="hover:text-[#1453D6] transition-colors inline-block"
+                className="hover:text-[#1453D6] transition-colors inline-flex items-center py-1"
               >
                 حساب کاربری و سفارش‌ها
               </a>
@@ -253,7 +253,7 @@ export const Footer: React.FC = () => {
               value={newsletterInput}
               onChange={(e) => setNewsletterInput(e.target.value)}
               placeholder="شماره موبایل یا ایمیل"
-              className="flex-1 h-10 px-3 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-xs text-[#11161E] placeholder:text-[#6E7889] focus:bg-white focus:border-[#1453D6] focus:outline-none transition-colors"
+              className="flex-1 h-10 px-3 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-xs text-[#11161E] placeholder:text-[#576071] focus:bg-white focus:border-[#1453D6] focus:outline-none transition-colors"
             />
             <button
               type="submit"
@@ -285,7 +285,7 @@ export const Footer: React.FC = () => {
 
       {/* Bottom Legal Bar */}
       <div className="border-t border-[#E4E8EE] bg-[#F7F8FA]">
-        <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-[#6E7889]">
+        <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-[11px] text-[#576071]">
           <p>
             © ۱۴۰۴ فروشگاه موبایل امیر — تمامی حقوق مادی و معنوی محفوظ است.
           </p>

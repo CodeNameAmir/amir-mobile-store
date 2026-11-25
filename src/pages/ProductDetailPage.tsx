@@ -494,7 +494,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-6 md:py-8 space-y-10">
       {/* Breadcrumb */}
-      <nav aria-label="مسیر صفحه" className="flex flex-wrap items-center gap-2 text-xs text-[#6E7889]">
+      <nav aria-label="مسیر صفحه" className="flex flex-wrap items-center gap-2 text-xs text-[#576071]">
         <a
           href={buildHref('/')}
           onClick={(e) => handleLinkClick(e, '/')}
@@ -540,6 +540,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   src={currentGalleryImg}
                   alt={`${product.nameFa} - تصویر ${toPersianDigits(activeImageIndex + 1)}`}
                   loading="eager"
+                  fetchPriority="high"
+                  optimizeWidth={800}
+                  width={640}
+                  height={640}
                   data-testid="pdp-main-image"
                   className="w-full h-full object-cover rounded-lg"
                 />
@@ -662,7 +666,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   <SmartImage
                     src={imgSrc}
                     alt={`${product.nameFa} ${idx + 1}`}
-                    loading="eager"
+                    optimizeWidth={160}
+                    width={64}
+                    height={64}
                     className="w-full h-full object-cover"
                   />
                 </button>
@@ -707,7 +713,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
             <h1 className="text-lg sm:text-2xl font-semibold text-[#11161E] leading-9">
               {product.nameFa}
             </h1>
-            <p className="text-xs text-[#6E7889] font-normal" dir="ltr">
+            <p className="text-xs text-[#576071] font-normal" dir="ltr">
               {product.nameEn}
             </p>
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
@@ -790,7 +796,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               className="rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] p-3.5 grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs"
             >
               <div className="space-y-0.5">
-                <p className="text-[11px] text-[#6E7889] font-normal">کد تنوع (SKU)</p>
+                <p className="text-[11px] text-[#576071] font-normal">کد تنوع (SKU)</p>
                 <p
                   data-testid="pdp-variant-sku"
                   dir="ltr"
@@ -801,7 +807,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               </div>
               {activeVariant.partNumber && (
                 <div className="space-y-0.5">
-                  <p className="text-[11px] text-[#6E7889] font-normal">پارت‌نامبر / ریجن</p>
+                  <p className="text-[11px] text-[#576071] font-normal">پارت‌نامبر / ریجن</p>
                   <p
                     data-testid="pdp-variant-part"
                     dir="ltr"
@@ -813,7 +819,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               )}
               {activeVariant.simType && (
                 <div className="space-y-0.5 col-span-2 sm:col-span-1">
-                  <p className="text-[11px] text-[#6E7889] font-normal">پشتیبانی سیم‌کارت</p>
+                  <p className="text-[11px] text-[#576071] font-normal">پشتیبانی سیم‌کارت</p>
                   <p className="font-medium text-[#11161E]">{activeVariant.simType}</p>
                 </div>
               )}
@@ -823,7 +829,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
           {/* 4 Hardware Highlights */}
           <div className="grid grid-cols-2 gap-3 pt-2">
             <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6E7889]">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#576071]">
                 <Smartphone className="w-3.5 h-3.5 text-[#4A5464]" strokeWidth={1.5} />
                 <span>نمایشگر</span>
               </div>
@@ -832,7 +838,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
             </div>
 
             <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6E7889]">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#576071]">
                 <Cpu className="w-3.5 h-3.5 text-[#4A5464]" strokeWidth={1.5} />
                 <span>پردازنده</span>
               </div>
@@ -841,7 +847,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
             </div>
 
             <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6E7889]">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#576071]">
                 <Camera className="w-3.5 h-3.5 text-[#4A5464]" strokeWidth={1.5} />
                 <span>دوربین / قابلیت</span>
               </div>
@@ -850,7 +856,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
             </div>
 
             <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-1">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#6E7889]">
+              <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#576071]">
                 <Zap className="w-3.5 h-3.5 text-[#4A5464]" strokeWidth={1.5} />
                 <span>باتری و شارژ</span>
               </div>
@@ -888,7 +894,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 <div className="space-y-1">
                   {effectiveOriginalPrice > effectiveUnitPrice && (
                     <div className="flex items-center justify-between text-xs">
-                      <span className="text-[#6E7889] line-through tabular-nums-fa">
+                      <span className="text-[#576071] line-through tabular-nums-fa">
                         {formatToman(effectiveOriginalPrice)} تومان
                       </span>
                       <span className="px-2 py-0.5 rounded-md bg-[#FDF1E8] border border-[#F5D6BE] text-[#A84500] font-medium text-[11px] tabular-nums-fa">
@@ -908,9 +914,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   </p>
                   <p
                     data-testid="pdp-price-updated-at"
-                    className="text-[11px] text-[#6E7889] inline-flex items-center gap-1 pt-1 tabular-nums-fa"
+                    className="text-[11px] text-[#576071] inline-flex items-center gap-1 pt-1 tabular-nums-fa"
                   >
-                    <CalendarClock className="w-3.5 h-3.5 text-[#6E7889]" strokeWidth={1.5} />
+                    <CalendarClock className="w-3.5 h-3.5 text-[#576071]" strokeWidth={1.5} />
                     آخرین به‌روزرسانی قیمت: {formattedPriceDate}
                   </p>
                 </div>
@@ -1044,7 +1050,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                       ماهانه حدود {formatToman(installmentPreview.monthlyPayment)} تومان
                     </p>
                   </div>
-                  <ArrowLeft className="w-4 h-4 text-[#6E7889] shrink-0" strokeWidth={1.5} />
+                  <ArrowLeft className="w-4 h-4 text-[#576071] shrink-0" strokeWidth={1.5} />
                 </a>
               </>
             ) : (
@@ -1301,7 +1307,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-[#6E7889]">{rev.dateLabel}</span>
+                        <span className="text-[11px] text-[#576071]">{rev.dateLabel}</span>
                       </div>
                       <div className="flex items-center gap-0.5">
                         {Array.from({ length: rev.rating }).map((_, idx) => (
@@ -1398,11 +1404,11 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   </div>
                 ) : questions.length === 0 ? (
                   <div className="p-6 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] text-center space-y-2">
-                    <MessageSquareMore className="w-7 h-7 text-[#6E7889] mx-auto" strokeWidth={1.5} />
+                    <MessageSquareMore className="w-7 h-7 text-[#576071] mx-auto" strokeWidth={1.5} />
                     <p className="text-xs sm:text-sm font-medium text-[#11161E]">
                       هنوز پرسشی برای این محصول ثبت نشده است.
                     </p>
-                    <p className="text-xs text-[#6E7889]">
+                    <p className="text-xs text-[#576071]">
                       سوال فنی یا ابهام خود درباره رجیستری، پارت‌نامبر یا گارانتی را بپرسید تا کارشناسان پاسخ دهند.
                     </p>
                   </div>
@@ -1413,7 +1419,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                       data-testid="pdp-qa-item"
                       className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] space-y-3"
                     >
-                      <div className="flex items-center justify-between gap-2 text-[11px] text-[#6E7889]">
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-[#576071]">
                         <span className="font-semibold text-[#11161E]">{q.authorName}</span>
                         <span className="tabular-nums-fa">{formatPersianDate(q.createdAt)}</span>
                       </div>
@@ -1428,7 +1434,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                           <p className="text-xs text-[#11161E] leading-6">{q.answer}</p>
                         </div>
                       ) : (
-                        <p className="text-[11px] text-[#6E7889]">در انتظار پاسخ کارشناسان فروشگاه</p>
+                        <p className="text-[11px] text-[#576071]">در انتظار پاسخ کارشناسان فروشگاه</p>
                       )}
                     </div>
                   ))
@@ -1546,6 +1552,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   src={currentGalleryImg}
                   alt={`${product.nameFa} - تصویر بزرگ ${toPersianDigits(activeImageIndex + 1)}`}
                   loading="eager"
+                  optimizeWidth={1080}
                   className="max-w-full max-h-full object-contain"
                 />
                 {galleryImages.length > 1 && (

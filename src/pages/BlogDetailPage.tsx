@@ -170,7 +170,7 @@ export const BlogDetailPage: React.FC<BlogDetailPageProps> = ({ slug }) => {
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-10">
       {/* Breadcrumb */}
-      <nav aria-label="مسیر صفحه" className="max-w-4xl mx-auto flex flex-wrap items-center gap-2 text-xs text-[#6E7889]">
+      <nav aria-label="مسیر صفحه" className="max-w-4xl mx-auto flex flex-wrap items-center gap-2 text-xs text-[#576071]">
         <a
           href={buildHref('/')}
           onClick={(e) => handleLinkClick(e, '/')}
@@ -213,7 +213,7 @@ export const BlogDetailPage: React.FC<BlogDetailPageProps> = ({ slug }) => {
 
           <p className="text-sm text-[#4A5464] leading-7">{post.excerpt}</p>
 
-          <div className="flex flex-wrap items-center gap-4 pt-2 text-xs text-[#6E7889] border-t border-[#E4E8EE]">
+          <div className="flex flex-wrap items-center gap-4 pt-2 text-xs text-[#576071] border-t border-[#E4E8EE]">
             <span className="inline-flex items-center gap-1.5">
               <User className="w-4 h-4" strokeWidth={1.5} />
               <span>نویسنده: {post.authorName}</span>
@@ -318,7 +318,7 @@ export const BlogDetailPage: React.FC<BlogDetailPageProps> = ({ slug }) => {
                       {rel.title}
                     </a>
                   </h3>
-                  <span className="text-[11px] text-[#6E7889] tabular-nums-fa mt-auto pt-1">
+                  <span className="text-[11px] text-[#576071] tabular-nums-fa mt-auto pt-1">
                     {toPersianDigits(rel.readingTimeMinutes)} دقیقه مطالعه
                   </span>
                 </div>

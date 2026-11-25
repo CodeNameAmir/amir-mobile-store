@@ -134,10 +134,10 @@ export const FaqPage: React.FC = () => {
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="جستجو در پرسش‌ها (مثلاً همتا، اکسپرس...)"
             data-testid="faq-search-input"
-            className="w-full h-11 pr-10 pl-3 rounded-xl bg-[#F1F3F6] border border-[#E4E8EE] text-xs text-[#11161E] placeholder:text-[#6E7889] focus:bg-white focus:border-[#1453D6] focus:outline-none transition-colors"
+            className="w-full h-11 pr-10 pl-3 rounded-xl bg-[#F1F3F6] border border-[#E4E8EE] text-xs text-[#11161E] placeholder:text-[#576071] focus:bg-white focus:border-[#1453D6] focus:outline-none transition-colors"
           />
           <Search
-            className="w-4 h-4 text-[#6E7889] absolute right-3.5 top-1/2 -translate-y-1/2"
+            className="w-4 h-4 text-[#576071] absolute right-3.5 top-1/2 -translate-y-1/2"
             strokeWidth={1.5}
           />
         </div>
@@ -194,7 +194,7 @@ export const FaqPage: React.FC = () => {
                   <motion.span
                     animate={{ rotate: isOpen ? 180 : 0 }}
                     transition={{ duration: 0.2, ease: UI_EASE }}
-                    className="shrink-0 text-[#6E7889]"
+                    className="shrink-0 text-[#576071]"
                   >
                     <ChevronDown className="w-5 h-5" strokeWidth={1.5} />
                   </motion.span>

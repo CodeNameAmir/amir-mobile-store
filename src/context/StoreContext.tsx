@@ -1,11 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CATEGORY_ITEMS,
+  CORE_SEED_PRODUCTS,
   DEFAULT_BRANDS,
   hydrateOrderImages,
   hydrateProduct,
   resolveProductImage,
-  SEED_PRODUCTS,
 } from '../data/catalog';
 import { authApi, storeApi } from '../lib/authApi';
 import { localStore } from '../lib/localStore';
@@ -599,7 +599,14 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setProducts(fetchedProducts.map(hydrateProduct));
       } else {
         // Offline / unreachable backend fallback only after the live request actually fails
-        setProducts((prev) => (prev.length > 0 ? prev : SEED_PRODUCTS));
+        setProducts((prev) => (prev.length > 0 ? prev : CORE_SEED_PRODUCTS));
+        void import('../data/seedFallback')
+          .then((m) => m.loadFallbackSeedProducts())
+          .then((fullFallback) => {
+            if (!active) return;
+            setProducts((prev) => (prev.length <= CORE_SEED_PRODUCTS.length ? fullFallback : prev));
+          })
+          .catch(() => undefined);
       }
       if (Array.isArray(fetchedCats) && fetchedCats.length > 0) {
         setCategories(fetchedCats);

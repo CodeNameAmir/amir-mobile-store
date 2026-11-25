@@ -10,7 +10,7 @@
     --border-hairline: rgba(17, 22, 30, 0.08);
     --on-surface: #11161E;
     --on-surface-variant: #4A5464;
-    --on-surface-muted: #6E7889;
+    --on-surface-muted: #576071;
     --primary: #1453D6;
     --primary-hover: #0F44B5;
     --primary-soft: #EEF3FC;
@@ -140,12 +140,12 @@
   transform: scale(1.08);
 }
 
-@keyframes amir-shimmer {
-  0% {
-    background-position: 200% 0;
+@keyframes amir-skeleton-pulse {
+  0%, 100% {
+    opacity: 1;
   }
-  100% {
-    background-position: -200% 0;
+  50% {
+    opacity: 0.55;
   }
 }
 
@@ -169,15 +169,8 @@
 }
 
 .skeleton-shimmer {
-  background-color: #F1F3F6;
-  background-image: linear-gradient(
-    110deg,
-    #F1F3F6 25%,
-    #E6EAF0 42%,
-    #F1F3F6 60%
-  );
-  background-size: 200% 100%;
-  animation: amir-shimmer 1.35s ease-in-out infinite;
+  background-color: #EAECEF;
+  animation: amir-skeleton-pulse 1.35s ease-in-out infinite;
 }
 
 .card-lift {
@@ -193,7 +186,6 @@
   .skeleton-shimmer,
   .route-progress-indeterminate {
     animation: none;
-    background-image: none;
     background-color: #EAECEF;
   }
 

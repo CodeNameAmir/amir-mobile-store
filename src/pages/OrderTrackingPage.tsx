@@ -172,7 +172,7 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                 aria-label="شماره سفارش"
                 className="w-full h-11 pr-3 pl-9 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-sm font-medium font-mono text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
               />
-              <Search className="w-4 h-4 text-[#6E7889] absolute left-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
+              <Search className="w-4 h-4 text-[#576071] absolute left-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
             </div>
             <button
               type="submit"
@@ -371,7 +371,7 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                     <p className="text-xs font-semibold text-[#11161E] flex items-center gap-1.5">
                       <CheckCircle2
                         className={`w-4 h-4 ${
-                          active || done ? 'text-[#1453D6]' : 'text-[#6E7889]'
+                          active || done ? 'text-[#1453D6]' : 'text-[#576071]'
                         }`}
                         strokeWidth={1.5}
                       />

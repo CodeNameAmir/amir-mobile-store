@@ -1890,7 +1890,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                           <h2 className="text-xs sm:text-sm font-semibold text-[#11161E]">
                             {notif.title}
                           </h2>
-                          <span className="text-[11px] text-[#6E7889] tabular-nums-fa">
+                          <span className="text-[11px] text-[#576071] tabular-nums-fa">
                             · {formatPersianDate(notif.createdAt)}
                           </span>
                         </div>
@@ -2028,7 +2028,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                           >
                             {statusInfo.label}
                           </span>
-                          <span className="text-[11px] text-[#6E7889] tabular-nums-fa">
+                          <span className="text-[11px] text-[#576071] tabular-nums-fa">
                             {formatPersianDate(ticket.createdAt)}
                           </span>
                         </div>

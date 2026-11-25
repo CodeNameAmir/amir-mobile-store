@@ -810,7 +810,7 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
 
               <div className="flex items-center justify-between text-[#4A5464]">
                 <span className="inline-flex items-center gap-1.5">
-                  <Truck className="w-3.5 h-3.5 text-[#6E7889]" strokeWidth={1.5} />
+                  <Truck className="w-3.5 h-3.5 text-[#576071]" strokeWidth={1.5} />
                   هزینه بسته‌بندی و ارسال
                 </span>
                 <span

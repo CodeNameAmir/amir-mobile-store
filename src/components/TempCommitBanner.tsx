@@ -122,7 +122,7 @@ export const TempCommitBanner: React.FC = () => {
           ) : null}
 
           <span className="inline-flex items-center gap-1 text-[11px] text-[#4A5464] tabular-nums-fa shrink-0">
-            <Clock className="w-3 h-3 text-[#6E7889]" />
+            <Clock className="w-3 h-3 text-[#576071]" />
             <span>
               {info.commitDate
                 ? `زمان کامیت: ${formatIsoToFaDateTime(info.commitDate)}`

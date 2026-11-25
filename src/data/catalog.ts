@@ -1,6 +1,5 @@
 import type { BrandItem, CategoryItem, OrderRecord, Product, ProductReview } from '../types/store';
 import { STORE_ASSETS } from './assets';
-import { DIGIKALA_EXTRA_BRANDS, DIGIKALA_EXTRA_PRODUCTS } from './digikalaProducts';
 
 export const CATEGORY_ITEMS: CategoryItem[] = [
   {
@@ -109,10 +108,14 @@ export const DEFAULT_BRANDS: BrandItem[] = [
   { id: 'honor', name: 'Honor', labelFa: 'آنر', isActive: true },
   { id: 'anker', name: 'Anker', labelFa: 'انکر', isActive: true },
   { id: 'motorola', name: 'Motorola', labelFa: 'موتورولا', isActive: true },
-  ...DIGIKALA_EXTRA_BRANDS,
+  { id: 'romoss', name: 'Romoss', labelFa: 'روموس', isActive: true },
+  { id: 'topomax', name: 'Topomax', labelFa: 'توپومکس', isActive: true },
+  { id: 'music-apollo', name: 'Music Apollo', labelFa: 'موزیک آپولو', isActive: true },
+  { id: 'qcy', name: 'QCY', labelFa: 'کیو سی وای', isActive: true },
+  { id: 'nothing', name: 'Nothing', labelFa: 'ناتینگ', isActive: true },
 ];
 
-export const SEED_PRODUCTS: Product[] = [
+export const CORE_SEED_PRODUCTS: Product[] = [
   {
     id: 'iphone-16-pro-max',
     slug: 'iphone-16-pro-max',
@@ -761,7 +764,6 @@ export const SEED_PRODUCTS: Product[] = [
     salesRank: 14,
     releaseOrder: 14,
   },
-  ...DIGIKALA_EXTRA_PRODUCTS,
 ];
 
 export const INITIAL_REVIEWS: ProductReview[] = [
@@ -910,7 +912,7 @@ export const DEMO_SAMPLE_ORDER: OrderRecord = {
   ],
 };
 
-const SEED_BY_ID = new Map(SEED_PRODUCTS.map((p) => [p.id, p]));
+const SEED_BY_ID = new Map(CORE_SEED_PRODUCTS.map((p) => [p.id, p]));
 
 export function resolveFallbackProductImage(brand?: string, category?: string): string {
   const b = String(brand || '').toLowerCase();

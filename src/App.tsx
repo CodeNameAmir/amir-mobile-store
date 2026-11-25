@@ -83,7 +83,7 @@ const PageRouteFallback: React.FC = () => (
         <div className="h-36 bg-[#F3F5F8] rounded-xl" />
         <div className="h-36 bg-[#F3F5F8] rounded-xl" />
       </div>
-      <p className="text-xs text-[#6E7889]">در حال بارگذاری بخش مورد نظر...</p>
+      <p className="text-xs text-[#576071]">در حال بارگذاری بخش مورد نظر...</p>
     </div>
   </div>
 );
@@ -170,7 +170,7 @@ class StoreErrorBoundary extends React.Component<
               <button
                 type="button"
                 onClick={this.handleResetAndGoHome}
-                className="text-xs text-[#6E7889] hover:text-[#11161E] underline underline-offset-4 transition-colors"
+                className="text-xs text-[#576071] hover:text-[#11161E] underline underline-offset-4 transition-colors py-1"
               >
                 پاک‌سازی حافظه موقت و بازگشت به صفحه اصلی
               </button>
@@ -246,7 +246,7 @@ const ToastStack: React.FC = () => {
               type="button"
               onClick={() => dismissToast(toast.id)}
               aria-label="بستن اعلان"
-              className="text-white/70 hover:text-white transition-colors shrink-0"
+              className="w-7 h-7 rounded-md flex items-center justify-center text-white/75 hover:text-white transition-colors shrink-0"
             >
               <X className="w-4 h-4" strokeWidth={1.5} />
             </button>
@@ -291,6 +291,9 @@ const StoreShell: React.FC = () => {
         return route.page;
     }
   })();
+
+  const initialPageKeyRef = React.useRef(pageKey);
+  const hasNavigated = pageKey !== initialPageKeyRef.current;
 
   const renderPage = () => {
     switch (route.page) {
@@ -349,7 +352,7 @@ const StoreShell: React.FC = () => {
       <main className="flex-1">
         <motion.div
           key={pageKey}
-          initial={{ opacity: 0, y: 6 }}
+          initial={hasNavigated ? { opacity: 0, y: 6 } : false}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2, ease: UI_EASE }}
         >

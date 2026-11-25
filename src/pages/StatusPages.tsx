@@ -52,7 +52,7 @@ export const NotFoundPage: React.FC<NotFoundPageProps> = ({ missingPath }) => {
               placeholder="جستجوی آیفون، گلکسی، شارژر"
               className="w-full h-11 pr-10 pl-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-[#11161E] focus:outline-none focus:border-[#1453D6]"
             />
-            <Search className="w-4 h-4 text-[#6E7889] absolute right-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
+            <Search className="w-4 h-4 text-[#576071] absolute right-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
           </div>
           <button
             type="submit"

@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import compression from 'compression';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
@@ -150,6 +151,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   const app = express();
   app.set('trust proxy', 1);
   app.use(helmet(getHelmetOptions(isProd && !isAiStudioPreview)));
+  app.use(compression());
   app.use(express.json({ limit: '2mb' }));
 
   const rateLimitMessage = {
@@ -1819,7 +1821,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   // ============================================================================
   app.get('/api/categories', async (_req, res, next) => {
     try {
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', 'no-cache');
       const categories = await storage.listCategories(false).catch(() => [...CATEGORY_ITEMS]);
       res.json({ categories });
     } catch (err) {
@@ -1829,7 +1831,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.get('/api/brands', async (_req, res, next) => {
     try {
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', 'no-cache');
       const [storedBrands, products] = await Promise.all([
         storage.listBrands().catch(() => [...DEFAULT_DEV_BRANDS]),
         storage.listProducts({}).catch(() => []),
@@ -1858,7 +1860,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.get('/api/store/config', async (_req, res, next) => {
     try {
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', 'no-cache');
       const [coupons, settings] = await Promise.all([
         storage.listActiveCoupons(),
         storage.getStoreSettings(),
@@ -1871,7 +1873,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.get('/api/products', async (req, res, next) => {
     try {
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', 'no-cache');
       const minPrice = req.query.minPrice !== undefined ? Number(req.query.minPrice) : undefined;
       const maxPrice = req.query.maxPrice !== undefined ? Number(req.query.maxPrice) : undefined;
       const categoryParam = typeof req.query.category === 'string' ? req.query.category : undefined;
@@ -1904,9 +1906,19 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         categories,
       });
 
+      const includeEditorial = req.query.includeEditorial === 'true';
+      const serializeProductForList = <T extends { editorialReview?: string }>(item: T) => {
+        if (includeEditorial || item.editorialReview === undefined) return item;
+        const { editorialReview: _omitted, ...rest } = item;
+        return rest;
+      };
+
       const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
       if (!hasPagination) {
-        res.json({ products: matchingProducts, total: matchingProducts.length });
+        res.json({
+          products: matchingProducts.map(serializeProductForList),
+          total: matchingProducts.length,
+        });
         return;
       }
 
@@ -1916,7 +1928,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       const requestedPage = Math.max(1, Math.floor(Number(req.query.page || 1)));
       const page = Math.min(requestedPage, totalPages);
       const offset = (page - 1) * limit;
-      const pagedProducts = matchingProducts.slice(offset, offset + limit);
+      const pagedProducts = matchingProducts.slice(offset, offset + limit).map(serializeProductForList);
 
       res.json({
         products: pagedProducts,
@@ -1932,7 +1944,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.get('/api/warranties', async (_req, res, next) => {
     try {
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', 'no-cache');
       const warranties = await storage.listWarranties(false);
       res.json({ warranties });
     } catch (err) {
@@ -1942,7 +1954,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.get('/api/attributes', async (req, res, next) => {
     try {
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', 'no-cache');
       const category = typeof req.query.category === 'string' ? req.query.category : undefined;
       const attributes = await storage.listAttributes(category);
       res.json({ attributes });
@@ -1953,7 +1965,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.get('/api/products/:slug', async (req, res, next) => {
     try {
-      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Cache-Control', 'no-cache');
       const slug = String(req.params.slug || '').trim();
       const product = await storage.findProductByIdOrSlug(slug);
       if (!product) {
@@ -2712,7 +2724,36 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   );
 
   const distDir = path.resolve(process.cwd(), 'dist');
+  const publicDir = path.resolve(process.cwd(), 'public');
   const indexPath = path.join(distDir, 'index.html');
+
+  const serveCrawlerStaticFile = (
+    routePath: string,
+    fileName: string,
+    contentType: string
+  ) => {
+    app.get(routePath, (_req, res, next) => {
+      const distCandidate = path.join(distDir, fileName);
+      const publicCandidate = path.join(publicDir, fileName);
+      const targetFile = fs.existsSync(distCandidate)
+        ? distCandidate
+        : fs.existsSync(publicCandidate)
+        ? publicCandidate
+        : null;
+      if (!targetFile) {
+        next();
+        return;
+      }
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.sendFile(targetFile);
+    });
+  };
+
+  serveCrawlerStaticFile('/robots.txt', 'robots.txt', 'text/plain; charset=utf-8');
+  serveCrawlerStaticFile('/sitemap.xml', 'sitemap.xml', 'application/xml; charset=utf-8');
+  serveCrawlerStaticFile('/llms.txt', 'llms.txt', 'text/plain; charset=utf-8');
+
   if (!isProd && !options.disableVite) {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
@@ -2725,8 +2766,31 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     });
     app.use(vite.middlewares);
   } else if (fs.existsSync(indexPath)) {
-    app.use(express.static(distDir));
+    app.use(
+      express.static(distDir, {
+        setHeaders(res, filePath) {
+          const normalized = filePath.replace(/\\/g, '/');
+          if (normalized.includes('/assets/')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          } else if (
+            normalized.includes('/icons/') ||
+            normalized.endsWith('/favicon.svg') ||
+            normalized.endsWith('/apple-touch-icon.png')
+          ) {
+            res.setHeader(
+              'Cache-Control',
+              'public, max-age=604800, stale-while-revalidate=86400'
+            );
+          } else if (normalized.endsWith('/index.html')) {
+            res.setHeader('Cache-Control', 'no-cache');
+          } else {
+            res.setHeader('Cache-Control', 'public, max-age=3600');
+          }
+        },
+      })
+    );
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
       res.sendFile(indexPath);
     });
   } else if (isAiStudioPreview && !options.disableVite) {

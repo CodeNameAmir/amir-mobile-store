@@ -91,7 +91,7 @@ export const BlogListPage: React.FC = () => {
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-8">
       {/* Breadcrumb */}
-      <nav aria-label="مسیر صفحه" className="flex items-center gap-2 text-xs text-[#6E7889]">
+      <nav aria-label="مسیر صفحه" className="flex items-center gap-2 text-xs text-[#576071]">
         <a
           href={buildHref('/')}
           onClick={(e) => handleLinkClick(e, '/')}
@@ -126,10 +126,10 @@ export const BlogListPage: React.FC = () => {
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="جستجو در عنوان یا برچسب مقالات"
               aria-label="جستجو در مقالات مجله"
-              className="w-full h-11 pr-10 pl-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-[#11161E] placeholder:text-[#6E7889] focus:outline-none focus:border-[#1453D6]"
+              className="w-full h-11 pr-10 pl-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-[#11161E] placeholder:text-[#576071] focus:outline-none focus:border-[#1453D6]"
             />
             <Search
-              className="w-4 h-4 text-[#6E7889] absolute right-3 top-1/2 -translate-y-1/2"
+              className="w-4 h-4 text-[#576071] absolute right-3 top-1/2 -translate-y-1/2"
               strokeWidth={1.5}
             />
           </div>
@@ -193,7 +193,7 @@ export const BlogListPage: React.FC = () => {
           )}
         </div>
 
-        <div className="flex items-center gap-3 text-xs text-[#6E7889] tabular-nums-fa">
+        <div className="flex items-center gap-3 text-xs text-[#576071] tabular-nums-fa">
           {!loading && <span>{toPersianDigits(total)} مقاله منتشرشده</span>}
           {hasActiveFilters && (
             <button
@@ -257,7 +257,7 @@ export const BlogListPage: React.FC = () => {
             <article
               key={post.id}
               data-testid={`blog-card-${post.slug}`}
-              className="group card-lift bg-white rounded-xl border border-[#E4E8EE] overflow-hidden flex flex-col hover:border-[#C5CEDB] hover:shadow-md transition-all"
+              className="group card-lift bg-white rounded-xl border border-[#E4E8EE] overflow-hidden flex flex-col hover:border-[#C5CEDB] hover:shadow-md transition-[border-color,box-shadow]"
             >
               <a
                 href={buildHref(`/blog/${post.slug}`)}
@@ -267,12 +267,13 @@ export const BlogListPage: React.FC = () => {
                 <SmartImage
                   src={resolveBlogCoverImage(post.coverImage)}
                   alt={post.title}
+                  optimizeWidth={640}
                   className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.03]"
                 />
               </a>
 
               <div className="p-5 flex-1 flex flex-col gap-3">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#6E7889]">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#576071]">
                   <span className="px-2.5 py-0.5 rounded-md bg-[#EEF3FC] text-[#1453D6] font-medium">
                     {post.category}
                   </span>
@@ -314,7 +315,7 @@ export const BlogListPage: React.FC = () => {
                   </div>
                 )}
 
-                <div className="pt-3 border-t border-[#E4E8EE] flex items-center justify-between text-[11px] text-[#6E7889]">
+                <div className="pt-3 border-t border-[#E4E8EE] flex items-center justify-between text-[11px] text-[#576071]">
                   <div className="flex items-center gap-3">
                     <span className="inline-flex items-center gap-1">
                       <User className="w-3.5 h-3.5" strokeWidth={1.5} />

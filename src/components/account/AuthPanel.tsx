@@ -732,7 +732,7 @@ export const AuthPanel: React.FC = () => {
                     data-testid="pw-login-identifier"
                     className="w-full h-11 pr-3.5 pl-10 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
-                  <AtSign className="w-4 h-4 text-[#6E7889] absolute left-3.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
+                  <AtSign className="w-4 h-4 text-[#576071] absolute left-3.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
                 </div>
                 {fieldErrors.loginEmail && (
                   <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.loginEmail}</p>
@@ -808,7 +808,7 @@ export const AuthPanel: React.FC = () => {
                     data-testid="otp-login-identifier"
                     className="w-full h-11 pr-3.5 pl-10 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs sm:text-sm text-left text-[#11161E] focus:outline-none focus:border-[#1453D6]"
                   />
-                  <Mail className="w-4 h-4 text-[#6E7889] absolute left-3.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
+                  <Mail className="w-4 h-4 text-[#576071] absolute left-3.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
                 </div>
                 {fieldErrors.loginEmail && (
                   <p className="text-[11px] font-medium text-[#B42318]">{fieldErrors.loginEmail}</p>

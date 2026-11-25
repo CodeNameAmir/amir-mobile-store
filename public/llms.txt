@@ -1,0 +1,23 @@
+# فروشگاه موبایل امیر | Amir Mobile Store
+
+> فروشگاه تخصصی خرید آنلاین گوشی‌های موبایل پرچمدار، تبلت، ساعت هوشمند، هدفون و تجهیزات شارژ اورجینال با تضمین اصالت، کد رجیستری قانونی همتا و گارانتی ۱۸ ماهه امیر سرویس.
+
+وب‌سایت: https://amir-mobile-store.codenameamir.ir/
+نقشه سایت: https://amir-mobile-store.codenameamir.ir/sitemap.xml
+
+## بخش‌های اصلی فروشگاه
+
+- [صفحه اصلی](https://amir-mobile-store.codenameamir.ir/): معرفی پرچمداران روز، پیشنهادات شگفت‌انگیز، دسته‌بندی‌های تخصصی و مقالات مجله فناوری.
+- [کاتالوگ و جستجوی محصولات](https://amir-mobile-store.codenameamir.ir/catalog): فهرست کامل گوشی‌های اپل، سامسونگ، شیائومی، هواوی و لوازم جانبی با فیلتر قیمت، برند، حافظه، رم و موجودی لحظه‌ای.
+- [پیشنهادات طلایی و تخفیف‌ها](https://amir-mobile-store.codenameamir.ir/catalog?cat=offers): کالاهای دارای تخفیف ویژه و ارسال رایگان.
+- [مقایسه تخصصی موبایل‌ها](https://amir-mobile-store.codenameamir.ir/compare): مقایسه فنی تا ۳ محصول در کنار هم (نمایشگر، تراشه، دوربین، باتری و قیمت).
+- [محاسبه‌گر خرید اقساطی و تعویض](https://amir-mobile-store.codenameamir.ir/installments): محاسبه شفاف پیش‌پرداخت، اقساط ماهانه و طرح معاوضه گوشی کارکرده.
+- [مجله تخصصی موبایل](https://amir-mobile-store.codenameamir.ir/blog): نقد و بررسی پرچمداران، مقایسه دوربین و راهنمای خرید شارژر و ساعت هوشمند.
+- [پیگیری سفارش](https://amir-mobile-store.codenameamir.ir/tracking): استعلام وضعیت پردازش، ارسال اکسپرس و تحویل سفارش.
+
+## اطلاعات پشتیبانی و قوانین
+
+- [پرسش‌های متداول (FAQ)](https://amir-mobile-store.codenameamir.ir/faq): پاسخ سوالات درباره رجیستری همتا، گارانتی ۱۸ ماهه امیر سرویس و زمان ارسال.
+- [درباره فروشگاه امیر](https://amir-mobile-store.codenameamir.ir/about): معرفی مجموعه، استانداردهای تضمین اصالت و خدمات پس از فروش.
+- [شرایط گارانتی و حریم خصوصی](https://amir-mobile-store.codenameamir.ir/terms): قوانین خرید، مهلت بازگشت ۷ روزه و حریم خصوصی کاربران.
+- [تماس و پشتیبانی](https://amir-mobile-store.codenameamir.ir/contact): ثبت تیکت پشتیبانی و ارتباط با کارشناسان فروش.

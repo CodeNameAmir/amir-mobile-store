@@ -486,9 +486,9 @@ export const CatalogPage: React.FC = () => {
             value={brandSearch}
             onChange={(e) => setBrandSearch(e.target.value)}
             placeholder="جستجوی برند (مثلاً Huawei)"
-            className="w-full h-9 pr-8 pl-3 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-xs text-[#11161E] placeholder:text-[#6E7889] focus:bg-white focus:outline-none focus:border-[#1453D6]"
+            className="w-full h-9 pr-8 pl-3 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-xs text-[#11161E] placeholder:text-[#576071] focus:bg-white focus:outline-none focus:border-[#1453D6]"
           />
-          <Search className="w-3.5 h-3.5 text-[#6E7889] absolute right-2.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
+          <Search className="w-3.5 h-3.5 text-[#576071] absolute right-2.5 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
         </div>
         <div className="space-y-2 max-h-48 overflow-y-auto pl-1">
           {visibleBrands.map((brand) => (
@@ -762,7 +762,7 @@ export const CatalogPage: React.FC = () => {
                       });
                     }}
                     placeholder={attr.unit ? `مثلاً ${attr.unit}` : 'مقدار...'}
-                    className="w-full h-8 px-2 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-[11px] text-[#11161E] placeholder:text-[#6E7889] focus:bg-white focus:border-[#1453D6] focus:outline-none"
+                    className="w-full h-8 px-2 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-[11px] text-[#11161E] placeholder:text-[#576071] focus:bg-white focus:border-[#1453D6] focus:outline-none"
                   />
                 </div>
               );
@@ -778,7 +778,7 @@ export const CatalogPage: React.FC = () => {
       {/* Breadcrumb + Header */}
       <div className="bg-white rounded-2xl border border-[#E4E8EE] p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2 text-xs text-[#6E7889]">
+          <div className="flex items-center gap-2 text-xs text-[#576071]">
             <a
               href={buildHref('/')}
               onClick={(e) => handleLinkClick(e, '/')}
@@ -861,9 +861,9 @@ export const CatalogPage: React.FC = () => {
                     setFilters((p) => ({ ...p, searchQuery: e.target.value }));
                   }}
                   placeholder="جستجوی مدل یا برند در فهرست"
-                  className="w-full h-10 pr-9 pl-3 rounded-lg bg-[#F1F3F6] text-xs text-[#11161E] placeholder:text-[#6E7889] focus:bg-white border border-transparent focus:border-[#1453D6] focus:outline-none transition-colors"
+                  className="w-full h-10 pr-9 pl-3 rounded-lg bg-[#F1F3F6] text-xs text-[#11161E] placeholder:text-[#576071] focus:bg-white border border-transparent focus:border-[#1453D6] focus:outline-none transition-colors"
                 />
-                <Search className="w-4 h-4 text-[#6E7889] absolute right-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
+                <Search className="w-4 h-4 text-[#576071] absolute right-3 top-1/2 -translate-y-1/2" strokeWidth={1.5} />
               </form>
 
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
@@ -898,7 +898,7 @@ export const CatalogPage: React.FC = () => {
             {recentSearches.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[#E4E8EE] text-[11px]">
                 <span className="font-medium text-[#4A5464] inline-flex items-center gap-1">
-                  <Clock className="w-3.5 h-3.5 text-[#6E7889]" strokeWidth={1.5} />
+                  <Clock className="w-3.5 h-3.5 text-[#576071]" strokeWidth={1.5} />
                   جستجوهای اخیر
                 </span>
                 {recentSearches.map((item) => (
@@ -920,7 +920,7 @@ export const CatalogPage: React.FC = () => {
                       type="button"
                       aria-label={`حذف ${item} از تاریخچه`}
                       onClick={() => removeRecentSearch(item)}
-                      className="pl-1.5 pr-1 py-1 text-[#6E7889] hover:text-[#B42318]"
+                      className="pl-1.5 pr-1 py-1 text-[#576071] hover:text-[#B42318]"
                     >
                       <X className="w-3 h-3" strokeWidth={1.5} />
                     </button>
@@ -1243,7 +1243,7 @@ export const CatalogPage: React.FC = () => {
                       <motion.span
                         animate={{ rotate: isOpen ? 180 : 0 }}
                         transition={{ duration: 0.2, ease: UI_EASE }}
-                        className="shrink-0 text-[#6E7889]"
+                        className="shrink-0 text-[#576071]"
                       >
                         <ChevronDown className="w-4 h-4" strokeWidth={1.5} />
                       </motion.span>
