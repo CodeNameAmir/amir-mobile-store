@@ -158,6 +158,17 @@ export const HomePage: React.FC = () => {
     return () => window.clearInterval(timer);
   }, [promoSlides.length, sliderPaused]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const timer = window.setTimeout(() => {
+      for (const slide of promoSlides.slice(1)) {
+        const img = new Image();
+        img.src = slide.image;
+      }
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [promoSlides]);
+
   const currentSlide = promoSlides[activeSlide % promoSlides.length];
 
   const activeCategories = useMemo(
@@ -325,9 +336,10 @@ export const HomePage: React.FC = () => {
                     alt={currentSlide.title}
                     loading="eager"
                     fetchPriority="high"
-                    optimizeWidth={960}
-                    width={960}
-                    height={720}
+                    optimizeWidth={880}
+                    sizes="(max-width: 1024px) 92vw, 440px"
+                    width={880}
+                    height={660}
                     className="w-full h-full object-cover"
                   />
                 </div>
@@ -654,7 +666,8 @@ export const HomePage: React.FC = () => {
             <SmartImage
               src={STORE_ASSETS.ankerCharger}
               alt="شارژر و پاوربانک انکر سری GaN"
-              optimizeWidth={640}
+              optimizeWidth={720}
+              sizes="(max-width: 1024px) 92vw, 680px"
               className="w-full h-full object-cover"
             />
           </div>
@@ -785,6 +798,7 @@ export const HomePage: React.FC = () => {
                   src={art.image}
                   alt={art.title}
                   optimizeWidth={640}
+                  sizes="(max-width: 768px) 92vw, 440px"
                   className="w-full h-full object-cover transition-transform duration-300 ease-out group-hover:scale-[1.03]"
                 />
               </a>

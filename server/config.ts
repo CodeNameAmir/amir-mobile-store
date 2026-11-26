@@ -186,20 +186,21 @@ export function getSessionCookieOptions(params: {
   maxAgeMs?: number;
   cookieDomain?: string;
 }): CookieOptionsShape {
-  const useCrossSiteHttps =
+  const hasSharedParentDomain = Boolean(params.cookieDomain && params.cookieDomain.trim());
+  const useHttpsCookie =
     (params.isProd || params.isHttpsRequest) && process.env.ALLOW_INSECURE_COOKIE !== 'true';
 
   const base: CookieOptionsShape = {
     httpOnly: true,
-    sameSite: useCrossSiteHttps ? 'none' : 'lax',
-    secure: useCrossSiteHttps,
+    sameSite: hasSharedParentDomain ? 'lax' : useHttpsCookie ? 'none' : 'lax',
+    secure: useHttpsCookie,
     path: '/',
   };
 
   if (typeof params.maxAgeMs === 'number') {
     base.maxAge = params.maxAgeMs;
   }
-  if (params.cookieDomain && params.cookieDomain.trim()) {
+  if (hasSharedParentDomain && params.cookieDomain) {
     base.domain = params.cookieDomain.trim();
   }
 

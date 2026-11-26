@@ -41,7 +41,15 @@ const CrossSellCard: React.FC<CrossSellCardProps> = ({ product, onAdd }) => {
   return (
     <div className="p-3 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex items-center gap-3">
       <div className="w-14 h-14 rounded-lg overflow-hidden bg-white shrink-0">
-        <SmartImage src={product.image} alt={product.nameFa} className="w-full h-full object-cover" />
+        <SmartImage
+          src={product.image}
+          alt={product.nameFa}
+          optimizeWidth={160}
+          sizes="56px"
+          width={56}
+          height={56}
+          className="w-full h-full object-cover"
+        />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold text-[#11161E] line-clamp-1">{product.nameFa}</p>
@@ -316,7 +324,7 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left / Main Column */}
-        <div className="lg:col-span-8 space-y-5">
+        <div className="lg:col-span-8 min-w-0 space-y-5">
           {mode === 'cart' ? (
             <>
               <div className="bg-white rounded-2xl border border-[#E4E8EE] divide-y divide-[#E4E8EE] overflow-hidden">
@@ -343,6 +351,10 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
                         <SmartImage
                           src={item.image}
                           alt={item.nameFa}
+                          optimizeWidth={240}
+                          sizes="96px"
+                          width={96}
+                          height={96}
                           className="w-full h-full object-cover"
                         />
                       </div>
@@ -721,7 +733,7 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
         </div>
 
         {/* Right / Sticky Order Summary Sidebar */}
-        <aside className="lg:col-span-4 space-y-4 sticky top-28">
+        <aside className="lg:col-span-4 min-w-0 space-y-4 sticky top-28">
           <div className="bg-white rounded-2xl border border-[#E4E8EE] p-6 space-y-5">
             <h2 className="text-base font-semibold text-[#11161E] border-b border-[#E4E8EE] pb-3">
               خلاصه صورت‌حساب

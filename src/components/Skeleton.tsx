@@ -91,6 +91,44 @@ export const AccountPageSkeleton: React.FC = () => (
   </div>
 );
 
+export const AuthPageSkeleton: React.FC = () => (
+  <div
+    role="status"
+    aria-busy="true"
+    aria-label="در حال بارگذاری ورود و ثبت‌نام"
+    data-testid="auth-page-skeleton"
+    className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-8"
+  >
+    <div className="max-w-xl mx-auto bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-5">
+      <div className="space-y-2">
+        <SkeletonBox className="h-6 w-48 rounded-lg" />
+        <SkeletonBox className="h-4 w-72 max-w-full rounded-md" />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <SkeletonBox className="h-10 rounded-lg" />
+        <SkeletonBox className="h-10 rounded-lg" />
+        <SkeletonBox className="h-10 rounded-lg" />
+      </div>
+      <div className="space-y-4 pt-2">
+        <SkeletonBox className="h-11 w-full rounded-lg" />
+        <SkeletonBox className="h-11 w-full rounded-lg" />
+        <SkeletonBox className="h-11 w-full rounded-lg" />
+      </div>
+    </div>
+
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div className="lg:col-span-7 bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
+        <SkeletonBox className="h-5 w-44 rounded-md" />
+        <SkeletonBox className="h-28 w-full rounded-xl" />
+      </div>
+      <div className="lg:col-span-5 bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
+        <SkeletonBox className="h-5 w-44 rounded-md" />
+        <SkeletonBox className="h-28 w-full rounded-xl" />
+      </div>
+    </div>
+  </div>
+);
+
 export const TrackingPageSkeleton: React.FC = () => (
   <div
     role="status"
@@ -320,7 +358,7 @@ export const ProductDetailSkeleton: React.FC = () => (
       {/* Col 1: Gallery + Thumbs */}
       <div className="lg:col-span-4 space-y-3">
         <SkeletonBox className="aspect-square w-full rounded-xl" />
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 pb-1">
           {Array.from({ length: 4 }).map((_, idx) => (
             <SkeletonBox key={idx} className="w-16 h-16 rounded-lg shrink-0" />
           ))}
@@ -391,7 +429,9 @@ export const ProductDetailSkeleton: React.FC = () => (
             </div>
             <SkeletonBox className="h-12 w-full rounded-lg" />
           </div>
-          <ProductBuyBoxSkeleton />
+          <div className="min-h-[388px]">
+            <ProductBuyBoxSkeleton />
+          </div>
         </div>
       </div>
     </div>

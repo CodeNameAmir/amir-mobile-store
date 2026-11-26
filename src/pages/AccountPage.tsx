@@ -1,31 +1,41 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { Heart, Package } from 'lucide-react';
-import { AccountDashboard } from '../components/account/AccountDashboard';
-import { AuthPanel } from '../components/account/AuthPanel';
-import { AccountPageSkeleton } from '../components/Skeleton';
+import { AccountPageSkeleton, AuthPageSkeleton } from '../components/Skeleton';
 import { ProductCard } from '../components/ProductCard';
 import { useStore } from '../context/StoreContext';
+import { lazyWithRetry } from '../utils/lazyWithRetry';
 import { formatToman, toPersianDigits } from '../utils/storeLogic';
+
+const AccountDashboard = lazyWithRetry(() =>
+  import('../components/account/AccountDashboard').then((m) => ({ default: m.AccountDashboard }))
+);
+const AuthPanel = lazyWithRetry(() =>
+  import('../components/account/AuthPanel').then((m) => ({ default: m.AuthPanel }))
+);
 
 export const AccountPage: React.FC = () => {
   const { user, authLoading, orders, wishlist, products, buildHref, handleLinkClick } = useStore();
   const wishlistProducts = products.filter((p) => wishlist.includes(p.id));
 
   if (authLoading && !user) {
-    return <AccountPageSkeleton />;
+    return <AuthPageSkeleton />;
   }
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-8">
       {user ? (
-        <AccountDashboard user={user} />
+        <Suspense fallback={<AccountPageSkeleton />}>
+          <AccountDashboard user={user} />
+        </Suspense>
       ) : (
         <>
-          <AuthPanel />
+          <Suspense fallback={<AuthPageSkeleton />}>
+            <AuthPanel />
+          </Suspense>
 
           {/* Guest Local Orders & Wishlist Summary */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <section className="lg:col-span-7 bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
+            <section className="lg:col-span-7 min-w-0 bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
               <h2 className="text-base font-semibold text-[#11161E] flex items-center gap-2">
                 <Package className="w-5 h-5 text-[#1453D6]" strokeWidth={1.5} />
                 <span>سفارش‌های این مرورگر ({toPersianDigits(orders.length)})</span>
@@ -77,7 +87,7 @@ export const AccountPage: React.FC = () => {
               )}
             </section>
 
-            <section className="lg:col-span-5 bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
+            <section className="lg:col-span-5 min-w-0 bg-white rounded-2xl border border-[#E4E8EE] p-6 sm:p-8 space-y-4">
               <h2 className="text-base font-semibold text-[#11161E] flex items-center gap-2">
                 <Heart className="w-5 h-5 text-[#B42318]" strokeWidth={1.5} />
                 <span>علاقه‌مندی‌های این مرورگر ({toPersianDigits(wishlistProducts.length)})</span>

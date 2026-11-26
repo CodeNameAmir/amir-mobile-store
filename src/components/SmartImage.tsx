@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Smartphone } from 'lucide-react';
-import { optimizeImageUrl } from '../utils/imageOptimize';
+import { buildResponsiveImageSrcSet, optimizeImageUrl } from '../utils/imageOptimize';
 
 interface SmartImageProps {
   src: string;
@@ -11,6 +11,7 @@ interface SmartImageProps {
   fetchPriority?: 'high' | 'low' | 'auto';
   optimizeWidth?: number;
   optimizeQuality?: number;
+  sizes?: string;
   width?: number;
   height?: number;
 }
@@ -24,6 +25,7 @@ export const SmartImage: React.FC<SmartImageProps> = ({
   fetchPriority,
   optimizeWidth = 480,
   optimizeQuality = 80,
+  sizes,
   width,
   height,
 }) => {
@@ -31,6 +33,11 @@ export const SmartImage: React.FC<SmartImageProps> = ({
 
   const optimizedSrc = useMemo(
     () => optimizeImageUrl(src, { width: optimizeWidth, quality: optimizeQuality }),
+    [src, optimizeWidth, optimizeQuality]
+  );
+
+  const responsiveSrcSet = useMemo(
+    () => buildResponsiveImageSrcSet(src, optimizeWidth, optimizeQuality),
     [src, optimizeWidth, optimizeQuality]
   );
 
@@ -56,6 +63,8 @@ export const SmartImage: React.FC<SmartImageProps> = ({
     <div className={`relative overflow-hidden bg-[#F3F5F8] ${containerClassName || 'w-full h-full'}`}>
       <img
         src={optimizedSrc}
+        srcSet={responsiveSrcSet}
+        sizes={responsiveSrcSet ? sizes || `${optimizeWidth}px` : undefined}
         alt={alt}
         width={width}
         height={height}

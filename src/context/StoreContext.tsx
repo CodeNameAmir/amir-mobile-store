@@ -587,13 +587,40 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     let active = true;
     let lastRefreshAt = Date.now();
+
+    authApi
+      .getStatus()
+      .catch(() => null)
+      .then((authStatus) => {
+        if (!active) return;
+        if (authStatus) {
+          setResendStatus({
+            resendConfigured: authStatus.resendConfigured,
+            fromAddress: authStatus.fromAddress,
+            usingTestSender: authStatus.usingTestSender,
+          });
+          if (authStatus.authenticated && authStatus.user) {
+            userRef.current = authStatus.user;
+            setUser(authStatus.user);
+            localStore.saveUser(authStatus.user);
+            void hydrateAuthenticatedSession(authStatus.user, false);
+          } else {
+            userRef.current = null;
+            setUser(null);
+            setNotifications([]);
+            setOrdersState({ userId: null, list: [], loading: false });
+            localStore.saveUser(null);
+          }
+        }
+        setAuthLoading(false);
+      });
+
     Promise.all([
       storeApi.getProducts().catch(() => null),
       storeApi.getCategories().catch(() => null),
       storeApi.getBrands().catch(() => null),
       storeApi.getStoreConfig().catch(() => null),
-      authApi.getStatus().catch(() => null),
-    ]).then(([fetchedProducts, fetchedCats, fetchedBrands, fetchedConfig, authStatus]) => {
+    ]).then(([fetchedProducts, fetchedCats, fetchedBrands, fetchedConfig]) => {
       if (!active) return;
       if (Array.isArray(fetchedProducts)) {
         setProducts(fetchedProducts.map(hydrateProduct));
@@ -623,26 +650,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           setStoreSettings(fetchedConfig.settings);
         }
       }
-      if (authStatus) {
-        setResendStatus({
-          resendConfigured: authStatus.resendConfigured,
-          fromAddress: authStatus.fromAddress,
-          usingTestSender: authStatus.usingTestSender,
-        });
-        if (authStatus.authenticated && authStatus.user) {
-          userRef.current = authStatus.user;
-          setUser(authStatus.user);
-          localStore.saveUser(authStatus.user);
-          void hydrateAuthenticatedSession(authStatus.user, false);
-        } else {
-          userRef.current = null;
-          setUser(null);
-          setNotifications([]);
-          setOrdersState({ userId: null, list: [], loading: false });
-          localStore.saveUser(null);
-        }
-      }
-      setAuthLoading(false);
     });
 
     const handleVisibility = () => {

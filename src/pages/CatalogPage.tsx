@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   ChevronDown,
@@ -90,6 +90,7 @@ export const CatalogPage: React.FC = () => {
     ready: false,
     failed: false,
   });
+  const isInitialCatalogFetchRef = useRef(true);
 
   useEffect(() => {
     setLocalSearch(filters.searchQuery || '');
@@ -140,7 +141,7 @@ export const CatalogPage: React.FC = () => {
 
     setServerPageState((prev) => ({ ...prev, loading: true, failed: false }));
 
-    const timer = window.setTimeout(() => {
+    const runFetch = () => {
       storeApi
         .getProductsPaginated({
           category: filters.category !== 'all' ? filters.category : undefined,
@@ -179,7 +180,19 @@ export const CatalogPage: React.FC = () => {
             failed: true,
           }));
         });
-    }, 120);
+    };
+
+    const delayMs = isInitialCatalogFetchRef.current ? 0 : 90;
+    isInitialCatalogFetchRef.current = false;
+
+    if (delayMs === 0) {
+      runFetch();
+      return () => {
+        active = false;
+      };
+    }
+
+    const timer = window.setTimeout(runFetch, delayMs);
 
     return () => {
       active = false;
@@ -817,7 +830,7 @@ export const CatalogPage: React.FC = () => {
       {/* Main 2-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Desktop Sidebar */}
-        <aside className="hidden lg:block lg:col-span-3 bg-white rounded-2xl border border-[#E4E8EE] p-5 sticky top-32 lg:max-h-[calc(100vh-8.5rem)] lg:overflow-y-auto">
+        <aside className="hidden lg:block lg:col-span-3 min-w-0 bg-white rounded-2xl border border-[#E4E8EE] p-5 sticky top-32 lg:max-h-[calc(100vh-8.5rem)] lg:overflow-y-auto">
           {filterSidebarContent}
         </aside>
 
@@ -847,7 +860,7 @@ export const CatalogPage: React.FC = () => {
         </AnimatePresence>
 
         {/* Product Results Column */}
-        <div className="lg:col-span-9 space-y-5">
+        <div className="lg:col-span-9 min-w-0 space-y-5">
           {/* Smart Search + Recent Searches + Sort Bar */}
           <div className="bg-white rounded-2xl border border-[#E4E8EE] p-4 space-y-3">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -1135,7 +1148,7 @@ export const CatalogPage: React.FC = () => {
                     )}
 
                     {activeTotalPages > 1 && (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center justify-center gap-1.5">
                         <button
                           type="button"
                           disabled={activePageNumber <= 1}

@@ -14,7 +14,7 @@ export function optimizeImageUrl(src: string, opts: OptimizeImageOptions = {}): 
     return trimmed;
   }
 
-  const width = Math.max(64, Math.min(1600, Math.round(opts.width ?? 480)));
+  const width = Math.max(160, Math.min(1600, Math.round(opts.width ?? 480)));
   const quality = Math.max(40, Math.min(95, Math.round(opts.quality ?? 80)));
   const format = opts.format ?? 'webp';
 
@@ -37,4 +37,34 @@ export function optimizeImageUrl(src: string, opts: OptimizeImageOptions = {}): 
   }
 
   return trimmed;
+}
+
+const RESPONSIVE_WIDTH_STEPS = [160, 200, 240, 360, 480, 640, 800, 960] as const;
+
+export function buildResponsiveImageSrcSet(
+  src: string,
+  maxWidth = 480,
+  quality = 80
+): string | undefined {
+  const trimmed = String(src || '').trim();
+  if (!trimmed || !trimmed.includes('dkstatics-public.digikala.com')) {
+    return undefined;
+  }
+
+  const clampedMax = Math.max(160, Math.min(1600, Math.round(maxWidth)));
+  const widths = Array.from(
+    new Set([
+      ...RESPONSIVE_WIDTH_STEPS.filter((w) => w < clampedMax),
+      clampedMax,
+    ])
+  ).sort((a, b) => a - b);
+
+  if (widths.length <= 1) {
+    return undefined;
+  }
+
+  const entries = widths.map(
+    (w) => `${optimizeImageUrl(trimmed, { width: w, quality })} ${w}w`
+  );
+  return entries.join(', ');
 }

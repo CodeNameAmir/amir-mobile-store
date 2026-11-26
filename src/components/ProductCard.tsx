@@ -64,6 +64,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, compact = fal
           <SmartImage
             src={product.image}
             alt={product.nameFa}
+            optimizeWidth={480}
+            sizes="(max-width: 640px) 90vw, (max-width: 1024px) 45vw, 320px"
+            width={360}
+            height={270}
             className="w-full h-full object-cover transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-[1.04]"
           />
         </a>

@@ -32,6 +32,7 @@ import {
   ProductBuyBoxSkeleton,
   ProductDetailSkeleton,
   ReviewCardSkeleton,
+  SkeletonBox,
 } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
@@ -522,7 +523,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
       {/* Main 3-Column PDP Grid */}
       <div className="bg-white rounded-2xl border border-[#E4E8EE] p-5 sm:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Col 1: Product Multi-Image Gallery Slider */}
-        <div className="lg:col-span-4 space-y-3">
+        <div className="lg:col-span-4 min-w-0 space-y-3">
           <div className="relative aspect-square rounded-xl bg-[#F3F5F8] border border-[#E4E8EE] overflow-hidden p-4">
             <AnimatePresence mode="wait" initial={false}>
               <motion.button
@@ -542,6 +543,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                   loading="eager"
                   fetchPriority="high"
                   optimizeWidth={800}
+                  sizes="(max-width: 1024px) 92vw, 420px"
                   width={640}
                   height={640}
                   data-testid="pdp-main-image"
@@ -667,6 +669,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     src={imgSrc}
                     alt={`${product.nameFa} ${idx + 1}`}
                     optimizeWidth={160}
+                    sizes="64px"
                     width={64}
                     height={64}
                     className="w-full h-full object-cover"
@@ -689,7 +692,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         </div>
 
         {/* Col 2: Title, Variant Configurator, Quick Specs */}
-        <div className="lg:col-span-5 space-y-6">
+        <div className="lg:col-span-5 min-w-0 space-y-6">
           <div className="space-y-2 border-b border-[#E4E8EE] pb-5">
             <div className="flex items-center justify-between gap-2">
               <a
@@ -867,7 +870,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         </div>
 
         {/* Col 3: Sticky Buy Box */}
-        <div className="lg:col-span-3">
+        <div className="lg:col-span-3 min-w-0">
           <div className="rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] p-5 space-y-5 sticky top-28">
             <div className="space-y-2 border-b border-[#E4E8EE] pb-4">
               <div className="flex items-center justify-between text-xs">
@@ -887,6 +890,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               </div>
             </div>
 
+            <div className="min-h-[388px]">
             {liveStockChecking ? (
               <ProductBuyBoxSkeleton />
             ) : effectiveInStock ? (
@@ -1094,28 +1098,50 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 </button>
               </div>
             )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Complementary Accessories */}
-      {complementaryItems.length > 0 && (
-        <section className="space-y-4">
-          <h2 className="text-lg sm:text-xl font-semibold text-[#11161E]">
-            لوازم جانبی پیشنهادی همراه این کالا
-          </h2>
+      {productsLoading && complementaryItems.length === 0 ? (
+        <section className="space-y-4" aria-hidden="true">
+          <SkeletonBox className="h-6 w-64 rounded-md" />
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {complementaryItems.map((acc) => (
-              <ComplementaryAccessoryCard
-                key={acc.id}
-                acc={acc}
-                buildHref={buildHref}
-                handleLinkClick={handleLinkClick}
-                onAdd={() => addToCart(acc)}
-              />
+            {Array.from({ length: 3 }).map((_, idx) => (
+              <div
+                key={idx}
+                className="bg-white rounded-xl border border-[#E4E8EE] p-4 flex items-center gap-4"
+              >
+                <SkeletonBox className="w-20 h-20 rounded-lg shrink-0" />
+                <div className="flex-1 space-y-2">
+                  <SkeletonBox className="h-3.5 w-5/6 rounded-md" />
+                  <SkeletonBox className="h-3.5 w-24 rounded-md" />
+                </div>
+                <SkeletonBox className="h-8 w-14 rounded-lg shrink-0" />
+              </div>
             ))}
           </div>
         </section>
+      ) : (
+        complementaryItems.length > 0 && (
+          <section className="space-y-4">
+            <h2 className="text-lg sm:text-xl font-semibold text-[#11161E]">
+              لوازم جانبی پیشنهادی همراه این کالا
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {complementaryItems.map((acc) => (
+                <ComplementaryAccessoryCard
+                  key={acc.id}
+                  acc={acc}
+                  buildHref={buildHref}
+                  handleLinkClick={handleLinkClick}
+                  onAdd={() => addToCart(acc)}
+                />
+              ))}
+            </div>
+          </section>
+        )
       )}
 
       {/* Detailed Tabs */}
@@ -1599,7 +1625,15 @@ const ComplementaryAccessoryCard: React.FC<{
   return (
     <div className="card-lift bg-white rounded-xl border border-[#E4E8EE] hover:border-[#C5CEDB] hover:shadow-sm p-4 flex items-center gap-4">
       <div className="w-20 h-20 rounded-lg bg-[#F3F5F8] overflow-hidden shrink-0">
-        <SmartImage src={acc.image} alt={acc.nameFa} className="w-full h-full object-cover" />
+        <SmartImage
+          src={acc.image}
+          alt={acc.nameFa}
+          optimizeWidth={160}
+          sizes="80px"
+          width={80}
+          height={80}
+          className="w-full h-full object-cover"
+        />
       </div>
       <div className="flex-1 min-w-0 space-y-1">
         <a

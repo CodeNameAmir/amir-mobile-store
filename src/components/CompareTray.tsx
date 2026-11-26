@@ -41,7 +41,15 @@ export const CompareTray: React.FC = () => {
                       className="flex items-center gap-1.5 bg-white/10 rounded-lg pl-2 pr-1 py-1 shrink-0"
                     >
                       <div className="w-7 h-7 rounded-md overflow-hidden bg-white shrink-0">
-                        <SmartImage src={p.image} alt={p.nameFa} className="w-full h-full object-cover" />
+                        <SmartImage
+                          src={p.image}
+                          alt={p.nameFa}
+                          optimizeWidth={160}
+                          sizes="28px"
+                          width={28}
+                          height={28}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
                       <span className="text-[11px] font-medium max-w-[95px] truncate">{p.nameFa}</span>
                       <button

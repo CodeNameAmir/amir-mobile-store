@@ -536,7 +536,7 @@ export const Navbar: React.FC = () => {
                           className="w-full p-3 flex items-center gap-3 hover:bg-[#F7F8FA] text-right transition-colors"
                         >
                           <div className="w-11 h-11 rounded-lg bg-[#F3F5F8] overflow-hidden shrink-0">
-                            <SmartImage src={item.image} alt={item.nameFa} optimizeWidth={120} width={44} height={44} className="w-full h-full object-cover" />
+                            <SmartImage src={item.image} alt={item.nameFa} optimizeWidth={160} sizes="44px" width={44} height={44} className="w-full h-full object-cover" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-[#11161E] truncate">{item.nameFa}</p>

@@ -25,7 +25,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
@@ -34,9 +34,14 @@ jobs:
       - name: Build project
         run: npm run build
         env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_BASE_PATH: "/"
+          VITE_API_URL: ${{ secrets.VITE_API_URL || 'https://api.codenameamir.ir' }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_GIT_COMMIT_SHA: ${{ github.sha }}
+          VITE_GIT_BRANCH: ${{ github.ref_name }}
+          VITE_GITHUB_REPO: ${{ github.repository }}
+          VITE_GITHUB_RUN_NUMBER: ${{ github.run_number }}
 
       - name: Sync dist to ArvanCloud Object Storage
         env:
@@ -44,10 +49,39 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.ARVAN_SECRET_KEY }}
           AWS_DEFAULT_REGION: ir-thr-at1
         run: |
+          aws s3 sync ./dist/assets s3://${{ secrets.ARVAN_BUCKET_NAME }}/assets \
+            --endpoint-url ${{ secrets.ARVAN_ENDPOINT }} \
+            --acl public-read \
+            --cache-control "public, max-age=31536000, immutable" \
+            --delete
           aws s3 sync ./dist s3://${{ secrets.ARVAN_BUCKET_NAME }} \
             --endpoint-url ${{ secrets.ARVAN_ENDPOINT }} \
             --acl public-read \
+            --exclude "assets/*" \
+            --exclude "index.html" \
+            --exclude "404.html" \
+            --exclude "sw.js" \
+            --exclude "robots.txt" \
+            --exclude "sitemap.xml" \
+            --exclude "llms.txt" \
+            --cache-control "public, max-age=3600, must-revalidate" \
             --delete
+          for meta in robots.txt sitemap.xml llms.txt; do
+            if [ -f "./dist/$meta" ]; then
+              aws s3 cp "./dist/$meta" "s3://${{ secrets.ARVAN_BUCKET_NAME }}/$meta" \
+                --endpoint-url ${{ secrets.ARVAN_ENDPOINT }} \
+                --acl public-read \
+                --cache-control "public, max-age=300, must-revalidate"
+            fi
+          done
+          for shell in index.html 404.html sw.js; do
+            if [ -f "./dist/$shell" ]; then
+              aws s3 cp "./dist/$shell" "s3://${{ secrets.ARVAN_BUCKET_NAME }}/$shell" \
+                --endpoint-url ${{ secrets.ARVAN_ENDPOINT }} \
+                --acl public-read \
+                --cache-control "no-cache, no-store, must-revalidate"
+            fi
+          done
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

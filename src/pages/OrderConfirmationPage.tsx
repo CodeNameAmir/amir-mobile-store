@@ -403,7 +403,15 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
                 className="p-3.5 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex items-center gap-3.5"
               >
                 <div className="w-16 h-16 rounded-lg bg-[#F3F5F8] border border-[#E4E8EE] overflow-hidden shrink-0">
-                  <SmartImage src={item.image} alt={item.nameFa} className="w-full h-full object-cover" />
+                  <SmartImage
+                    src={item.image}
+                    alt={item.nameFa}
+                    optimizeWidth={160}
+                    sizes="64px"
+                    width={64}
+                    height={64}
+                    className="w-full h-full object-cover"
+                  />
                 </div>
                 <div className="flex-1 min-w-0 space-y-1">
                   <a

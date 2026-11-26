@@ -119,6 +119,16 @@ test('Production config guards reject missing secrets, CORS_ORIGIN, and Supabase
   assert.equal(devCookie.httpOnly, true);
   assert.equal(devCookie.sameSite, 'lax');
   assert.equal(devCookie.secure, false);
+
+  const sharedDomainCookie = getSessionCookieOptions({
+    isProd: true,
+    isHttpsRequest: true,
+    maxAgeMs: 60_000,
+    cookieDomain: '.codenameamir.ir',
+  });
+  assert.equal(sharedDomainCookie.sameSite, 'lax');
+  assert.equal(sharedDomainCookie.secure, true);
+  assert.equal(sharedDomainCookie.domain, '.codenameamir.ir');
 });
 
 test('Supabase auth storage adapter persists users & OTP challenges to PostgreSQL tables', async () => {
