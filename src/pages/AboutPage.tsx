@@ -60,10 +60,10 @@ export const AboutPage: React.FC = () => {
       {/* 4 Key Metrics */}
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { value: '+۴۵٬۰۰۰', label: 'دستگاه تحویل‌شده با کد همتا' },
-          { value: '۹۸.۴٪', label: 'رضایت مشتریان از بسته‌بندی و ارسال' },
+          { value: '۱۰۰٪', label: 'اصالت پلمپ و استعلام قانونی همتا' },
+          { value: '۷ روز', label: 'مهلت تعویض و بازگشت در مغایرت فنی' },
           { value: '۱۸ مرحله', label: 'بازرسی کیفی پارت‌نامبر و اصالت' },
-          { value: '۳ ساعته', label: 'میانگین تحویل اکسپرس در تهران' },
+          { value: '۳ ساعته', label: 'بازه‌ تحویل اکسپرس در شهر تهران' },
         ].map((stat) => (
           <div
             key={stat.label}

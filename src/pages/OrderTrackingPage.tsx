@@ -15,7 +15,7 @@ import {
 import { TrackingPageSkeleton } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
 import type { OrderLookupResult, OrderRecord, OrderStatus } from '../types/store';
-import { formatToman, toPersianDigits } from '../utils/storeLogic';
+import { formatToman, getPaymentStatusLabel, toPersianDigits } from '../utils/storeLogic';
 
 interface OrderTrackingPageProps {
   initialCode?: string;
@@ -269,10 +269,18 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
           {/* Status Summary + Progress */}
           <section className="bg-white rounded-2xl border border-[#E4E8EE] p-6 space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#E4E8EE] pb-4">
-              <div className="space-y-1">
-                <span className="text-xs font-medium text-[#1453D6] font-mono">
-                  شماره مرسوله: <span dir="ltr">{order.orderCode}</span>
-                </span>
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-medium text-[#1453D6] font-mono">
+                    شماره مرسوله: <span dir="ltr">{order.orderCode}</span>
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-[#F1F3F6] text-[#11161E] font-medium">
+                    وضعیت سفارش: {STATUS_LABELS[order.status]}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-md bg-[#F7F8FA] border border-[#E4E8EE] text-[#4A5464]">
+                    پرداخت: {getPaymentStatusLabel(order.paymentStatus)}
+                  </span>
+                </div>
                 <h2 className="text-lg font-semibold text-[#11161E] tabular-nums-fa">
                   تحویل‌گیرنده: {order.customerName} — مبلغ کل: {formatToman(order.totalAmount)} تومان
                 </h2>
@@ -390,12 +398,18 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Schematic Tehran Route Map + Courier */}
             <div className="lg:col-span-7 bg-white rounded-2xl border border-[#E4E8EE] p-6 space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-2">
                 <h3 className="text-base font-semibold text-[#11161E] flex items-center gap-2">
                   <Navigation className="w-4 h-4 text-[#1453D6]" strokeWidth={1.5} />
-                  <span>مسیر ناوگان اکسپرس امیر</span>
+                  <span>مسیر ارسال سفارش</span>
                 </h3>
-                <span className="text-xs font-medium text-[#4A5464]">پیک اختصاصی: پیمان صالحی</span>
+                <span className="text-xs font-medium text-[#4A5464]">
+                  {order.status === 'shipped' || order.status === 'delivered'
+                    ? order.deliverySlot === 'express'
+                      ? 'ارسال اکسپرس امیر'
+                      : 'پست پیشتاز'
+                    : 'تخصیص پس از تایید و آماده‌سازی'}
+                </span>
               </div>
 
               <div className="relative h-56 rounded-xl bg-[#F3F5F8] border border-[#E4E8EE] overflow-hidden p-5 flex flex-col justify-between">
@@ -422,16 +436,30 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
 
                 <div className="relative z-10 flex items-center justify-between">
                   <span className="px-3 py-1 rounded-lg bg-white border border-[#E4E8EE] text-[#11161E] text-xs font-medium">
-                    مبدا: انبار مرکزی پایتخت
+                    مبدا: انبار مرکزی تهران
                   </span>
-                  <span className="px-3 py-1 rounded-lg bg-[#1453D6] text-white text-xs font-semibold inline-flex items-center gap-1.5">
+                  <span
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
+                      order.status === 'cancelled'
+                        ? 'bg-[#B42318] text-white'
+                        : order.status === 'delivered'
+                        ? 'bg-[#067647] text-white'
+                        : 'bg-[#1453D6] text-white'
+                    }`}
+                  >
                     <Truck className="w-3.5 h-3.5" strokeWidth={1.5} />
                     <span>
-                      {order.status === 'delivered'
+                      {order.status === 'cancelled'
+                        ? 'لغو شده'
+                        : order.status === 'delivered'
                         ? 'تحویل داده شده'
                         : order.status === 'shipped'
                         ? 'در مسیر ارسال'
-                        : 'آماده بارگیری'}
+                        : order.status === 'preparing'
+                        ? 'در حال بسته‌بندی'
+                        : order.status === 'paid'
+                        ? 'در صف پردازش انبار'
+                        : 'در انتظار پرداخت'}
                     </span>
                   </span>
                 </div>
@@ -464,12 +492,18 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                 </div>
                 <p className="text-xs text-[#11161E] leading-6">
                   شناسه دستگاه (IMEI):{' '}
-                  <span dir="ltr" className="font-semibold font-mono text-[#1453D6] tabular-nums-fa">
-                    {toPersianDigits(order.imeiSample)}
-                  </span>
+                  {order.imeiSample && order.imeiSample.trim() ? (
+                    <span dir="ltr" className="font-semibold font-mono text-[#1453D6] tabular-nums-fa">
+                      {toPersianDigits(order.imeiSample)}
+                    </span>
+                  ) : (
+                    <span className="text-[#4A5464]">
+                      پس از تایید سفارش و در مرحله آماده‌سازی انبار ثبت می‌شود
+                    </span>
+                  )}
                 </p>
                 <p className="text-[11px] text-[#4A5464]">
-                  کد فعال‌سازی رجیستری به محض تحویل بسته به شماره {toPersianDigits(order.customerPhone)} پیامک می‌شود.
+                  کد فعال‌سازی رجیستری به محض تحویل بسته به شماره {toPersianDigits(order.customerPhone)} ارسال می‌شود.
                 </p>
               </div>
 
@@ -480,8 +514,14 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                 </h3>
                 <ul className="space-y-2.5 text-xs">
                   <li className="p-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] flex items-center justify-between">
-                    <span className="font-medium text-[#11161E]">تخصیص بسته به مرکز کنترل کیفیت امیر</span>
-                    <span className="text-[#4A5464]">تایید شده</span>
+                    <span className="font-medium text-[#11161E]">وضعیت پردازش در انبار</span>
+                    <span className="text-[#4A5464]">
+                      {order.status === 'cancelled'
+                        ? 'لغو شده'
+                        : order.status === 'pending_payment'
+                        ? 'در انتظار تکمیل پرداخت'
+                        : STATUS_LABELS[order.status]}
+                    </span>
                   </li>
                   <li className="p-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] flex items-center justify-between">
                     <span className="font-medium text-[#11161E]">ثبت سفارش و صدور پیش‌فاکتور</span>

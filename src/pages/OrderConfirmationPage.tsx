@@ -19,7 +19,12 @@ import { OrderConfirmationSkeleton } from '../components/Skeleton';
 import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import type { OrderLookupResult, OrderRecord } from '../types/store';
-import { formatToman, getOrderFlowStage, toPersianDigits } from '../utils/storeLogic';
+import {
+  formatToman,
+  getOrderFlowStage,
+  getPaymentStatusLabel,
+  toPersianDigits,
+} from '../utils/storeLogic';
 
 interface OrderConfirmationPageProps {
   orderCode: string;
@@ -185,10 +190,15 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
   }
 
   const flow = getOrderFlowStage(order.status);
+  const paymentStatusLabel = getPaymentStatusLabel(order.paymentStatus);
+  const hasShaparakRef = Boolean(order.shaparakRef && order.shaparakRef.trim());
 
   const stages = [
     {
-      title: '۱. ثبت و تایید پرداخت',
+      title:
+        order.paymentStatus === 'paid' || order.status === 'paid'
+          ? '۱. ثبت و تایید پرداخت'
+          : '۱. ثبت سفارش (در انتظار پرداخت)',
       desc: toPersianDigits(order.createdAt),
       icon: CheckCircle2,
     },
@@ -230,24 +240,36 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
             <ShieldCheck className="w-7 h-7" strokeWidth={1.5} />
           )}
         </div>
-        <span
-          data-testid="invoice-status-badge"
-          className={`inline-block px-3 py-1 rounded-lg border text-xs font-medium ${
-            flow.isCancelled
-              ? 'bg-[#FEF3F2] border-[#FECDCA] text-[#B42318]'
-              : flow.isDelivered
-              ? 'bg-[#ECFDF3] border-[#ABEFC6] text-[#067647]'
-              : 'bg-[#EEF3FC] border-[#D4E2FC] text-[#1453D6]'
-          }`}
-        >
-          وضعیت فعلی فاکتور: {flow.badgeLabel}
-        </span>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <span
+            data-testid="invoice-status-badge"
+            className={`inline-block px-3 py-1 rounded-lg border text-xs font-medium ${
+              flow.isCancelled
+                ? 'bg-[#FEF3F2] border-[#FECDCA] text-[#B42318]'
+                : flow.isDelivered
+                ? 'bg-[#ECFDF3] border-[#ABEFC6] text-[#067647]'
+                : 'bg-[#EEF3FC] border-[#D4E2FC] text-[#1453D6]'
+            }`}
+          >
+            وضعیت سفارش: {flow.badgeLabel}
+          </span>
+          <span
+            data-testid="invoice-payment-status-badge"
+            className={`inline-block px-3 py-1 rounded-lg border text-xs font-medium ${
+              order.paymentStatus === 'paid'
+                ? 'bg-[#ECFDF3] border-[#ABEFC6] text-[#067647]'
+                : 'bg-[#F7F8FA] border-[#E4E8EE] text-[#4A5464]'
+            }`}
+          >
+            وضعیت پرداخت: {paymentStatusLabel}
+          </span>
+        </div>
         <h1 className="text-xl sm:text-3xl font-semibold text-[#11161E]">{flow.headlineText}</h1>
         <p className="text-xs sm:text-sm text-[#4A5464] max-w-2xl mx-auto leading-7">
           {flow.summaryText}
         </p>
 
-        {/* Order Code + Reference Chips */}
+        {/* Order Code + Payment Ref */}
         <div className="max-w-2xl mx-auto grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
           <div className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex items-center justify-between gap-2">
             <span className="text-xs font-medium text-[#4A5464]">شماره سفارش:</span>
@@ -271,20 +293,29 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
           </div>
 
           <div className="p-4 rounded-xl bg-[#F7F8FA] border border-[#E4E8EE] flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-[#4A5464]">کد رهگیری پرداخت:</span>
-            <div className="flex items-center gap-2">
-              <span dir="ltr" className="text-sm sm:text-base font-semibold text-[#11161E] tabular-nums-fa">
-                {toPersianDigits(order.shaparakRef)}
-              </span>
-              <button
-                type="button"
-                onClick={() => copyText(order.shaparakRef, 'کد پیگیری')}
-                aria-label="کپی کد پیگیری"
-                className="p-1.5 rounded-lg bg-white text-[#4A5464] hover:text-[#1453D6] border border-[#E4E8EE] transition-colors"
+            <span className="text-xs font-medium text-[#4A5464]">وضعیت / کد رهگیری پرداخت:</span>
+            {hasShaparakRef ? (
+              <div className="flex items-center gap-2">
+                <span dir="ltr" className="text-sm sm:text-base font-semibold text-[#11161E] tabular-nums-fa">
+                  {toPersianDigits(order.shaparakRef)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => copyText(order.shaparakRef, 'کد پیگیری')}
+                  aria-label="کپی کد پیگیری"
+                  className="p-1.5 rounded-lg bg-white text-[#4A5464] hover:text-[#1453D6] border border-[#E4E8EE] transition-colors"
+                >
+                  <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />
+                </button>
+              </div>
+            ) : (
+              <span
+                data-testid="invoice-payment-unpaid-note"
+                className="text-xs font-medium text-[#4A5464]"
               >
-                <Copy className="w-3.5 h-3.5" strokeWidth={1.5} />
-              </button>
-            </div>
+                {paymentStatusLabel}
+              </span>
+            )}
           </div>
         </div>
       </section>

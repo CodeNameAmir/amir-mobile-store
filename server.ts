@@ -12,6 +12,8 @@ import {
   AuthService,
   createDefaultAuthStorage,
   hashPassword,
+  StockMovementError,
+  StoreOperationError,
   toPublicUser,
   verifyPassword,
   type AuthStorageAdapter,
@@ -41,6 +43,7 @@ import {
 } from './server/emailTemplates.ts';
 import { getResendProviderStatus, sendEmailWithResend } from './server/resendService.ts';
 import {
+  buildCatalogFacetsServer,
   buildUsernameCandidateListServer,
   calculateOrderTotalsServer,
   CATEGORY_ITEMS,
@@ -178,6 +181,8 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   const loginPasswordLimiter = createStrictRateLimiter();
   const orderVerifyLimiter = createStrictRateLimiter();
+  const otpLimiter = createModerateRateLimiter();
+  const newsletterLimiter = createModerateRateLimiter();
   const orderCreateLimiter = createModerateRateLimiter();
   const reviewCreateLimiter = createModerateRateLimiter();
   const supportTicketLimiter = createModerateRateLimiter();
@@ -302,7 +307,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
         res.setHeader(
           'Access-Control-Allow-Headers',
-          'Content-Type, Authorization, X-Order-Tracking-Token'
+          'Content-Type, Authorization, X-Order-Tracking-Token, X-Requested-With, Idempotency-Key'
         );
       }
     }
@@ -310,6 +315,48 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     if (req.method === 'OPTIONS') {
       res.status(204).end();
       return;
+    }
+
+    // CSRF defense-in-depth for cookie-authenticated state-changing requests
+    if (isApiRoute && !['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase())) {
+      const cookies = parseCookies(req.headers.cookie);
+      const hasSessionCookie = Boolean(cookies[SESSION_COOKIE_NAME]);
+      if (!origin) {
+        const refererHeader = typeof req.headers.referer === 'string' ? req.headers.referer : '';
+        if (refererHeader) {
+          let refererOrigin = '';
+          try {
+            refererOrigin = new URL(refererHeader).origin;
+          } catch {
+            refererOrigin = '';
+          }
+          const refererHost = refererOrigin ? new URL(refererOrigin).host.toLowerCase() : '';
+          const refererAllowed = Boolean(
+            refererOrigin &&
+              (((rawHost && refererHost === rawHost.toLowerCase()) ||
+                (forwardedHost && refererHost === forwardedHost.toLowerCase()) ||
+                (appUrlHost && refererHost === appUrlHost)) ||
+                (isAiStudioRuntime &&
+                  (/\.run\.app$/i.test(refererHost.split(':')[0]) ||
+                    /(^|\.)aistudio\.google\.com$/i.test(refererHost.split(':')[0]) ||
+                    /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(refererHost))) ||
+                isOriginAllowed(refererOrigin, corsCfg.allowedOrigins, isProd && !isAiStudioPreview, selfOrigin))
+          );
+          if (!refererAllowed) {
+            res.status(403).json({ error: 'Referer not allowed by CSRF protection' });
+            return;
+          }
+        } else if (
+          hasSessionCookie &&
+          isProd &&
+          !isAiStudioPreview &&
+          !req.is('application/json') &&
+          String(req.headers['x-requested-with'] || '').toLowerCase() !== 'xmlhttprequest'
+        ) {
+          res.status(403).json({ error: 'Missing Origin or custom header for authenticated write request' });
+          return;
+        }
+      }
     }
 
     next();
@@ -640,7 +687,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     };
   };
 
-  app.post('/api/auth/send-otp', async (req, res, next) => {
+  app.post('/api/auth/send-otp', otpLimiter, async (req, res, next) => {
     try {
       const rawIdentifier = String(req.body?.identifier ?? req.body?.email ?? '').trim();
       const purpose = String(req.body?.purpose || '') as OtpPurpose;
@@ -820,7 +867,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
-  app.post('/api/auth/verify-otp', async (req, res, next) => {
+  app.post('/api/auth/verify-otp', otpLimiter, async (req, res, next) => {
     try {
       const rawIdentifier = String(req.body?.identifier ?? req.body?.email ?? '').trim();
       const purpose = String(req.body?.purpose || '') as OtpPurpose;
@@ -1070,7 +1117,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
-  app.post('/api/auth/verify-2fa', async (req, res, next) => {
+  app.post('/api/auth/verify-2fa', otpLimiter, async (req, res, next) => {
     try {
       const twoFactorToken = String(req.body?.twoFactorToken || '');
       const code = toEnglishDigits(String(req.body?.code || ''))
@@ -1119,7 +1166,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
-  app.post('/api/auth/resend-2fa', async (req, res, next) => {
+  app.post('/api/auth/resend-2fa', otpLimiter, async (req, res, next) => {
     try {
       const twoFactorToken = String(req.body?.twoFactorToken || '');
       const pending2fa = authService.verifyTwoFactorToken(twoFactorToken);
@@ -1727,12 +1774,15 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         ? matchedVariant.originalPriceToman || matchedVariant.priceToman
         : (product.originalPrice || product.price) + storageDelta;
 
-      const hasCare = rec.warranty.includes('Amir Care+');
-      const careRate = product.category === 'phones' ? 0.035 : 0.045;
-      const carePrice = hasCare ? Math.round((baseUnitPrice * careRate) / 1000) * 1000 : 0;
-
-      const unitPrice = baseUnitPrice + carePrice;
-      const originalUnitPrice = Math.max(unitPrice, baseOriginalPrice + carePrice);
+      const unitPrice = baseUnitPrice;
+      const originalUnitPrice = Math.max(unitPrice, baseOriginalPrice);
+      const cleanWarranty =
+        (rec.warranty || '')
+          .replace(/\s*\+\s*بیمه حوادث و شکستگی Amir Care\+/g, '')
+          .replace(/\s*\+\s*Amir Care\+/g, '')
+          .trim() ||
+        matchedVariant?.warrantyName ||
+        product.warranty;
       const stockCount =
         typeof matchedVariant?.availableStock === 'number'
           ? matchedVariant.availableStock
@@ -1761,7 +1811,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         colorName: matchedVariant?.colorNameFa || rec.colorName || product.colorLabel,
         colorHex: matchedVariant?.colorHex || rec.colorHex || '#1e293b',
         storageLabel: matchedVariant?.storage || rec.storageLabel || product.storageOptions[0]?.label || '',
-        warranty: rec.warranty || matchedVariant?.warrantyName || product.warranty,
+        warranty: cleanWarranty,
         unitPrice,
         originalUnitPrice,
         qty: rec.qty,
@@ -1913,11 +1963,13 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         return rest;
       };
 
+      const facets = buildCatalogFacetsServer(matchingProducts);
       const hasPagination = req.query.page !== undefined || req.query.limit !== undefined;
       if (!hasPagination) {
         res.json({
           products: matchingProducts.map(serializeProductForList),
           total: matchingProducts.length,
+          facets,
         });
         return;
       }
@@ -1936,6 +1988,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         page,
         limit,
         totalPages,
+        facets,
       });
     } catch (err) {
       next(err);
@@ -1990,10 +2043,22 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.post('/api/coupons/validate', async (req, res, next) => {
     try {
-      const code = String(req.body?.code || '');
+      const auth = await getAuthFromRequest(req);
+      const code = String(req.body?.code || '').trim();
       const subtotal = Number(req.body?.subtotal || 0);
+      const customerPhone = req.body?.phone ? normalizePhone(req.body.phone) : auth?.user.phone;
       const coupons = await storage.listActiveCoupons();
-      const evaluation = evaluateCouponServer(code, subtotal, coupons);
+      const cleanUpper = code.toUpperCase();
+      const redemptions = cleanUpper
+        ? await storage.getCouponRedemptionCount(cleanUpper, {
+            userId: auth?.user.id ?? null,
+            customerPhone,
+          })
+        : 0;
+      const evaluation = evaluateCouponServer(code, subtotal, coupons, {
+        now: new Date(),
+        userRedemptionCountByCode: cleanUpper ? { [cleanUpper]: redemptions } : {},
+      });
       res.json(evaluation);
     } catch (err) {
       next(err);
@@ -2054,6 +2119,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       const review = await storage.createProductReview({
         id: crypto.randomUUID(),
         productId: product.id,
+        userId: auth?.user.id ?? null,
         author,
         ...(authorUsername ? { authorUsername } : {}),
         dateLabel: 'هم‌اکنون',
@@ -2107,9 +2173,9 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         question,
         answer: null,
         answeredAt: null,
-        isApproved: true,
+        isApproved: false,
       });
-      res.status(201).json({ question: created });
+      res.status(201).json({ question: created, pendingApproval: true });
     } catch (err) {
       next(err);
     }
@@ -2325,15 +2391,56 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     }
   });
 
-  app.post('/api/newsletter', async (req, res, next) => {
+  app.post('/api/newsletter', newsletterLimiter, async (req, res, next) => {
     try {
-      const contact = toEnglishDigits(String(req.body?.contact || '')).trim();
-      if (contact.length < 5) {
-        res.status(400).json({ error: 'لطفاً شماره موبایل یا ایمیل معتبر وارد کنید.' });
+      const rawContact = toEnglishDigits(String(req.body?.contact || '')).trim();
+      const emailCandidate = rawContact.toLowerCase();
+      const phoneCandidate = normalizePhone(rawContact);
+      const isEmail = isValidEmail(emailCandidate);
+      const isPhone = /^09\d{9}$/.test(phoneCandidate);
+
+      if (!isEmail && !isPhone) {
+        res.status(400).json({ error: 'لطفاً یک ایمیل معتبر یا شماره موبایل ۱۱ رقمی با ۰۹ وارد کنید.' });
         return;
       }
-      const result = await storage.subscribeNewsletter(contact);
-      res.status(201).json({ ok: true, alreadySubscribed: result.alreadySubscribed });
+      const normalizedContact = isEmail ? emailCandidate : phoneCandidate;
+      const result = await storage.subscribeNewsletter(normalizedContact);
+      res.status(201).json({
+        ok: true,
+        alreadySubscribed: result.alreadySubscribed,
+        contactType: isEmail ? 'email' : 'phone',
+        ...(result.unsubscribeToken ? { unsubscribeToken: result.unsubscribeToken } : {}),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.post('/api/newsletter/unsubscribe', newsletterLimiter, async (req, res, next) => {
+    try {
+      const tokenOrContact = toEnglishDigits(
+        String(req.body?.token ?? req.body?.contact ?? '')
+      ).trim();
+      if (!tokenOrContact) {
+        res.status(400).json({ error: 'توکن لغو اشتراک یا ایمیل/موبایل الزامی است.' });
+        return;
+      }
+      const unsubscribed = await storage.unsubscribeNewsletter(tokenOrContact);
+      res.json({ ok: true, unsubscribed });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get('/api/newsletter/unsubscribe', async (req, res, next) => {
+    try {
+      const token = String(req.query.token || '').trim();
+      if (!token) {
+        res.status(400).json({ error: 'توکن لغو اشتراک معتبر نیست.' });
+        return;
+      }
+      const unsubscribed = await storage.unsubscribeNewsletter(token);
+      res.json({ ok: true, unsubscribed });
     } catch (err) {
       next(err);
     }
@@ -2382,10 +2489,22 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         return;
       }
 
-      const [catalogProducts, activeCoupons, storeSettings] = await Promise.all([
+      const rawCouponCode = body.couponCode ? String(body.couponCode).trim() : '';
+      const headerIdemp =
+        typeof req.headers['idempotency-key'] === 'string' ? req.headers['idempotency-key'] : '';
+      const idempotencyKeyRaw = String(headerIdemp || body.idempotencyKey || '').trim();
+      const idempotencyKey = idempotencyKeyRaw ? idempotencyKeyRaw.slice(0, 128) : undefined;
+
+      const [catalogProducts, activeCoupons, storeSettings, couponRedemptions] = await Promise.all([
         storage.listProducts(),
         storage.listActiveCoupons(),
         storage.getStoreSettings(),
+        rawCouponCode
+          ? storage.getCouponRedemptionCount(rawCouponCode.toUpperCase(), {
+              userId: auth?.user.id ?? null,
+              customerPhone,
+            })
+          : Promise.resolve(0),
       ]);
 
       // Enrich referenced products with live published variants when variantId/sku is supplied
@@ -2411,8 +2530,17 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       const totals = calculateOrderTotalsServer({
         items,
         products: productsWithVariants,
-        couponCode: body.couponCode ? String(body.couponCode) : null,
+        couponCode: rawCouponCode || null,
         couponRules: activeCoupons,
+        couponContext: rawCouponCode
+          ? {
+              now: new Date(),
+              userRedemptionCountByCode: {
+                [rawCouponCode.toUpperCase()]: couponRedemptions,
+              },
+            }
+          : undefined,
+        strictCouponValidation: Boolean(rawCouponCode),
         freeShippingThreshold: storeSettings.freeShippingThreshold,
         city,
         deliverySlot: body.deliverySlot === 'standard' ? 'standard' : 'express',
@@ -2440,7 +2568,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       const orderPayload: StoredOrderRecord = {
         orderCode,
         userId: auth?.user.id ?? null,
-        shaparakRef: String(crypto.randomInt(10000000, 99999999)),
+        shaparakRef: '',
         customerName,
         customerPhone,
         ...(recipientEmail ? { customerEmail: recipientEmail } : {}),
@@ -2454,44 +2582,26 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         couponDiscount: totals.couponDiscount,
         shippingCost: totals.shippingCost,
         totalAmount: totals.totalAmount,
-        status: 'preparing',
+        status: 'pending_payment',
+        paymentStatus: 'unpaid',
+        ...(idempotencyKey ? { idempotencyKey } : {}),
+        stockRestored: false,
         deliveryPin: String(crypto.randomInt(1000, 9999)),
-        imeiSample: `35918239${crypto.randomInt(1000000, 9999999)}`,
+        imeiSample: '',
         items: totals.items,
         createdAt: new Date().toISOString(),
       };
 
-      const saved = await authService.createOrder(auth?.user.id ?? null, orderPayload);
-
-      for (const dec of totals.stockDecrements) {
-        if (dec.variantId) {
-          const variantStocks = await storage
-            .listWarehouseStock({ variantId: dec.variantId })
-            .catch(() => []);
-          const bestStock = variantStocks
-            .slice()
-            .sort((a, b) => b.availableQty - a.availableQty)[0];
-          if (bestStock && bestStock.availableQty >= dec.qty) {
-            await storage.recordStockMovement({
-              warehouseId: bestStock.warehouseId,
-              variantId: dec.variantId,
-              movementType: 'order_sale',
-              quantityChange: -dec.qty,
-              referenceType: 'order',
-              referenceId: saved.orderCode,
-              idempotencyKey: `order-sale:${saved.orderCode}:${dec.variantId}`,
-              noteFa: `کسر موجودی بابت سفارش ${saved.orderCode}`,
-              createdBy: auth?.user.id ?? null,
-            });
-            continue;
-          }
-        }
-        await storage.decrementProductStock(dec.productId, dec.qty);
-      }
-
+      const atomicResult = await storage.placeOrderAtomic({
+        userId: auth?.user.id ?? null,
+        idempotencyKey: idempotencyKey ?? null,
+        order: orderPayload,
+        stockDecrements: totals.stockDecrements,
+      });
+      const saved = atomicResult.order;
       const trackingToken = issueOrderTrackingToken(saved.orderCode);
 
-      if (recipientEmail) {
+      if (recipientEmail && !atomicResult.deduplicated) {
         const totalFormatted = new Intl.NumberFormat('fa-IR').format(saved.totalAmount);
         const emailContent = buildOrderReceiptEmailContent({
           fullName: auth?.user.fullName || customerName,
@@ -2509,9 +2619,10 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         });
       }
 
-      res.status(201).json({
+      res.status(atomicResult.deduplicated ? 200 : 201).json({
         order: saved,
         syncedToDatabase: true,
+        deduplicated: atomicResult.deduplicated,
         trackingToken,
       });
     } catch (err) {
@@ -2657,13 +2768,12 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         typeof req.body?.reason === 'string' && req.body.reason.trim()
           ? req.body.reason.trim()
           : undefined;
-      const updated = await storage.updateOrderStatus(
+      const updated = await storage.cancelOrderAtomic(
         order.orderCode,
-        'cancelled',
         cancelReason ? `لغو توسط خریدار: ${cancelReason}` : order.adminNote
       );
 
-      res.json({ order: updated || { ...order, status: 'cancelled' } });
+      res.json({ order: updated || { ...order, status: 'cancelled', stockRestored: true } });
     } catch (err) {
       next(err);
     }
@@ -2750,6 +2860,60 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     });
   };
 
+  app.get('/sitemap.xml', async (_req, res, next) => {
+    try {
+      const siteOrigin = (
+        env.VITE_SITE_URL ||
+        corsCfg.allowedOrigins.find((o) => !o.includes('admin')) ||
+        'https://amir-mobile-store.codenameamir.ir'
+      ).replace(/\/+$/, '');
+      const [products, blogRes] = await Promise.all([
+        storage.listProducts({}).catch(() => []),
+        storage.listBlogPosts({ page: 1, limit: 100 }).catch(() => ({ posts: [] })),
+      ]);
+      const staticRoutes = [
+        '/',
+        '/catalog',
+        '/compare',
+        '/installments',
+        '/blog',
+        '/faq',
+        '/about',
+        '/contact',
+        '/terms',
+      ];
+      const xmlEscape = (s: string) =>
+        s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const urls: string[] = [];
+      const today = new Date().toISOString().slice(0, 10);
+      for (const route of staticRoutes) {
+        urls.push(
+          `  <url>\n    <loc>${xmlEscape(`${siteOrigin}${route}`)}</loc>\n    <lastmod>${today}</lastmod>\n    <changefreq>weekly</changefreq>\n  </url>`
+        );
+      }
+      for (const p of products) {
+        if (p.isPublished === false) continue;
+        const lastmod = (p.updatedAt || p.createdAt || today).slice(0, 10);
+        urls.push(
+          `  <url>\n    <loc>${xmlEscape(`${siteOrigin}/product/${encodeURIComponent(p.slug)}`)}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>daily</changefreq>\n  </url>`
+        );
+      }
+      for (const post of blogRes.posts) {
+        if (!post.isPublished) continue;
+        const lastmod = (post.updatedAt || post.publishedAt || today).slice(0, 10);
+        urls.push(
+          `  <url>\n    <loc>${xmlEscape(`${siteOrigin}/blog/${encodeURIComponent(post.slug)}`)}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>weekly</changefreq>\n  </url>`
+        );
+      }
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
+      res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=1800');
+      res.send(xml);
+    } catch {
+      next();
+    }
+  });
+
   serveCrawlerStaticFile('/robots.txt', 'robots.txt', 'text/plain; charset=utf-8');
   serveCrawlerStaticFile('/sitemap.xml', 'sitemap.xml', 'application/xml; charset=utf-8');
   serveCrawlerStaticFile('/llms.txt', 'llms.txt', 'text/plain; charset=utf-8');
@@ -2816,8 +2980,13 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
 
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     console.error('[Server Error]', err);
+    if (err instanceof StoreOperationError || err instanceof StockMovementError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
+    const hideDetails = isProd && !isAiStudioPreview;
     res.status(500).json({
-      error: err instanceof Error ? err.message : 'خطای داخلی سرور رخ داد.',
+      error: !hideDetails && err instanceof Error ? err.message : 'خطای داخلی سرور رخ داد.',
     });
   });
 

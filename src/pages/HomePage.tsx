@@ -388,13 +388,10 @@ export const HomePage: React.FC = () => {
               <span>تخفیف‌های فصلی فروشگاه امیر</span>
             </div>
             <h2 className="text-lg sm:text-2xl font-semibold text-[#11161E] leading-snug">
-              تا ۱۵٪ تخفیف نقدی + ۵۰۰ هزار تومان هدیه کد خرید اول{' '}
-              <span dir="ltr" className="font-mono text-base sm:text-xl text-[#1453D6] inline-block whitespace-nowrap">
-                AMIR-OFF
-              </span>
+              تا ۱۵٪ تخفیف نقدی روی پرچمداران و تجهیزات جانبی منتخب
             </h2>
             <p className="text-xs sm:text-sm text-[#4A5464] leading-6">
-              تمامی محصولات دارای برچسب پیشنهاد شگفت‌انگیز با ارسال رایگان، گارانتی ۱۸ ماهه و تضمین کمترین قیمت عرضه می‌شوند.
+              تمامی محصولات دارای برچسب پیشنهاد شگفت‌انگیز با ارسال رایگان بالای سقف سفارش، گارانتی ۱۸ ماهه و تضمین اصالت عرضه می‌شوند.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3 shrink-0">
@@ -735,9 +732,9 @@ export const HomePage: React.FC = () => {
           <div className="w-10 h-10 rounded-lg bg-[#F1F3F6] text-[#4A5464] flex items-center justify-center">
             <Award className="w-5 h-5" strokeWidth={1.5} />
           </div>
-          <h3 className="text-base font-semibold text-[#11161E]">کد تخفیف خوش‌آمدگویی ویژه</h3>
+          <h3 className="text-base font-semibold text-[#11161E]">۷ روز مهلت تعویض و پشتیبانی</h3>
           <p className="text-xs text-[#4A5464] leading-6">
-            برای خرید اول می‌توانید از کد <span className="font-mono font-medium text-[#1453D6]" dir="ltr">AMIR-OFF</span> (۵۰۰ هزار تومان) یا <span className="font-mono font-medium text-[#1453D6]" dir="ltr">VIP-10</span> (۱۰٪ تخفیف) استفاده کنید.
+            تمامی کالاها با ۷ روز مهلت بررسی و بازگشت در صورت مغایرت فنی، به‌همراه پشتیبانی تخصصی از طریق تیکت حساب کاربری ارائه می‌شوند.
           </p>
         </div>
       </section>

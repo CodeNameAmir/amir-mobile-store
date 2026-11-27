@@ -84,7 +84,7 @@ test('CORS wildcard stripping, multi-origin support, GitHub Pages resolution, an
     'http://localhost:3001'
   );
 
-  // Server-side pricing calculation ignores external numbers and checks stock
+  // Server-side pricing calculation ignores external numbers, legacy Care+ strings, and checks stock
   const computed = calculateOrderTotalsServer({
     items: [
       {
@@ -102,6 +102,7 @@ test('CORS wildcard stripping, multi-origin support, GitHub Pages resolution, an
     assert.equal(computed.couponCode, 'VIP-10');
     assert.equal(computed.couponDiscount, 2_000_000); // VIP-10 capped at 2M
     assert.equal(computed.shippingCost, 0);
+    assert.equal(computed.items[0].warranty.includes('Care+'), false);
     assert.ok(computed.totalAmount > 94_200_000);
   }
 
@@ -432,7 +433,10 @@ test('Full HTTP RBAC, Admin Panel APIs, Storefront APIs, and Order Security', as
     });
     assert.equal(guestOrderRes.res.status, 201);
     assert.equal(guestOrderRes.body.order.totalAmount, 53_500_000); // 54M - 500k AMIR-OFF
-    assert.equal(guestOrderRes.body.order.status, 'preparing');
+    assert.equal(guestOrderRes.body.order.status, 'pending_payment');
+    assert.equal(guestOrderRes.body.order.paymentStatus, 'unpaid');
+    assert.equal(guestOrderRes.body.order.shaparakRef, '');
+    assert.equal(guestOrderRes.body.order.imeiSample, '');
     assert.ok(guestOrderRes.body.trackingToken);
 
     const guestOrderCode = guestOrderRes.body.order.orderCode as string;
@@ -567,7 +571,7 @@ test('Full HTTP RBAC, Admin Panel APIs, Storefront APIs, and Order Security', as
     assert.equal(statsRes.res.status, 200);
     assert.equal(statsRes.body.stats.totalOrders, 2);
     assert.equal(statsRes.body.stats.cancelledOrders, 1);
-    assert.equal(statsRes.body.stats.preparingOrders, 1);
+    assert.equal(statsRes.body.stats.preparingOrders, 0);
     // Revenue excludes the cancelled 53.5M guest order and counts only customer's 2.89M charger
     assert.equal(statsRes.body.stats.totalRevenue, 2_890_000);
     assert.equal(statsRes.body.stats.adminUsersCount, 1);
@@ -2143,7 +2147,7 @@ test('Phase 3: Server pagination, dynamic attributes, back-in-stock alerts + res
     assert.equal(otherTickets.res.status, 200);
     assert.equal(otherTickets.body.tickets.length, 0);
 
-    // 4. Product Q&A create + admin answer
+    // 4. Product Q&A create (hidden pending moderation) + admin approve & answer
     const qPost = await customer('/api/products/p3-restock-phone/questions', {
       method: 'POST',
       body: JSON.stringify({
@@ -2152,7 +2156,13 @@ test('Phase 3: Server pagination, dynamic attributes, back-in-stock alerts + res
       }),
     });
     assert.equal(qPost.res.status, 201);
+    assert.equal(qPost.body.pendingApproval, true);
+    assert.equal(qPost.body.question.isApproved, false);
     const qId = qPost.body.question.id as string;
+
+    const qListBeforeApprove = await guest('/api/products/p3-restock-phone/questions', { method: 'GET' });
+    assert.equal(qListBeforeApprove.res.status, 200);
+    assert.equal(qListBeforeApprove.body.questions.length, 0);
 
     const qAnswer = await admin(
       `/api/admin/questions/${qId}`,
@@ -2238,6 +2248,411 @@ test('Phase 4 HTTP Integration: Blog list filtering, search, pagination, and det
     // 4. Unknown slug returns 404
     const missingRes = await fetch(`${baseUrl}/api/blog/non-existent-slug`);
     assert.equal(missingRes.status, 404);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err?: Error) => (err ? reject(err) : resolve()))
+    );
+  }
+});
+
+test('Storefront hardening: atomic checkout race, idempotency, cancel rollback, coupons, duplicate reviews, newsletter, facets, sitemap & CSRF', async () => {
+  const storage = createMemoryAuthStorage({
+    seedCoupons: [
+      {
+        code: 'EXPIRED-TEST',
+        discountType: 'fixed',
+        discountValue: 500_000,
+        isActive: true,
+        expiresAt: '2020-01-01T00:00:00Z',
+      },
+      {
+        code: 'FUTURE-TEST',
+        discountType: 'fixed',
+        discountValue: 500_000,
+        isActive: true,
+        startsAt: '2099-01-01T00:00:00Z',
+      },
+      {
+        code: 'ONCE-PER-USER',
+        discountType: 'fixed',
+        discountValue: 300_000,
+        isActive: true,
+        usageLimit: 5,
+        perUserLimit: 1,
+      },
+    ],
+  });
+  const issuedOtps = new Map<string, string>();
+  const adminPassword = 'HardeningAdmin2026!';
+  await storage.createUser({
+    email: 'hardening-admin@codenameamir.ir',
+    fullName: 'مدیر تست سخت‌سازی',
+    phone: '09120007777',
+    passwordHash: hashPassword(adminPassword),
+    role: 'admin',
+  });
+
+  const app = await createServerApp({
+    env: {
+      NODE_ENV: 'production',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      CORS_ORIGIN: `${STOREFRONT_ORIGIN},${ADMIN_ORIGIN}`,
+    },
+    storage,
+    disableVite: true,
+    onOtpIssued: ({ email, purpose, code }) => {
+      issuedOtps.set(`${purpose}::${email}`, code);
+    },
+    sendEmail: async () => ({
+      sent: true,
+      provider: 'resend',
+      emailId: 'mock_hardening_email',
+    }),
+  });
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const createClient = () => {
+    const jar = createCookieJar();
+    return async (
+      path: string,
+      init: RequestInit = {},
+      origin: string | null = STOREFRONT_ORIGIN
+    ) => {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Forwarded-Proto': 'https',
+        'X-Requested-With': 'XMLHttpRequest',
+        ...(init.headers as Record<string, string> | undefined),
+      };
+      if (origin) headers.Origin = origin;
+      const cookieHeader = jar.header();
+      if (cookieHeader) headers.Cookie = cookieHeader;
+
+      const res = await fetch(`${baseUrl}${path}`, { ...init, headers });
+      jar.capture(res);
+      const body = await res.json().catch(() => null);
+      return { res, body };
+    };
+  };
+
+  try {
+    const guest = createClient();
+    const customer = createClient();
+    const admin = createClient();
+
+    const adminLogin = await admin(
+      '/api/auth/login-password',
+      {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': '198.51.110.1' },
+        body: JSON.stringify({ email: 'hardening-admin@codenameamir.ir', password: adminPassword }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(adminLogin.res.status, 200);
+
+    // Signup authenticated customer
+    const custEmail = 'hardening-cust@codenameamir.ir';
+    const otpReq = await customer('/api/auth/send-otp', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '198.51.110.2' },
+      body: JSON.stringify({
+        email: custEmail,
+        purpose: 'signup',
+        fullName: 'خریدار تست سخت‌سازی',
+        phone: '09124445566',
+        password: 'HardeningUser#2026',
+      }),
+    });
+    assert.equal(otpReq.res.status, 200);
+    const code = issuedOtps.get(`signup::${custEmail}`);
+    assert.ok(code);
+    const otpVerify = await customer('/api/auth/verify-otp', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '198.51.110.2' },
+      body: JSON.stringify({ email: custEmail, purpose: 'signup', code }),
+    });
+    assert.equal(otpVerify.res.status, 200);
+
+    // Seed limited-stock product (stock=1) & healthy-stock product (stock=5)
+    const p1 = await admin(
+      '/api/admin/products',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 'race-phone-1',
+          slug: 'race-phone-1',
+          nameFa: 'گوشی تست رقابت موجودی',
+          nameEn: 'Race Phone 1',
+          brand: 'Samsung',
+          category: 'phones',
+          price: 25_000_000,
+          stockCount: 1,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(p1.res.status, 201);
+
+    const p2 = await admin(
+      '/api/admin/products',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 'rollback-cable-2',
+          slug: 'rollback-cable-2',
+          nameFa: 'کابل تست بازگشت موجودی',
+          nameEn: 'Rollback Cable 2',
+          brand: 'Anker',
+          category: 'chargers',
+          price: 1_500_000,
+          stockCount: 5,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(p2.res.status, 201);
+
+    // 1. Multi-item partial failure: rollback-cable-2 must remain at stock 5 if race-phone-1 qty 2 exceeds stock 1
+    const multiFail = await guest('/api/orders', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '198.51.110.10' },
+      body: JSON.stringify({
+        customerName: 'خریدار تست رول‌بک',
+        customerPhone: '09125550001',
+        city: 'تهران',
+        shippingAddress: 'خیابان آزادی، پلاک ۱۵، واحد ۱',
+        postalCode: '1311111111',
+        items: [
+          { productId: 'rollback-cable-2', qty: 2 },
+          { productId: 'race-phone-1', qty: 2 },
+        ],
+      }),
+    });
+    assert.equal(multiFail.res.status, 409);
+    const cableAfterFail = await guest('/api/products/rollback-cable-2', { method: 'GET' });
+    assert.equal(cableAfterFail.body.product.stockCount, 5);
+
+    // 2. Concurrent checkout race on stock=1 product: 1 succeeds (201), 1 fails (409), stock ends at 0
+    const racePayload = (phone: string) =>
+      JSON.stringify({
+        customerName: 'خریدار همزمان',
+        customerPhone: phone,
+        city: 'تهران',
+        shippingAddress: 'خیابان انقلاب، پلاک ۲۰، واحد ۴',
+        postalCode: '1311111112',
+        items: [{ productId: 'race-phone-1', qty: 1 }],
+      });
+    const [raceA, raceB] = await Promise.all([
+      guest('/api/orders', {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': '198.51.110.11' },
+        body: racePayload('09125550002'),
+      }),
+      guest('/api/orders', {
+        method: 'POST',
+        headers: { 'X-Forwarded-For': '198.51.110.12' },
+        body: racePayload('09125550003'),
+      }),
+    ]);
+    const statuses = [raceA.res.status, raceB.res.status].sort();
+    assert.deepEqual(statuses, [201, 409]);
+    const winner = raceA.res.status === 201 ? raceA : raceB;
+    const raceProdAfter = await guest('/api/products/race-phone-1', { method: 'GET' });
+    assert.equal(raceProdAfter.body.product.stockCount, 0);
+    assert.equal(raceProdAfter.body.product.inStock, false);
+
+    // 3. Cancel order restores stock atomically; repeat cancel returns 409
+    const winnerCode = winner.body.order.orderCode as string;
+    const winnerToken = winner.body.trackingToken as string;
+    const cancel1 = await guest(`/api/orders/${winnerCode}/cancel`, {
+      method: 'POST',
+      headers: { 'X-Order-Tracking-Token': winnerToken },
+    });
+    assert.equal(cancel1.res.status, 200);
+    assert.equal(cancel1.body.order.status, 'cancelled');
+
+    const raceProdRestored = await guest('/api/products/race-phone-1', { method: 'GET' });
+    assert.equal(raceProdRestored.body.product.stockCount, 1);
+    assert.equal(raceProdRestored.body.product.inStock, true);
+
+    const cancel2 = await guest(`/api/orders/${winnerCode}/cancel`, {
+      method: 'POST',
+      headers: { 'X-Order-Tracking-Token': winnerToken },
+    });
+    assert.equal(cancel2.res.status, 409);
+
+    // 4. Idempotency-Key prevents duplicate orders and double stock deduction
+    const idempKey = 'idemp-checkout-hardening-001';
+    const idempBody = JSON.stringify({
+      customerName: 'خریدار تکرارپذیر',
+      customerPhone: '09124445566',
+      city: 'تهران',
+      shippingAddress: 'خیابان نیاوران، پلاک ۸۸، واحد ۵',
+      postalCode: '1978811111',
+      items: [{ productId: 'rollback-cable-2', qty: 1 }],
+    });
+    const order1 = await customer('/api/orders', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempKey },
+      body: idempBody,
+    });
+    assert.equal(order1.res.status, 201);
+    assert.equal(order1.body.deduplicated, false);
+
+    const order2 = await customer('/api/orders', {
+      method: 'POST',
+      headers: { 'Idempotency-Key': idempKey },
+      body: idempBody,
+    });
+    assert.equal(order2.res.status, 200);
+    assert.equal(order2.body.deduplicated, true);
+    assert.equal(order2.body.order.orderCode, order1.body.order.orderCode);
+
+    const cableAfterIdemp = await guest('/api/products/rollback-cable-2', { method: 'GET' });
+    assert.equal(cableAfterIdemp.body.product.stockCount, 4); // deducted once (5 -> 4)
+
+    // 5. Coupon lifecycle & per-user redemption limits + restoration on cancel
+
+    const expiredEval = await customer('/api/coupons/validate', {
+      method: 'POST',
+      body: JSON.stringify({ code: 'EXPIRED-TEST', subtotal: 5_000_000 }),
+    });
+    assert.equal(expiredEval.body.valid, false);
+
+    const futureEval = await customer('/api/coupons/validate', {
+      method: 'POST',
+      body: JSON.stringify({ code: 'FUTURE-TEST', subtotal: 5_000_000 }),
+    });
+    assert.equal(futureEval.body.valid, false);
+
+    const couponOrder1 = await customer('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        customerName: 'خریدار کوپن یک‌بار',
+        customerPhone: '09124445566',
+        city: 'تهران',
+        shippingAddress: 'خیابان نیاوران، پلاک ۸۸، واحد ۵',
+        postalCode: '1978811111',
+        couponCode: 'ONCE-PER-USER',
+        items: [{ productId: 'rollback-cable-2', qty: 1 }],
+      }),
+    });
+    assert.equal(couponOrder1.res.status, 201);
+    assert.equal(couponOrder1.body.order.couponDiscount, 300_000);
+
+    // Same user trying to reuse ONCE-PER-USER must be blocked (400)
+    const couponOrder2 = await customer('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        customerName: 'خریدار کوپن یک‌بار',
+        customerPhone: '09124445566',
+        city: 'تهران',
+        shippingAddress: 'خیابان نیاوران، پلاک ۸۸، واحد ۵',
+        postalCode: '1978811111',
+        couponCode: 'ONCE-PER-USER',
+        items: [{ productId: 'rollback-cable-2', qty: 1 }],
+      }),
+    });
+    assert.equal(couponOrder2.res.status, 400);
+
+    // Cancelling couponOrder1 restores user redemption eligibility
+    const cancelCouponOrd = await customer(`/api/orders/${couponOrder1.body.order.orderCode}/cancel`, {
+      method: 'POST',
+    });
+    assert.equal(cancelCouponOrd.res.status, 200);
+
+    const couponOrderAfterCancel = await customer('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        customerName: 'خریدار کوپن یک‌بار',
+        customerPhone: '09124445566',
+        city: 'تهران',
+        shippingAddress: 'خیابان نیاوران، پلاک ۸۸، واحد ۵',
+        postalCode: '1978811111',
+        couponCode: 'ONCE-PER-USER',
+        items: [{ productId: 'rollback-cable-2', qty: 1 }],
+      }),
+    });
+    assert.equal(couponOrderAfterCancel.res.status, 201);
+
+    // 6. Duplicate review by same authenticated user returns 409 Conflict
+    const rev1 = await customer('/api/products/rollback-cable-2/reviews', {
+      method: 'POST',
+      body: JSON.stringify({
+        author: 'خریدار تست',
+        rating: 5,
+        comment: 'کابل باکیفیت و شارژ سریع واقعی دارد.',
+      }),
+    });
+    assert.equal(rev1.res.status, 201);
+    const revDup = await customer('/api/products/rollback-cable-2/reviews', {
+      method: 'POST',
+      body: JSON.stringify({
+        author: 'خریدار تست',
+        rating: 4,
+        comment: 'تلاش برای ثبت دیدگاه تکراری توسط همین کاربر.',
+      }),
+    });
+    assert.equal(revDup.res.status, 409);
+
+    // 7. Strict newsletter validation + unsubscribe
+    const badNews = await guest('/api/newsletter', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '198.51.110.20' },
+      body: JSON.stringify({ contact: 'aaaaa' }),
+    });
+    assert.equal(badNews.res.status, 400);
+
+    const phoneNews = await guest('/api/newsletter', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '198.51.110.21' },
+      body: JSON.stringify({ contact: '۰۹۱۲۳۳۳۴۴۵۵' }),
+    });
+    assert.equal(phoneNews.res.status, 201);
+    assert.equal(phoneNews.body.contactType, 'phone');
+    assert.ok(phoneNews.body.unsubscribeToken);
+
+    const unsubRes = await guest('/api/newsletter/unsubscribe', {
+      method: 'POST',
+      headers: { 'X-Forwarded-For': '198.51.110.22' },
+      body: JSON.stringify({ contact: '09123334455' }),
+    });
+    assert.equal(unsubRes.res.status, 200);
+    assert.equal(unsubRes.body.unsubscribed, true);
+
+    // 8. Facets on /api/products & dynamic /sitemap.xml
+    const facetsRes = await guest('/api/products?page=1&limit=4', { method: 'GET' });
+    assert.equal(facetsRes.res.status, 200);
+    assert.ok(facetsRes.body.facets);
+    assert.ok(Array.isArray(facetsRes.body.facets.brands) && facetsRes.body.facets.brands.length > 0);
+    assert.ok(Array.isArray(facetsRes.body.facets.colors));
+    assert.ok(typeof facetsRes.body.facets.maxPrice === 'number' && facetsRes.body.facets.maxPrice > 0);
+
+    const sitemapRaw = await fetch(`${baseUrl}/sitemap.xml`);
+    assert.equal(sitemapRaw.status, 200);
+    assert.match(sitemapRaw.headers.get('content-type') || '', /application\/xml/);
+    const sitemapXml = await sitemapRaw.text();
+    assert.match(sitemapXml, /<urlset/);
+    assert.match(sitemapXml, /\/product\/race-phone-1/);
+    assert.match(sitemapXml, /\/blog\/iphone-16-pro-max-vs-s24-ultra-camera/);
+    assert.equal(sitemapXml.includes('/#/'), false);
+
+    // 9. CSRF protection blocks authenticated cookie-bearing form POST lacking Origin/Referer/XMLHttpRequest
+    const csrfRawRes = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Cookie: 'amir_session=forged-or-ambient-cookie',
+      },
+      body: 'allDevices=false',
+    });
+    assert.equal(csrfRawRes.status, 403);
   } finally {
     await new Promise<void>((resolve, reject) =>
       server.close((err?: Error) => (err ? reject(err) : resolve()))

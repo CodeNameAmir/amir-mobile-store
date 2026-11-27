@@ -9,6 +9,7 @@ import type {
   FilterState,
   InstallmentPlan,
   OrderStatus,
+  PaymentStatus,
   Product,
 } from '../types/store';
 
@@ -112,14 +113,6 @@ export function getVariantPrice(product: Product, storageLabel?: string): {
   const price = product.price + delta;
   const originalPrice = (product.originalPrice ?? product.price) + delta;
   return { price, originalPrice };
-}
-
-export function calculateCareInsurancePrice(unitPrice: number, category: Product['category']): number {
-  if (category !== 'phones' && category !== 'tablets' && category !== 'smartwatches') {
-    return 0;
-  }
-  const fourPercent = Math.round((unitPrice * 0.04) / 10_000) * 10_000;
-  return Math.max(490_000, Math.min(3_200_000, fourPercent));
 }
 
 export function calculateInstallmentPlan(
@@ -595,6 +588,20 @@ export interface OrderStageDisplay {
   summaryText: string;
 }
 
+export function getPaymentStatusLabel(status?: PaymentStatus): string {
+  switch (status) {
+    case 'paid':
+      return 'پرداخت‌شده';
+    case 'pending_gateway':
+      return 'در انتظار پرداخت آنلاین';
+    case 'not_required':
+      return 'نیاز به پرداخت آنلاین ندارد';
+    case 'unpaid':
+    default:
+      return 'پرداخت‌نشده (درگاه پرداخت غیرفعال)';
+  }
+}
+
 export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
   switch (status) {
     case 'pending_payment':
@@ -602,9 +609,10 @@ export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
         activeStageIndex: 0,
         isCancelled: false,
         isDelivered: false,
-        badgeLabel: 'در انتظار پرداخت',
-        headlineText: 'سفارش شما ثبت شده و در انتظار تکمیل پرداخت است',
-        summaryText: 'پس از تایید پرداخت، سفارش وارد مرحله بررسی انبار و آماده‌سازی می‌شود.',
+        badgeLabel: 'ثبت‌شده · در انتظار پرداخت',
+        headlineText: 'سفارش شما ثبت شد و در وضعیت «در انتظار پرداخت» قرار دارد',
+        summaryText:
+          'درگاه پرداخت آنلاین در حال حاضر غیرفعال است؛ این سفارش تا زمان هماهنگی و تکمیل پرداخت به‌صورت پرداخت‌نشده باقی می‌ماند و پس از تایید وارد مرحله آماده‌سازی می‌شود.',
       };
     case 'paid':
       return {
@@ -621,7 +629,7 @@ export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
         isCancelled: false,
         isDelivered: false,
         badgeLabel: 'در حال پردازش و بسته‌بندی',
-        headlineText: 'سفارش شما با موفقیت ثبت شد و در حال آماده‌سازی است',
+        headlineText: 'سفارش شما تایید شده و در حال آماده‌سازی است',
         summaryText: 'کارشناسان انبار در حال کنترل پلمپ، ثبت شناسه IMEI و بسته‌بندی ایمن مرسوله هستند.',
       };
     case 'shipped':
@@ -649,16 +657,16 @@ export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
         isDelivered: false,
         badgeLabel: 'سفارش لغو شده است',
         headlineText: 'این سفارش لغو شده است',
-        summaryText: 'در صورت کسر وجه، استرداد مبلغ به حساب مبدا انجام شده یا در حال پیگیری مالی است.',
+        summaryText: 'موجودی کالاهای این سفارش به انبار بازگردانده شده و سفارش بسته شده است.',
       };
     default:
       return {
-        activeStageIndex: 1,
+        activeStageIndex: 0,
         isCancelled: false,
         isDelivered: false,
-        badgeLabel: 'در حال پردازش',
-        headlineText: 'سفارش شما ثبت شد و در حال آماده‌سازی است',
-        summaryText: 'همکاران ما در حال پردازش سفارش شما هستند.',
+        badgeLabel: 'در انتظار پرداخت',
+        headlineText: 'سفارش شما ثبت شد و در انتظار پرداخت است',
+        summaryText: 'وضعیت پرداخت این سفارش پس از بررسی همکاران به‌روزرسانی می‌شود.',
       };
   }
 }
@@ -673,7 +681,8 @@ export interface CouponEvaluation {
 export function evaluateCoupon(
   codeRaw: string,
   netSubtotal: number,
-  customRules: CouponRule[] = DEFAULT_COUPON_RULES
+  customRules: CouponRule[] = DEFAULT_COUPON_RULES,
+  now: Date = new Date()
 ): CouponEvaluation {
   let code = toEnglishDigits(codeRaw).trim().toUpperCase();
   if (code === 'CNA-OFF' || code === 'تخفیف') {
@@ -698,12 +707,50 @@ export function evaluateCoupon(
   }
 
   const rule = customRules.find((r) => r.code.toUpperCase() === code);
-  if (!rule) {
+  if (!rule || rule.isActive === false) {
     return {
       valid: false,
       code: null,
       discountAmount: 0,
-      message: 'کد تخفیف وارد شده معتبر نیست یا منقضی شده است.',
+      message: 'کد تخفیف وارد شده معتبر نیست یا غیرفعال شده است.',
+    };
+  }
+
+  if (rule.startsAt) {
+    const startsMs = Date.parse(rule.startsAt);
+    if (Number.isFinite(startsMs) && now.getTime() < startsMs) {
+      return {
+        valid: false,
+        code: null,
+        discountAmount: 0,
+        message: 'زمان شروع استفاده از این کد تخفیف هنوز فرا نرسیده است.',
+      };
+    }
+  }
+
+  if (rule.expiresAt) {
+    const expiresMs = Date.parse(rule.expiresAt);
+    if (Number.isFinite(expiresMs) && now.getTime() > expiresMs) {
+      return {
+        valid: false,
+        code: null,
+        discountAmount: 0,
+        message: 'مهلت استفاده از این کد تخفیف به پایان رسیده است.',
+      };
+    }
+  }
+
+  if (
+    typeof rule.usageLimit === 'number' &&
+    rule.usageLimit > 0 &&
+    typeof rule.usedCount === 'number' &&
+    rule.usedCount >= rule.usageLimit
+  ) {
+    return {
+      valid: false,
+      code: null,
+      discountAmount: 0,
+      message: 'ظرفیت استفاده از این کد تخفیف تکمیل شده است.',
     };
   }
 

@@ -20,6 +20,7 @@ import {
   filterAndSortProducts,
   formatAttributeDisplayValue,
   normalizeOrderStatus,
+  normalizePaymentStatus,
   normalizePhone,
   normalizeRole,
   normalizeUsernameServer,
@@ -35,6 +36,7 @@ import {
   type CouponRuleDTO,
   type CustomSpecItemDTO,
   type OrderStatus,
+  type PaymentStatus,
   type ProductAttributeValueDTO,
   type ProductCategory,
   type ProductColorDTO,
@@ -63,6 +65,15 @@ export class StockMovementError extends Error {
   constructor(message: string, statusCode = 400) {
     super(message);
     this.name = 'StockMovementError';
+    this.statusCode = statusCode;
+  }
+}
+
+export class StoreOperationError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = 'StoreOperationError';
     this.statusCode = statusCode;
   }
 }
@@ -135,11 +146,21 @@ export interface StoredOrderRecord {
   shippingCost: number;
   totalAmount: number;
   status: OrderStatus;
+  paymentStatus?: PaymentStatus;
+  idempotencyKey?: string | null;
+  stockRestored?: boolean;
   deliveryPin: string;
   imeiSample: string;
   adminNote?: string;
   items: StoredOrderItem[];
   createdAt: string;
+}
+
+export interface AtomicOrderPlacementInput {
+  userId: string | null;
+  idempotencyKey?: string | null;
+  order: StoredOrderRecord;
+  stockDecrements: Array<{ productId: string; variantId?: string; qty: number }>;
 }
 
 export interface StoredUserRecord {
@@ -234,6 +255,10 @@ export interface AuthStorageAdapter {
   deleteOtpChallenge(challengeKey: string): Promise<void>;
   listUserOrders(userId: string): Promise<StoredOrderRecord[]>;
   createOrder(userId: string | null, order: StoredOrderRecord): Promise<StoredOrderRecord>;
+  placeOrderAtomic(
+    input: AtomicOrderPlacementInput
+  ): Promise<{ order: StoredOrderRecord; deduplicated: boolean }>;
+  cancelOrderAtomic(orderCode: string, adminNote?: string): Promise<StoredOrderRecord | null>;
   findOrderByCode(orderCode: string): Promise<StoredOrderRecord | null>;
   listAllOrders(params?: {
     status?: string;
@@ -264,6 +289,10 @@ export interface AuthStorageAdapter {
   upsertBrand(brand: BrandDTO): Promise<BrandDTO>;
   deleteBrand(idOrName: string): Promise<boolean>;
   listActiveCoupons(): Promise<CouponRuleDTO[]>;
+  getCouponRedemptionCount(
+    couponCode: string,
+    params: { userId?: string | null; customerPhone?: string }
+  ): Promise<number>;
   getStoreSettings(): Promise<StoreSettingsDTO>;
   listProductReviews(productId: string, includeUnapproved?: boolean): Promise<ProductReviewDTO[]>;
   createProductReview(review: ProductReviewDTO): Promise<ProductReviewDTO>;
@@ -327,7 +356,10 @@ export interface AuthStorageAdapter {
     categories: string[];
   }>;
   findBlogPostBySlug(slug: string, includeUnpublished?: boolean): Promise<BlogPostDTO | null>;
-  subscribeNewsletter(contact: string): Promise<{ alreadySubscribed: boolean }>;
+  subscribeNewsletter(
+    contact: string
+  ): Promise<{ alreadySubscribed: boolean; unsubscribeToken?: string }>;
+  unsubscribeNewsletter(tokenOrContact: string): Promise<boolean>;
   listCustomers(params?: {
     search?: string;
     limit?: number;
@@ -547,10 +579,16 @@ function mapSupabaseOrderRow(row: Record<string, unknown>): StoredOrderRecord {
   const productDiscount = hasSeparateDiscounts
     ? Number(row.product_discount || 0)
     : Math.max(0, discountTotal - couponDiscount);
+  const paymentStatus = row.payment_status
+    ? normalizePaymentStatus(row.payment_status)
+    : status === 'paid' || status === 'shipped' || status === 'delivered'
+    ? 'paid'
+    : 'unpaid';
+
   return {
     orderCode: String(row.order_code || ''),
     userId: row.user_id ? String(row.user_id) : null,
-    shaparakRef: String(row.shaparak_ref || '84729104'),
+    shaparakRef: row.shaparak_ref ? String(row.shaparak_ref) : '',
     customerName: String(row.customer_name || ''),
     customerPhone: String(row.customer_phone || ''),
     customerEmail: row.customer_email ? String(row.customer_email) : undefined,
@@ -565,6 +603,9 @@ function mapSupabaseOrderRow(row: Record<string, unknown>): StoredOrderRecord {
     shippingCost,
     totalAmount,
     status,
+    paymentStatus,
+    ...(row.idempotency_key ? { idempotencyKey: String(row.idempotency_key) } : {}),
+    stockRestored: Boolean(row.stock_restored),
     deliveryPin: String(row.delivery_pin || ''),
     imeiSample: String(row.imei_sample || ''),
     adminNote: row.admin_note ? String(row.admin_note) : undefined,
@@ -954,6 +995,7 @@ function mapSupabaseReviewRow(row: Record<string, unknown>, fallbackProductId?: 
   return {
     id: String(row.id),
     productId: String(row.product_id || fallbackProductId || ''),
+    userId: row.user_id ? String(row.user_id) : null,
     author: String(row.author || ''),
     authorUsername: row.author_username ? normalizeUsernameServer(row.author_username) : undefined,
     dateLabel: formatPersianTimestamp(row.created_at),
@@ -1367,6 +1409,9 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         product_discount: order.productDiscount,
         coupon_discount: order.couponDiscount,
         customer_email: order.customerEmail ?? null,
+        payment_status: order.paymentStatus ?? 'unpaid',
+        idempotency_key: order.idempotencyKey ?? null,
+        stock_restored: Boolean(order.stockRestored),
       };
 
       let usedColumnFallback = false;
@@ -1376,10 +1421,21 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         .select('*')
         .single();
       if (error && isSchemaColumnMismatch(error)) {
-        usedColumnFallback = true;
-        const fb = await supabase.from('orders').insert(basePayload).select('*').single();
-        data = fb.data;
-        error = fb.error;
+        const midPayload: Record<string, unknown> = {
+          ...basePayload,
+          product_discount: order.productDiscount,
+          coupon_discount: order.couponDiscount,
+          customer_email: order.customerEmail ?? null,
+        };
+        const midTry = await supabase.from('orders').insert(midPayload).select('*').single();
+        data = midTry.data;
+        error = midTry.error;
+        if (error && isSchemaColumnMismatch(error)) {
+          usedColumnFallback = true;
+          const fb = await supabase.from('orders').insert(basePayload).select('*').single();
+          data = fb.data;
+          error = fb.error;
+        }
       }
       if (error || !data) {
         throw new Error(`Supabase create order failed: ${error?.message || 'no row returned'}`);
@@ -1414,7 +1470,231 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         productDiscount: usedColumnFallback ? order.productDiscount : mapped.productDiscount,
         couponDiscount: usedColumnFallback ? order.couponDiscount : mapped.couponDiscount,
         customerEmail: mapped.customerEmail || order.customerEmail,
+        paymentStatus: order.paymentStatus ?? mapped.paymentStatus,
+        ...(order.idempotencyKey ? { idempotencyKey: order.idempotencyKey } : {}),
       };
+    },
+
+    async placeOrderAtomic(input: AtomicOrderPlacementInput) {
+      const { userId, idempotencyKey, order, stockDecrements } = input;
+      const cleanIdempKey = idempotencyKey ? idempotencyKey.trim() : '';
+
+      const rpcCandidate = (supabase as unknown as {
+        rpc?: (
+          fn: string,
+          args: Record<string, unknown>
+        ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
+      }).rpc;
+
+      if (typeof rpcCandidate === 'function') {
+        const normalizedAddress =
+          order.city && !order.shippingAddress.startsWith(order.city)
+            ? `${order.city}، ${order.shippingAddress}`
+            : order.shippingAddress;
+        const { data, error } = await rpcCandidate('place_order_atomic', {
+          p_payload: {
+            idempotency_key: cleanIdempKey || null,
+            order_code: order.orderCode,
+            user_id: userId,
+            customer_name: order.customerName,
+            customer_phone: order.customerPhone,
+            customer_email: order.customerEmail ?? null,
+            city: order.city,
+            shipping_address: normalizedAddress,
+            postal_code: order.postalCode,
+            delivery_slot: order.deliverySlot,
+            shaparak_ref: order.shaparakRef,
+            coupon_code: order.couponCode,
+            subtotal: order.subtotal,
+            discount_total: order.productDiscount + order.couponDiscount,
+            product_discount: order.productDiscount,
+            coupon_discount: order.couponDiscount,
+            shipping_cost: order.shippingCost,
+            total_amount: order.totalAmount,
+            status: order.status,
+            payment_status: order.paymentStatus ?? 'unpaid',
+            delivery_pin: order.deliveryPin,
+            imei_sample: order.imeiSample,
+            items: order.items,
+            stock_decrements: stockDecrements,
+          },
+        });
+
+        if (!error && data && typeof data === 'object') {
+          const payload = data as { deduplicated?: boolean; order?: Record<string, unknown> };
+          if (payload.order) {
+            return {
+              order: mapSupabaseOrderRow(payload.order),
+              deduplicated: Boolean(payload.deduplicated),
+            };
+          }
+        }
+
+        if (error) {
+          const msg = String(error.message || '');
+          const isMissingRpc =
+            error.code === '42883' ||
+            error.code === 'PGRST202' ||
+            /place_order_atomic/i.test(msg);
+
+          if (!isMissingRpc) {
+            if (/INSUFFICIENT_VARIANT_STOCK|INSUFFICIENT_PRODUCT_STOCK/i.test(msg)) {
+              throw new StoreOperationError('موجودی یک یا چند کالا در انبار کافی نیست.', 409);
+            }
+            if (/PRODUCT_NOT_FOUND/i.test(msg)) {
+              throw new StoreOperationError('محصول انتخاب‌شده یافت نشد.', 400);
+            }
+            if (/COUPON_EXPIRED/i.test(msg)) {
+              throw new StoreOperationError('مهلت استفاده از این کد تخفیف به پایان رسیده است.', 400);
+            }
+            if (/COUPON_NOT_STARTED/i.test(msg)) {
+              throw new StoreOperationError('زمان فعال‌سازی این کد تخفیف هنوز فرا نرسیده است.', 400);
+            }
+            if (/COUPON_USAGE_LIMIT/i.test(msg)) {
+              throw new StoreOperationError('سقف مجاز استفاده از این کد تخفیف تکمیل شده است.', 400);
+            }
+            if (/COUPON_USER_LIMIT/i.test(msg)) {
+              throw new StoreOperationError('شما پیش‌تر به حداکثر دفعات مجاز از این کد تخفیف استفاده کرده‌اید.', 400);
+            }
+            if (/COUPON_INVALID/i.test(msg)) {
+              throw new StoreOperationError('کد تخفیف معتبر یا فعال نیست.', 400);
+            }
+            throw new Error(`Supabase atomic order placement failed: ${msg}`);
+          }
+        }
+      }
+
+      // Fallback when transactional RPC is not yet deployed in Supabase
+      if (cleanIdempKey) {
+        try {
+          const { data: existingRow } = await supabase
+            .from('orders')
+            .select('*')
+            .eq('idempotency_key', cleanIdempKey)
+            .maybeSingle();
+          if (existingRow) {
+            return {
+              order: mapSupabaseOrderRow(existingRow as Record<string, unknown>),
+              deduplicated: true,
+            };
+          }
+        } catch {
+          // Ignore if idempotency_key column is missing before migration
+        }
+      }
+
+      const saved = await this.createOrder(userId, {
+        ...order,
+        ...(cleanIdempKey ? { idempotencyKey: cleanIdempKey } : {}),
+      });
+
+      for (const dec of stockDecrements) {
+        if (dec.variantId) {
+          const variantStocks = await this.listWarehouseStock({ variantId: dec.variantId }).catch(() => []);
+          const bestStock = variantStocks.slice().sort((a, b) => b.availableQty - a.availableQty)[0];
+          if (bestStock && bestStock.availableQty >= dec.qty) {
+            await this.recordStockMovement({
+              warehouseId: bestStock.warehouseId,
+              variantId: dec.variantId,
+              movementType: 'order_sale',
+              quantityChange: -dec.qty,
+              referenceType: 'order',
+              referenceId: saved.orderCode,
+              idempotencyKey: `order-sale:${saved.orderCode}:${dec.variantId}`,
+              noteFa: `کسر موجودی بابت سفارش ${saved.orderCode}`,
+              createdBy: userId,
+            });
+            continue;
+          }
+        }
+        await this.decrementProductStock(dec.productId, dec.qty);
+      }
+
+      return { order: saved, deduplicated: false };
+    },
+
+    async cancelOrderAtomic(orderCode: string, adminNote?: string) {
+      const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+      const rpcCandidate = (supabase as unknown as {
+        rpc?: (
+          fn: string,
+          args: Record<string, unknown>
+        ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
+      }).rpc;
+
+      if (typeof rpcCandidate === 'function') {
+        const { data, error } = await rpcCandidate('cancel_order_atomic', {
+          p_order_code: normalized,
+          p_admin_note: adminNote ?? null,
+        });
+        if (!error && data && typeof data === 'object') {
+          const payload = data as { order?: Record<string, unknown> };
+          if (payload.order) {
+            return mapSupabaseOrderRow(payload.order);
+          }
+        }
+        if (error) {
+          const msg = String(error.message || '');
+          const isMissingRpc =
+            error.code === '42883' ||
+            error.code === 'PGRST202' ||
+            /cancel_order_atomic/i.test(msg);
+          if (!isMissingRpc) {
+            if (/ORDER_NOT_FOUND/i.test(msg)) {
+              throw new StoreOperationError('سفارش یافت نشد.', 404);
+            }
+            if (/ORDER_NOT_CANCELLABLE/i.test(msg)) {
+              throw new StoreOperationError('سفارش در وضعیت فعلی قابل لغو نیست.', 409);
+            }
+            throw new Error(`Supabase atomic order cancel failed: ${msg}`);
+          }
+        }
+      }
+
+      // Fallback when cancel_order_atomic RPC is not deployed
+      const current = await this.findOrderByCode(normalized);
+      if (!current) return null;
+      if (!['pending_payment', 'paid', 'preparing'].includes(current.status)) {
+        throw new StoreOperationError(
+          current.status === 'cancelled'
+            ? 'این سفارش قبلاً لغو شده است.'
+            : 'سفارش پس از ارسال یا تحویل قابل لغو نیست.',
+          409
+        );
+      }
+      if (!current.stockRestored) {
+        for (const item of current.items) {
+          if (item.variantId) {
+            const movs = await this.listStockMovements({
+              variantId: item.variantId,
+              movementType: 'order_sale',
+              limit: 20,
+            }).catch(() => []);
+            const saleMov = movs.find(
+              (m) => m.referenceType === 'order' && m.referenceId === current.orderCode
+            );
+            if (saleMov) {
+              await this.recordStockMovement({
+                warehouseId: saleMov.warehouseId,
+                variantId: item.variantId,
+                movementType: 'customer_return',
+                quantityChange: item.qty,
+                referenceType: 'order',
+                referenceId: current.orderCode,
+                idempotencyKey: `order-cancel:${current.orderCode}:${item.variantId}:${item.key}`,
+                noteFa: `بازگشت موجودی بابت لغو سفارش ${current.orderCode}`,
+              }).catch(() => undefined);
+              continue;
+            }
+          }
+          const prod = await this.findProductByIdOrSlug(item.productId).catch(() => null);
+          if (prod) {
+            await this.updateProductInventory(prod.id, prod.stockCount + item.qty, true).catch(() => undefined);
+          }
+        }
+      }
+      const updated = await this.updateOrderStatus(normalized, 'cancelled', adminNote);
+      return updated ? { ...updated, stockRestored: true } : null;
     },
 
     async findOrderByCode(orderCode: string) {
@@ -1912,8 +2192,47 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         maxDiscount: row.max_discount ? Number(row.max_discount) : undefined,
         minOrderAmount: row.min_order_amount ? Number(row.min_order_amount) : 0,
         isActive: row.is_active !== false,
+        startsAt: row.starts_at ? String(row.starts_at) : null,
+        expiresAt: row.expires_at ? String(row.expires_at) : null,
+        usageLimit:
+          row.usage_limit !== null && row.usage_limit !== undefined ? Number(row.usage_limit) : null,
+        perUserLimit:
+          row.per_user_limit !== null && row.per_user_limit !== undefined
+            ? Number(row.per_user_limit)
+            : null,
+        usedCount: row.used_count !== null && row.used_count !== undefined ? Number(row.used_count) : 0,
         descriptionFa: row.description_fa ? String(row.description_fa) : undefined,
       }));
+    },
+
+    async getCouponRedemptionCount(
+      couponCode: string,
+      params: { userId?: string | null; customerPhone?: string }
+    ) {
+      const cleanCode = couponCode.trim().toUpperCase();
+      if (!cleanCode) return 0;
+      const cleanPhone = params.customerPhone ? normalizePhone(params.customerPhone) : '';
+      if (!params.userId && !cleanPhone) return 0;
+      try {
+        const { data, error } = await supabase
+          .from('coupon_redemptions')
+          .select('user_id, customer_phone, status')
+          .eq('coupon_code', cleanCode)
+          .eq('status', 'applied');
+        if (error) {
+          if (isMissingRelationError(error)) return 0;
+          return 0;
+        }
+        return (data || []).filter((r: Record<string, unknown>) => {
+          if (params.userId && r.user_id && String(r.user_id) === params.userId) return true;
+          if (cleanPhone && r.customer_phone && normalizePhone(String(r.customer_phone)) === cleanPhone) {
+            return true;
+          }
+          return false;
+        }).length;
+      } catch {
+        return 0;
+      }
     },
 
     async getStoreSettings() {
@@ -1955,26 +2274,36 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         verified: review.verified,
         is_approved: review.isApproved,
       };
-      const extInsert = review.authorUsername
-        ? { ...baseInsert, author_username: normalizeUsernameServer(review.authorUsername) }
-        : baseInsert;
+      const extInsert: Record<string, unknown> = {
+        ...baseInsert,
+        ...(review.authorUsername ? { author_username: normalizeUsernameServer(review.authorUsername) } : {}),
+        ...(review.userId && isUuid(review.userId) ? { user_id: review.userId } : {}),
+      };
 
       let { data, error } = await supabase
         .from('product_reviews')
         .insert(extInsert)
         .select('*')
         .single();
-      if (error && review.authorUsername && isSchemaColumnMismatch(error)) {
-        const fb = await supabase
-          .from('product_reviews')
-          .insert(baseInsert)
-          .select('*')
-          .single();
+      if (error && isSchemaColumnMismatch(error)) {
+        const fbPayload = review.authorUsername
+          ? { ...baseInsert, author_username: normalizeUsernameServer(review.authorUsername) }
+          : baseInsert;
+        let fb = await supabase.from('product_reviews').insert(fbPayload).select('*').single();
+        if (fb.error && review.authorUsername && isSchemaColumnMismatch(fb.error)) {
+          fb = await supabase.from('product_reviews').insert(baseInsert).select('*').single();
+        }
         data = fb.data;
         error = fb.error;
       }
-      if (error || !data) {
-        throw new Error(`Supabase create review failed: ${error?.message || 'no row returned'}`);
+      if (error) {
+        if (error.code === '23505') {
+          throw new StoreOperationError('شما قبلاً دیدگاه خود را برای این محصول ثبت کرده‌اید.', 409);
+        }
+        throw new Error(`Supabase create review failed: ${error.message || 'no row returned'}`);
+      }
+      if (!data) {
+        throw new Error('Supabase create review failed: no row returned');
       }
       const mapped = mapSupabaseReviewRow(data as Record<string, unknown>, review.productId);
       if (mapped.isApproved) {
@@ -2275,14 +2604,88 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
     },
 
     async subscribeNewsletter(contact: string) {
-      const { error } = await supabase.from('newsletter_subscribers').insert({ contact });
+      const token = crypto.randomBytes(16).toString('hex');
+      const contactType = contact.includes('@') ? 'email' : 'phone';
+      let { error } = await supabase.from('newsletter_subscribers').insert({
+        contact,
+        contact_type: contactType,
+        status: 'active',
+        unsubscribe_token: token,
+      });
+      if (error && isSchemaColumnMismatch(error)) {
+        const fb = await supabase.from('newsletter_subscribers').insert({ contact });
+        error = fb.error;
+      }
       if (error) {
         if (error.code === '23505') {
-          return { alreadySubscribed: true };
+          try {
+            const { data: existing } = await supabase
+              .from('newsletter_subscribers')
+              .select('status, unsubscribe_token')
+              .eq('contact', contact)
+              .maybeSingle();
+            if (existing && existing.status === 'unsubscribed') {
+              await supabase
+                .from('newsletter_subscribers')
+                .update({
+                  status: 'active',
+                  unsubscribed_at: null,
+                  unsubscribe_token: existing.unsubscribe_token || token,
+                })
+                .eq('contact', contact);
+              return {
+                alreadySubscribed: false,
+                unsubscribeToken: String(existing.unsubscribe_token || token),
+              };
+            }
+            return {
+              alreadySubscribed: true,
+              unsubscribeToken: existing?.unsubscribe_token
+                ? String(existing.unsubscribe_token)
+                : undefined,
+            };
+          } catch {
+            return { alreadySubscribed: true };
+          }
         }
         throw new Error(`Supabase newsletter subscribe failed: ${error.message}`);
       }
-      return { alreadySubscribed: false };
+      return { alreadySubscribed: false, unsubscribeToken: token };
+    },
+
+    async unsubscribeNewsletter(tokenOrContact: string) {
+      const clean = tokenOrContact.trim();
+      if (!clean) return false;
+      try {
+        const nowIso = new Date().toISOString();
+        const byToken = await supabase
+          .from('newsletter_subscribers')
+          .update({ status: 'unsubscribed', unsubscribed_at: nowIso })
+          .eq('unsubscribe_token', clean)
+          .select('id');
+        if (!byToken.error && Array.isArray(byToken.data) && byToken.data.length > 0) {
+          return true;
+        }
+        const byContact = await supabase
+          .from('newsletter_subscribers')
+          .update({ status: 'unsubscribed', unsubscribed_at: nowIso })
+          .eq('contact', clean)
+          .select('id');
+        if (!byContact.error && Array.isArray(byContact.data) && byContact.data.length > 0) {
+          return true;
+        }
+        if (byToken.error && isSchemaColumnMismatch(byToken.error)) {
+          const delRes = await supabase
+            .from('newsletter_subscribers')
+            .delete()
+            .eq('contact', clean)
+            .select('id');
+          return !delRes.error && Array.isArray(delRes.data) && delRes.data.length > 0;
+        }
+      } catch {
+        // Ignore
+      }
+      return false;
     },
 
     async listCustomers(params = {}) {
@@ -3713,6 +4116,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
 
     async createProductQuestion(input) {
       const nowIso = new Date().toISOString();
+      const nextApproved = Boolean(input.isApproved);
       try {
         const { data, error } = await supabase
           .from('product_questions')
@@ -3723,7 +4127,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
             question: input.question,
             answer: input.answer ?? null,
             answered_at: input.answeredAt ?? null,
-            is_approved: input.isApproved !== false,
+            is_approved: nextApproved,
           })
           .select('*')
           .single();
@@ -3736,7 +4140,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
             question: String(data.question || ''),
             answer: data.answer ? String(data.answer) : null,
             answeredAt: data.answered_at ? String(data.answered_at) : null,
-            isApproved: data.is_approved !== false,
+            isApproved: data.is_approved === true,
             createdAt: formatPersianTimestamp(data.created_at),
           };
         }
@@ -3758,7 +4162,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         question: input.question,
         answer: input.answer ?? null,
         answeredAt: input.answeredAt ?? null,
-        isApproved: input.isApproved !== false,
+        isApproved: nextApproved,
         createdAt: formatPersianTimestamp(nowIso),
       };
       await supabase.from('store_settings').upsert({
@@ -3909,6 +4313,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
 
 export function createMemoryAuthStorage(options?: {
   seedProducts?: ProductDTO[];
+  seedCoupons?: CouponRuleDTO[];
 }): AuthStorageAdapter {
   const users = new Map<string, StoredUserRecord>();
   const otps = new Map<string, OtpChallengeRecord>();
@@ -3923,12 +4328,25 @@ export function createMemoryAuthStorage(options?: {
   }));
   const categories: CategoryDTO[] = DEFAULT_DEV_CATEGORIES.map((c) => ({ ...c }));
   const brands: BrandDTO[] = DEFAULT_DEV_BRANDS.map((b) => ({ ...b }));
-  const coupons: CouponRuleDTO[] = DEFAULT_DEV_COUPONS.map((c) => ({ ...c }));
+  const coupons: CouponRuleDTO[] = (options?.seedCoupons ?? DEFAULT_DEV_COUPONS).map((c) => ({
+    ...c,
+    usedCount: c.usedCount ?? 0,
+  }));
+  const couponRedemptions: Array<{
+    couponCode: string;
+    orderCode: string;
+    userId: string | null;
+    customerPhone: string;
+    status: 'applied' | 'cancelled';
+  }> = [];
   const settings: StoreSettingsDTO = { ...DEFAULT_DEV_SETTINGS };
   const reviewsByProduct = new Map<string, ProductReviewDTO[]>();
   const cartByUser = new Map<string, StoredCartItemRecord[]>();
   const tickets: SupportTicketDTO[] = [];
-  const newsletter = new Set<string>();
+  const newsletter = new Map<
+    string,
+    { contact: string; status: 'active' | 'unsubscribed'; unsubscribeToken: string }
+  >();
   const auditLogs: AdminAuditLogDTO[] = [];
   const roles: AuthRoleDTO[] = DEFAULT_DEV_ROLES.map((r) => ({ ...r }));
   const warranties: WarrantyDTO[] = DEFAULT_DEV_WARRANTIES.map((w) => ({ ...w }));
@@ -4104,11 +4522,318 @@ export function createMemoryAuthStorage(options?: {
       const copy: StoredOrderRecord = {
         ...order,
         userId,
+        paymentStatus: order.paymentStatus ?? 'unpaid',
+        stockRestored: Boolean(order.stockRestored),
         createdAt: formatPersianTimestamp(order.createdAt),
         items: order.items.map((item) => ({ ...item })),
       };
       orders.unshift({ userId, order: copy });
       return copy;
+    },
+
+    async placeOrderAtomic(input: AtomicOrderPlacementInput) {
+      const cleanIdemp = input.idempotencyKey ? input.idempotencyKey.trim() : '';
+      if (cleanIdemp) {
+        const existingEntry = orders.find((entry) => entry.order.idempotencyKey === cleanIdemp);
+        if (existingEntry) {
+          return {
+            order: {
+              ...existingEntry.order,
+              items: existingEntry.order.items.map((i) => ({ ...i })),
+            },
+            deduplicated: true,
+          };
+        }
+      }
+
+      // 1. Validate coupon lifecycle & redemption limits atomically
+      const couponCodeUpper = input.order.couponCode ? input.order.couponCode.trim().toUpperCase() : '';
+      let matchedCouponIdx = -1;
+      if (couponCodeUpper) {
+        matchedCouponIdx = coupons.findIndex(
+          (c) => c.code.toUpperCase() === couponCodeUpper && c.isActive !== false
+        );
+        if (matchedCouponIdx < 0) {
+          throw new StoreOperationError('کد تخفیف معتبر یا فعال نیست.', 400);
+        }
+        const coupon = coupons[matchedCouponIdx];
+        const nowMs = Date.now();
+        if (coupon.startsAt && nowMs < new Date(coupon.startsAt).getTime()) {
+          throw new StoreOperationError('زمان فعال‌سازی این کد تخفیف هنوز فرا نرسیده است.', 400);
+        }
+        if (coupon.expiresAt && nowMs > new Date(coupon.expiresAt).getTime()) {
+          throw new StoreOperationError('مهلت استفاده از این کد تخفیف به پایان رسیده است.', 400);
+        }
+        if (
+          typeof coupon.usageLimit === 'number' &&
+          (coupon.usedCount ?? 0) >= coupon.usageLimit
+        ) {
+          throw new StoreOperationError('سقف مجاز استفاده از این کد تخفیف تکمیل شده است.', 400);
+        }
+        if (typeof coupon.perUserLimit === 'number') {
+          const cleanPhone = normalizePhone(input.order.customerPhone);
+          const redCount = couponRedemptions.filter(
+            (r) =>
+              r.couponCode.toUpperCase() === couponCodeUpper &&
+              r.status === 'applied' &&
+              ((input.userId && r.userId === input.userId) ||
+                (cleanPhone && normalizePhone(r.customerPhone) === cleanPhone))
+          ).length;
+          if (redCount >= coupon.perUserLimit) {
+            throw new StoreOperationError(
+              'شما پیش‌تر به حداکثر دفعات مجاز از این کد تخفیف استفاده کرده‌اید.',
+              400
+            );
+          }
+        }
+      }
+
+      // 2. Validate ALL stock before applying any mutation
+      const plannedVariantUpdates: Array<{ stockIdx: number; qty: number; productId: string; variantId: string }> = [];
+      const productRemainingQty = new Map<string, number>();
+
+      for (const dec of input.stockDecrements) {
+        if (dec.qty <= 0) continue;
+        if (dec.variantId) {
+          const matchingIndices: number[] = [];
+          for (let i = 0; i < warehouseStocks.length; i++) {
+            if (warehouseStocks[i].variantId === dec.variantId) matchingIndices.push(i);
+          }
+          if (matchingIndices.length > 0) {
+            matchingIndices.sort((a, b) => {
+              const avA = warehouseStocks[a].quantityOnHand - warehouseStocks[a].reservedQty;
+              const avB = warehouseStocks[b].quantityOnHand - warehouseStocks[b].reservedQty;
+              return avB - avA;
+            });
+            const bestIdx = matchingIndices[0];
+            const bestAvail =
+              warehouseStocks[bestIdx].quantityOnHand - warehouseStocks[bestIdx].reservedQty;
+            if (bestAvail < dec.qty) {
+              throw new StoreOperationError('موجودی تنوع انتخاب‌شده در انبار کافی نیست.', 409);
+            }
+            plannedVariantUpdates.push({
+              stockIdx: bestIdx,
+              qty: dec.qty,
+              productId: dec.productId,
+              variantId: dec.variantId,
+            });
+            continue;
+          }
+        }
+        productRemainingQty.set(
+          dec.productId,
+          (productRemainingQty.get(dec.productId) || 0) + dec.qty
+        );
+      }
+
+      const plannedProductUpdates: Array<{ prodIdx: number; qty: number }> = [];
+      for (const [productId, neededQty] of productRemainingQty.entries()) {
+        const prodIdx = products.findIndex((p) => p.id === productId || p.slug === productId);
+        if (prodIdx < 0) {
+          throw new StoreOperationError('محصول انتخاب‌شده در کاتالوگ یافت نشد.', 400);
+        }
+        if (!products[prodIdx].inStock || products[prodIdx].stockCount < neededQty) {
+          throw new StoreOperationError(
+            `موجودی کالای «${products[prodIdx].nameFa}» کافی نیست (موجودی فعلی: ${products[prodIdx].stockCount} عدد).`,
+            409
+          );
+        }
+        plannedProductUpdates.push({ prodIdx, qty: neededQty });
+      }
+
+      // 3. Commit stock, coupon redemption, and order atomically (no await inside)
+      const nowIso = new Date().toISOString();
+      for (const vu of plannedVariantUpdates) {
+        const currentStock = warehouseStocks[vu.stockIdx];
+        const balanceAfter = currentStock.quantityOnHand - vu.qty;
+        const availableQty = Math.max(0, balanceAfter - currentStock.reservedQty);
+        warehouseStocks[vu.stockIdx] = {
+          ...currentStock,
+          quantityOnHand: balanceAfter,
+          availableQty,
+          isLowStock: availableQty <= currentStock.minStockAlert,
+          updatedAt: nowIso,
+        };
+        stockMovements.unshift({
+          id: crypto.randomUUID(),
+          warehouseId: currentStock.warehouseId,
+          variantId: vu.variantId,
+          movementType: 'order_sale',
+          quantityChange: -vu.qty,
+          balanceAfter,
+          referenceType: 'order',
+          referenceId: input.order.orderCode,
+          idempotencyKey: `order-sale:${input.order.orderCode}:${vu.variantId}`,
+          noteFa: `کسر موجودی بابت سفارش ${input.order.orderCode}`,
+          createdBy: input.userId,
+          createdAt: nowIso,
+        });
+        const prodVariants = variants.filter((v) => v.productId === vu.productId);
+        const prodVarIds = new Set(prodVariants.map((v) => v.id));
+        const totalProdAvail = warehouseStocks
+          .filter((s) => prodVarIds.has(s.variantId))
+          .reduce((acc, s) => acc + Math.max(0, s.quantityOnHand - s.reservedQty), 0);
+        const pIdx = products.findIndex((p) => p.id === vu.productId);
+        if (pIdx >= 0) {
+          products[pIdx] = {
+            ...products[pIdx],
+            stockCount: totalProdAvail,
+            inStock: totalProdAvail > 0,
+            updatedAt: nowIso,
+          };
+        }
+      }
+
+      for (const pu of plannedProductUpdates) {
+        const nextStock = Math.max(0, products[pu.prodIdx].stockCount - pu.qty);
+        products[pu.prodIdx] = {
+          ...products[pu.prodIdx],
+          stockCount: nextStock,
+          inStock: nextStock > 0,
+          updatedAt: nowIso,
+        };
+      }
+
+      if (matchedCouponIdx >= 0) {
+        coupons[matchedCouponIdx] = {
+          ...coupons[matchedCouponIdx],
+          usedCount: (coupons[matchedCouponIdx].usedCount ?? 0) + 1,
+        };
+        couponRedemptions.push({
+          couponCode: coupons[matchedCouponIdx].code,
+          orderCode: input.order.orderCode,
+          userId: input.userId,
+          customerPhone: input.order.customerPhone,
+          status: 'applied',
+        });
+      }
+
+      const savedOrder: StoredOrderRecord = {
+        ...input.order,
+        userId: input.userId,
+        paymentStatus: input.order.paymentStatus ?? 'unpaid',
+        ...(cleanIdemp ? { idempotencyKey: cleanIdemp } : {}),
+        stockRestored: false,
+        createdAt: formatPersianTimestamp(input.order.createdAt),
+        items: input.order.items.map((item) => ({ ...item })),
+      };
+      orders.unshift({ userId: input.userId, order: savedOrder });
+      return {
+        order: { ...savedOrder, items: savedOrder.items.map((i) => ({ ...i })) },
+        deduplicated: false,
+      };
+    },
+
+    async cancelOrderAtomic(orderCode: string, adminNote?: string) {
+      const normalized = orderCode.trim().toUpperCase().replace(/^#/, '');
+      const match = orders.find((entry) => entry.order.orderCode.toUpperCase() === normalized);
+      if (!match) return null;
+      if (!['pending_payment', 'paid', 'preparing'].includes(match.order.status)) {
+        throw new StoreOperationError(
+          match.order.status === 'cancelled'
+            ? 'این سفارش قبلاً لغو شده است.'
+            : 'سفارش پس از ارسال یا تحویل قابل لغو نیست.',
+          409
+        );
+      }
+
+      const nowIso = new Date().toISOString();
+      if (!match.order.stockRestored) {
+        for (const item of match.order.items) {
+          if (item.variantId) {
+            const saleMov = stockMovements.find(
+              (m) =>
+                m.referenceType === 'order' &&
+                m.referenceId === match.order.orderCode &&
+                m.variantId === item.variantId &&
+                m.movementType === 'order_sale'
+            );
+            if (saleMov) {
+              const sIdx = warehouseStocks.findIndex(
+                (s) => s.warehouseId === saleMov.warehouseId && s.variantId === item.variantId
+              );
+              if (sIdx >= 0) {
+                const cur = warehouseStocks[sIdx];
+                const balanceAfter = cur.quantityOnHand + item.qty;
+                const availableQty = Math.max(0, balanceAfter - cur.reservedQty);
+                warehouseStocks[sIdx] = {
+                  ...cur,
+                  quantityOnHand: balanceAfter,
+                  availableQty,
+                  isLowStock: availableQty <= cur.minStockAlert,
+                  updatedAt: nowIso,
+                };
+                stockMovements.unshift({
+                  id: crypto.randomUUID(),
+                  warehouseId: cur.warehouseId,
+                  variantId: item.variantId,
+                  movementType: 'customer_return',
+                  quantityChange: item.qty,
+                  balanceAfter,
+                  referenceType: 'order',
+                  referenceId: match.order.orderCode,
+                  idempotencyKey: `order-cancel:${match.order.orderCode}:${item.variantId}:${item.key}`,
+                  noteFa: `بازگشت موجودی بابت لغو سفارش ${match.order.orderCode}`,
+                  createdAt: nowIso,
+                });
+                const prodVariants = variants.filter((v) => v.productId === item.productId);
+                const prodVarIds = new Set(prodVariants.map((v) => v.id));
+                const totalProdAvail = warehouseStocks
+                  .filter((s) => prodVarIds.has(s.variantId))
+                  .reduce((acc, s) => acc + Math.max(0, s.quantityOnHand - s.reservedQty), 0);
+                const pIdx = products.findIndex((p) => p.id === item.productId);
+                if (pIdx >= 0) {
+                  products[pIdx] = {
+                    ...products[pIdx],
+                    stockCount: totalProdAvail,
+                    inStock: totalProdAvail > 0,
+                    updatedAt: nowIso,
+                  };
+                }
+                continue;
+              }
+            }
+          }
+          const pIdx = products.findIndex((p) => p.id === item.productId || p.slug === item.productId);
+          if (pIdx >= 0) {
+            const nextStock = products[pIdx].stockCount + item.qty;
+            products[pIdx] = {
+              ...products[pIdx],
+              stockCount: nextStock,
+              inStock: nextStock > 0,
+              updatedAt: nowIso,
+            };
+          }
+        }
+
+        if (match.order.couponCode) {
+          const red = couponRedemptions.find(
+            (r) =>
+              r.orderCode.toUpperCase() === match.order.orderCode.toUpperCase() &&
+              r.status === 'applied'
+          );
+          if (red) {
+            red.status = 'cancelled';
+            const cIdx = coupons.findIndex(
+              (c) => c.code.toUpperCase() === match.order.couponCode!.toUpperCase()
+            );
+            if (cIdx >= 0) {
+              coupons[cIdx] = {
+                ...coupons[cIdx],
+                usedCount: Math.max(0, (coupons[cIdx].usedCount ?? 0) - 1),
+              };
+            }
+          }
+        }
+      }
+
+      match.order = {
+        ...match.order,
+        status: 'cancelled',
+        stockRestored: true,
+        adminNote: adminNote !== undefined ? adminNote : match.order.adminNote,
+      };
+      return { ...match.order, userId: match.userId };
     },
 
     async findOrderByCode(orderCode: string) {
@@ -4324,6 +5049,22 @@ export function createMemoryAuthStorage(options?: {
       return coupons.filter((c) => c.isActive !== false).map((c) => ({ ...c }));
     },
 
+    async getCouponRedemptionCount(
+      couponCode: string,
+      params: { userId?: string | null; customerPhone?: string }
+    ) {
+      const cleanCode = couponCode.trim().toUpperCase();
+      if (!cleanCode) return 0;
+      const cleanPhone = params.customerPhone ? normalizePhone(params.customerPhone) : '';
+      return couponRedemptions.filter(
+        (r) =>
+          r.couponCode.toUpperCase() === cleanCode &&
+          r.status === 'applied' &&
+          ((params.userId && r.userId === params.userId) ||
+            (cleanPhone && normalizePhone(r.customerPhone) === cleanPhone))
+      ).length;
+    },
+
     async getStoreSettings() {
       return { ...settings };
     },
@@ -4341,6 +5082,9 @@ export function createMemoryAuthStorage(options?: {
 
     async createProductReview(review: ProductReviewDTO) {
       const existing = reviewsByProduct.get(review.productId) || [];
+      if (review.userId && existing.some((r) => r.userId === review.userId)) {
+        throw new StoreOperationError('شما قبلاً دیدگاه خود را برای این محصول ثبت کرده‌اید.', 409);
+      }
       const created = { ...review, id: review.id || crypto.randomUUID() };
       reviewsByProduct.set(review.productId, [created, ...existing]);
       if (created.isApproved) {
@@ -4592,7 +5336,7 @@ export function createMemoryAuthStorage(options?: {
 
     async listProductQuestions(productId: string, includeUnapproved = false) {
       return productQuestions
-        .filter((q) => q.productId === productId && (includeUnapproved || q.isApproved !== false))
+        .filter((q) => q.productId === productId && (includeUnapproved || q.isApproved === true))
         .map((q) => ({ ...q }));
     },
 
@@ -4605,7 +5349,7 @@ export function createMemoryAuthStorage(options?: {
         question: input.question,
         answer: input.answer ?? null,
         answeredAt: input.answeredAt ?? null,
-        isApproved: input.isApproved !== false,
+        isApproved: Boolean(input.isApproved),
         createdAt: formatPersianTimestamp(new Date().toISOString()),
       };
       productQuestions.unshift(created);
@@ -4651,9 +5395,30 @@ export function createMemoryAuthStorage(options?: {
     },
 
     async subscribeNewsletter(contact: string) {
-      const alreadySubscribed = newsletter.has(contact);
-      newsletter.add(contact);
-      return { alreadySubscribed };
+      const existing = newsletter.get(contact);
+      if (existing) {
+        if (existing.status === 'unsubscribed') {
+          existing.status = 'active';
+          return { alreadySubscribed: false, unsubscribeToken: existing.unsubscribeToken };
+        }
+        return { alreadySubscribed: true, unsubscribeToken: existing.unsubscribeToken };
+      }
+      const token = crypto.randomBytes(16).toString('hex');
+      newsletter.set(contact, { contact, status: 'active', unsubscribeToken: token });
+      return { alreadySubscribed: false, unsubscribeToken: token };
+    },
+
+    async unsubscribeNewsletter(tokenOrContact: string) {
+      const clean = tokenOrContact.trim();
+      if (!clean) return false;
+      for (const entry of newsletter.values()) {
+        if (entry.unsubscribeToken === clean || entry.contact === clean) {
+          if (entry.status === 'unsubscribed') return false;
+          entry.status = 'unsubscribed';
+          return true;
+        }
+      }
+      return false;
     },
 
     async listCustomers(params = {}) {

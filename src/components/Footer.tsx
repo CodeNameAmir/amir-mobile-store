@@ -11,26 +11,54 @@ import {
 } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 import { storeApi } from '../lib/authApi';
+import { toEnglishDigits } from '../utils/storeLogic';
 
 export const Footer: React.FC = () => {
   const { buildHref, handleLinkClick, showToast, storeSettings } = useStore();
   const [newsletterInput, setNewsletterInput] = useState('');
+  const [newsletterMode, setNewsletterMode] = useState<'subscribe' | 'unsubscribe'>('subscribe');
+  const [newsletterBusy, setNewsletterBusy] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
+  const [unsubscribedNotice, setUnsubscribedNotice] = useState(false);
 
   const handleSubscribe = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = newsletterInput.trim();
-    if (trimmed.length < 5) {
-      showToast('لطفاً شماره موبایل یا ایمیل معتبر وارد کنید.', 'error');
+    const normalizedPhone = toEnglishDigits(trimmed).replace(/[\s-]/g, '');
+    const emailCandidate = trimmed.toLowerCase();
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailCandidate);
+    const isPhone = /^09\d{9}$/.test(normalizedPhone);
+
+    if (!isEmail && !isPhone) {
+      showToast('لطفاً یک ایمیل معتبر یا شماره موبایل ۱۱ رقمی با ۰۹ وارد کنید.', 'error');
       return;
     }
+
+    const normalizedContact = isEmail ? emailCandidate : normalizedPhone;
+    setNewsletterBusy(true);
     try {
-      await storeApi.subscribeNewsletter(trimmed);
-      setSubscribed(true);
-      setNewsletterInput('');
-      showToast('عضویت شما در خبرنامه تخفیف‌های امیر با موفقیت ثبت شد.', 'success');
+      if (newsletterMode === 'unsubscribe') {
+        const res = await storeApi.unsubscribeNewsletter(normalizedContact);
+        setUnsubscribedNotice(true);
+        setSubscribed(false);
+        setNewsletterInput('');
+        showToast(
+          res.unsubscribed
+            ? 'اشتراک شما در خبرنامه با موفقیت لغو شد.'
+            : 'نشانی واردشده در فهرست خبرنامه فعال یافت نشد.',
+          res.unsubscribed ? 'success' : 'info'
+        );
+      } else {
+        await storeApi.subscribeNewsletter(normalizedContact);
+        setSubscribed(true);
+        setUnsubscribedNotice(false);
+        setNewsletterInput('');
+        showToast('عضویت شما در خبرنامه تخفیف‌های امیر با موفقیت ثبت شد.', 'success');
+      }
     } catch (err) {
-      showToast(err instanceof Error ? err.message : 'خطا در عضویت خبرنامه.', 'error');
+      showToast(err instanceof Error ? err.message : 'خطا در ثبت درخواست خبرنامه.', 'error');
+    } finally {
+      setNewsletterBusy(false);
     }
   };
 
@@ -236,30 +264,52 @@ export const Footer: React.FC = () => {
           </ul>
         </div>
 
-        {/* Newsletter + Trust badges */}
+        {/* Newsletter + Guarantees */}
         <div className="lg:col-span-4 space-y-4">
-          <h3 className="text-sm font-semibold text-[#11161E]">خبرنامه تخفیف‌ها</h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-[#11161E]">
+              {newsletterMode === 'unsubscribe' ? 'لغو عضویت خبرنامه' : 'خبرنامه تخفیف‌ها'}
+            </h3>
+            <button
+              type="button"
+              data-testid="newsletter-mode-toggle"
+              onClick={() => {
+                setNewsletterMode((m) => (m === 'subscribe' ? 'unsubscribe' : 'subscribe'));
+                setSubscribed(false);
+                setUnsubscribedNotice(false);
+              }}
+              className="text-[11px] font-medium text-[#1453D6] hover:underline"
+            >
+              {newsletterMode === 'unsubscribe' ? 'بازگشت به عضویت' : 'لغو عضویت'}
+            </button>
+          </div>
           <p className="text-xs text-[#4A5464] leading-6">
-            از جدیدترین پیشنهادهای ویژه و کدهای تخفیف خرید اول (مانند{' '}
-            <span className="font-mono font-medium text-[#1453D6]" dir="ltr">
-              AMIR-OFF
-            </span>
-            ) مطلع شوید
+            {newsletterMode === 'unsubscribe'
+              ? 'ایمیل یا شماره موبایل ثبت‌شده را وارد کنید تا ارسال پیام‌های خبرنامه متوقف شود.'
+              : 'از جدیدترین موجودی‌های پرچمداران، جشنواره‌های فصلی و اطلاع‌رسانی تخفیف‌ها مطلع شوید.'}
           </p>
 
           <form onSubmit={handleSubscribe} className="flex items-center gap-2">
             <input
               type="text"
+              dir="ltr"
               value={newsletterInput}
               onChange={(e) => setNewsletterInput(e.target.value)}
-              placeholder="شماره موبایل یا ایمیل"
-              className="flex-1 h-10 px-3 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-xs text-[#11161E] placeholder:text-[#576071] focus:bg-white focus:border-[#1453D6] focus:outline-none transition-colors"
+              placeholder="name@example.com / 0912..."
+              data-testid="newsletter-contact-input"
+              className="flex-1 h-10 px-3 rounded-lg bg-[#F1F3F6] border border-[#E4E8EE] text-xs text-left text-[#11161E] placeholder:text-[#576071] focus:bg-white focus:border-[#1453D6] focus:outline-none transition-colors"
             />
             <button
               type="submit"
-              className="h-10 px-4 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] text-white text-xs font-semibold transition-colors shrink-0"
+              disabled={newsletterBusy}
+              data-testid="newsletter-submit-btn"
+              className="h-10 px-4 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-xs font-semibold transition-colors shrink-0"
             >
-              عضویت
+              {newsletterBusy
+                ? 'ارسال...'
+                : newsletterMode === 'unsubscribe'
+                ? 'لغو عضویت'
+                : 'عضویت'}
             </button>
           </form>
 
@@ -269,15 +319,21 @@ export const Footer: React.FC = () => {
               شما با موفقیت عضو خبرنامه شدید.
             </p>
           )}
+          {unsubscribedNotice && (
+            <p className="inline-flex items-center gap-1.5 text-xs font-medium text-[#4A5464]">
+              <CheckCircle2 className="w-4 h-4 text-[#067647]" strokeWidth={1.5} />
+              درخواست لغو اشتراک خبرنامه ثبت شد.
+            </p>
+          )}
 
-          <div className="flex items-center gap-2.5 pt-2">
+          <div className="flex flex-wrap items-center gap-2.5 pt-2">
             <div className="px-3 py-2 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-[11px] font-medium text-[#11161E] inline-flex items-center gap-1.5">
               <Award className="w-4 h-4 text-[#4A5464]" strokeWidth={1.5} />
-              نماد اعتماد الکترونیک
+              رجیستری قانونی همتا
             </div>
             <div className="px-3 py-2 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-[11px] font-medium text-[#11161E] inline-flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-[#4A5464]" strokeWidth={1.5} />
-              عضو اتحادیه موبایل
+              ضمانت اصالت و پلمپ کالا
             </div>
           </div>
         </div>

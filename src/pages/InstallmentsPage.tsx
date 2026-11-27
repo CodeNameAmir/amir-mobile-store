@@ -255,6 +255,13 @@ export const InstallmentsPage: React.FC = () => {
             </p>
           </div>
 
+          <p
+            data-testid="installments-estimate-disclaimer"
+            className="p-3 rounded-lg bg-[#FDF1E8] border border-[#F5D6BE] text-[#A84500] text-[11px] leading-5"
+          >
+            توجه: محاسبات این بخش برآورد تقریبی بوده و ثبت نهایی خرید اقساطی یا معاوضه منوط به اعتبارسنجی، کارشناسی حضوری دستگاه و تایید تیم فروش است.
+          </p>
+
           <div className="grid grid-cols-2 gap-2.5">
             {selectedProduct && (
               <a

@@ -20,7 +20,22 @@ export const RATE_LIMIT_RULES = {
 
 export function getHelmetOptions(enableStrictFrameguard: boolean): HelmetOptions {
   return {
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: enableStrictFrameguard
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            baseUri: ["'self'"],
+            objectSrc: ["'none'"],
+            frameAncestors: ["'none'"],
+            scriptSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+            fontSrc: ["'self'", 'data:', 'https://fonts.gstatic.com'],
+            imgSrc: ["'self'", 'data:', 'blob:', 'https:', 'https://dkstatics-public.digikala.com'],
+            connectSrc: ["'self'", 'https://api.codenameamir.ir', 'https://*.supabase.co'],
+            upgradeInsecureRequests: null,
+          },
+        }
+      : false,
     crossOriginEmbedderPolicy: false,
     crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
     crossOriginResourcePolicy: { policy: 'cross-origin' },

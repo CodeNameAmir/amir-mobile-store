@@ -114,7 +114,7 @@ export function buildWelcomeEmailContent(params: {
         حساب کاربری شما در فروشگاه موبایل امیر فعال شد. از این پس می‌توانید آدرس‌های ارسال را ذخیره کنید، سفارش‌های خود را لحظه‌ای پیگیری نمایید و از تخفیف‌های ویژه اعضا بهره‌مند شوید.
       </p>
       <div style="padding:14px 16px;background-color:#f8f9ff;border:1px solid #e5eeff;border-radius:12px;font-size:13px;color:#0b1c30;">
-        کد تخفیف خوش‌آمدگویی شما: <strong style="color:#004ac6;font-family:monospace;" dir="ltr">AMIR-OFF</strong>
+        پیشنهادها و کدهای تخفیف فعال هم‌اکنون از بخش پیشنهادهای شگفت‌انگیز و سبد خرید قابل مشاهده و استفاده هستند.
       </div>
     `
   );
@@ -160,7 +160,7 @@ export function buildOrderReceiptEmailContent(params: {
       <p style="margin:0 0 12px 0;font-weight:bold;font-size:16px;color:#0b1c30;">سفارش شما ثبت شد</p>
       <p style="margin:0 0 12px 0;color:#434655;">سلام ${safeName}،</p>
       <p style="margin:0 0 16px 0;color:#434655;">
-        سفارش شماره <strong dir="ltr" style="color:#004ac6;">${safeCode}</strong> شامل ${params.itemsCount} کالا به مبلغ کل <strong>${safeTotal} تومان</strong> با موفقیت در سامانه ثبت شد و در حال آماده‌سازی است.
+        سفارش شماره <strong dir="ltr" style="color:#004ac6;">${safeCode}</strong> شامل ${params.itemsCount} کالا به مبلغ کل <strong>${safeTotal} تومان</strong> با موفقیت در سامانه ثبت شد و در انتظار بررسی و تکمیل پرداخت است.
       </p>
     `
   );

@@ -354,6 +354,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const stockAlertsRef = useRef<string[]>(stockAlerts);
   const cartMutationQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const wishlistMutationQueueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const checkoutIdempotencyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     userRef.current = user;
@@ -374,6 +375,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const hydrateCartList = useCallback((items: CartItem[]): CartItem[] => {
     return items.map((item) => ({
       ...item,
+      warranty: String(item.warranty || '')
+        .replace(/\s*\+\s*بیمه حوادث و شکستگی Amir Care\+/gi, '')
+        .replace(/\s*\+\s*Amir Care\+/gi, '')
+        .trim(),
       image: resolveProductImage(item.image, item.productId || item.slug, item.brand),
     }));
   }, []);
@@ -918,6 +923,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           },
         ];
       }
+      checkoutIdempotencyKeyRef.current = null;
       cartRef.current = updated;
       setCart(updated);
       localStore.saveCart(updated);
@@ -948,6 +954,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return { ...item, qty: Math.min(item.stockCount || 10, nextQty) };
         })
         .filter((x): x is CartItem => x !== null);
+      checkoutIdempotencyKeyRef.current = null;
       cartRef.current = updated;
       setCart(updated);
       localStore.saveCart(updated);
@@ -963,6 +970,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const removeCartItem = useCallback(
     (key: string) => {
       const updated = cartRef.current.filter((item) => item.key !== key);
+      checkoutIdempotencyKeyRef.current = null;
       cartRef.current = updated;
       setCart(updated);
       localStore.saveCart(updated);
@@ -977,6 +985,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   );
 
   const clearCart = useCallback(() => {
+    checkoutIdempotencyKeyRef.current = null;
     cartRef.current = [];
     setCart([]);
     setAppliedCoupon(null);
@@ -1004,6 +1013,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       try {
         const evaluation = await storeApi.validateCoupon(code, cartSummary.netSubtotal);
         if (evaluation.valid && evaluation.code) {
+          checkoutIdempotencyKeyRef.current = null;
           setAppliedCoupon(evaluation.code);
           localStore.saveAppliedCoupon(evaluation.code);
           showToast(evaluation.message, 'success');
@@ -1011,22 +1021,29 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           showToast(evaluation.message, 'error');
         }
         return { valid: evaluation.valid, message: evaluation.message };
-      } catch {
-        const fallback = evaluateCoupon(code, cartSummary.netSubtotal, couponRules);
-        if (fallback.valid && fallback.code) {
-          setAppliedCoupon(fallback.code);
-          localStore.saveAppliedCoupon(fallback.code);
-          showToast(fallback.message, 'success');
-        } else {
-          showToast(fallback.message, 'error');
+      } catch (err) {
+        if (err instanceof TypeError) {
+          const fallback = evaluateCoupon(code, cartSummary.netSubtotal, couponRules);
+          if (fallback.valid && fallback.code) {
+            checkoutIdempotencyKeyRef.current = null;
+            setAppliedCoupon(fallback.code);
+            localStore.saveAppliedCoupon(fallback.code);
+            showToast(fallback.message, 'success');
+          } else {
+            showToast(fallback.message, 'error');
+          }
+          return { valid: fallback.valid, message: fallback.message };
         }
-        return { valid: fallback.valid, message: fallback.message };
+        const message = err instanceof Error ? err.message : 'خطا در اعتبارسنجی کد تخفیف.';
+        showToast(message, 'error');
+        return { valid: false, message };
       }
     },
     [cartSummary.netSubtotal, couponRules, showToast]
   );
 
   const removeCoupon = useCallback(() => {
+    checkoutIdempotencyKeyRef.current = null;
     setAppliedCoupon(null);
     localStore.saveAppliedCoupon(null);
     showToast('کد تخفیف حذف شد.', 'info');
@@ -1215,6 +1232,12 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         storeSettings.freeShippingThreshold,
         { city: form.city, deliverySlot: form.deliverySlot }
       );
+      if (!checkoutIdempotencyKeyRef.current) {
+        checkoutIdempotencyKeyRef.current =
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? `ord-${crypto.randomUUID()}`
+            : `ord-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      }
       const code = generateOrderCode();
       const now = new Date();
       const hh = String(now.getHours()).padStart(2, '0');
@@ -1222,7 +1245,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       const cleanEmail = form.email?.trim() || undefined;
       const draftOrder: OrderRecord = {
         orderCode: code,
-        shaparakRef: String(Math.floor(10000000 + Math.random() * 89999999)),
+        shaparakRef: '',
         customerName: form.fullName.trim(),
         customerPhone: toEnglishDigits(form.phone.trim()),
         ...(cleanEmail ? { customerEmail: cleanEmail } : {}),
@@ -1236,14 +1259,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         couponDiscount: summary.couponDiscount,
         shippingCost: summary.shippingCost,
         totalAmount: summary.totalPayable,
-        status: 'preparing',
+        status: 'pending_payment',
+        paymentStatus: 'unpaid',
+        idempotencyKey: checkoutIdempotencyKeyRef.current,
         deliveryPin: toPersianDigits(Math.floor(1000 + Math.random() * 8999)),
-        imeiSample: `35918239${Math.floor(1000000 + Math.random() * 8999999)}`,
+        imeiSample: '',
         items: [...cart],
         createdAt: `امروز · ساعت ${toPersianDigits(hh)}:${toPersianDigits(mm)}`,
       };
 
       const res = await authApi.createOrder(draftOrder);
+      checkoutIdempotencyKeyRef.current = null;
       const saved = hydrateOrderImages(res.order);
 
       if (user) {
@@ -1285,10 +1311,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           return next;
         });
       }
-      showToast(`سفارش ${updated.orderCode} با موفقیت لغو شد.`, 'info');
+      void refreshProducts();
+      showToast(`سفارش ${updated.orderCode} با موفقیت لغو شد و موجودی کالا بازگشت خورد.`, 'info');
       return updated;
     },
-    [showToast]
+    [refreshProducts, showToast]
   );
 
   const reorderFromOrder = useCallback(

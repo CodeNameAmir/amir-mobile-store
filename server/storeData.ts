@@ -10,6 +10,8 @@ export type OrderStatus =
   | 'delivered'
   | 'cancelled';
 
+export type PaymentStatus = 'unpaid' | 'pending_gateway' | 'paid' | 'not_required';
+
 export type CategoryId = 'all' | 'offers' | (string & {});
 
 export type ProductCategory = string;
@@ -269,6 +271,11 @@ export interface CouponRuleDTO {
   maxDiscount?: number;
   minOrderAmount?: number;
   isActive?: boolean;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+  usageLimit?: number | null;
+  perUserLimit?: number | null;
+  usedCount?: number;
   descriptionFa?: string;
 }
 
@@ -281,6 +288,7 @@ export interface StoreSettingsDTO {
 export interface ProductReviewDTO {
   id: string;
   productId: string;
+  userId?: string | null;
   author: string;
   authorUsername?: string;
   dateLabel: string;
@@ -358,10 +366,32 @@ export interface BlogPostDTO {
 export interface OrderSummaryDTO {
   orderCode: string;
   status: OrderStatus;
+  paymentStatus?: PaymentStatus;
   deliverySlot: 'express' | 'standard';
   createdAt: string;
   requiresVerification: true;
   isGuestOrder: boolean;
+}
+
+export interface CatalogFacetBrandDTO {
+  name: string;
+  count: number;
+}
+
+export interface CatalogFacetColorDTO {
+  id: string;
+  label: string;
+  hex: string;
+  count: number;
+}
+
+export interface CatalogFacetsDTO {
+  brands: CatalogFacetBrandDTO[];
+  colors: CatalogFacetColorDTO[];
+  storages: string[];
+  rams: string[];
+  minPrice: number;
+  maxPrice: number;
 }
 
 export interface AdminAuditLogDTO {
@@ -1767,7 +1797,15 @@ export function normalizeOrderStatus(raw: unknown): OrderStatus {
   ) {
     return s;
   }
-  return 'preparing';
+  return 'pending_payment';
+}
+
+export function normalizePaymentStatus(raw: unknown): PaymentStatus {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (s === 'unpaid' || s === 'pending_gateway' || s === 'paid' || s === 'not_required') {
+    return s;
+  }
+  return 'unpaid';
 }
 
 export function normalizePhone(raw: unknown): string {
@@ -2109,10 +2147,115 @@ export function filterAndSortProducts(
   return sorted;
 }
 
+function normalizeColorLabelServer(raw?: string | null): string {
+  return String(raw || '')
+    .split('(')[0]
+    .replace(/ي/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/\u200c/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function buildCatalogFacetsServer(products: ProductDTO[]): CatalogFacetsDTO {
+  const brandCounts = new Map<string, { name: string; count: number }>();
+  const colorCounts = new Map<string, CatalogFacetColorDTO>();
+  const storageMap = new Map<string, { label: string; gbScore: number }>();
+  const ramMap = new Map<string, { label: string; gbScore: number }>();
+  let minPrice = Infinity;
+  let maxPrice = 0;
+
+  for (const p of products) {
+    if (Number.isFinite(p.price) && p.price > 0) {
+      if (p.price < minPrice) minPrice = p.price;
+      if (p.price > maxPrice) maxPrice = p.price;
+    }
+
+    const brandName = String(p.brand || '').trim();
+    if (brandName) {
+      const key = brandName.toLowerCase();
+      const prev = brandCounts.get(key);
+      if (prev) prev.count += 1;
+      else brandCounts.set(key, { name: brandName, count: 1 });
+    }
+
+    const seenColors = new Set<string>();
+    for (const c of p.colors || []) {
+      const cleanLabel = normalizeColorLabelServer(c.name) || String(c.id || c.hex || '').trim();
+      const key = normalizeColorKeyServer(c.name) || String(c.id || c.hex || '').trim().toLowerCase();
+      if (!key || seenColors.has(key)) continue;
+      seenColors.add(key);
+      const prev = colorCounts.get(key);
+      if (prev) prev.count += 1;
+      else {
+        colorCounts.set(key, {
+          id: String(c.id || key).trim(),
+          label: cleanLabel,
+          hex: c.hex || '#1e293b',
+          count: 1,
+        });
+      }
+    }
+
+    const registerStorage = (raw?: string | null) => {
+      const label = String(raw || '').trim();
+      if (!label || label === 'ندارد' || label === '-' || label === '—') return;
+      if (!/(گیگ|ترابایت|gb|tb)/i.test(label)) return;
+      const norm = normalizeCapacityKeyServer(label);
+      const numMatch = toEnglishDigitsServer(label).match(/(\d+(?:\.\d+)?)/);
+      let score = numMatch ? Number(numMatch[1]) : 0;
+      if (/ترابایت|tb/i.test(label)) score *= 1024;
+      const prev = storageMap.get(norm);
+      if (!prev) storageMap.set(norm, { label, gbScore: score });
+      else if (/گیگابایت|ترابایت/.test(label) && !/گیگابایت|ترابایت/.test(prev.label)) {
+        storageMap.set(norm, { label, gbScore: score });
+      }
+    };
+    registerStorage(p.specs?.storageDefault);
+    for (const s of p.storageOptions || []) registerStorage(s.label);
+    for (const v of p.variants || []) registerStorage(v.storage);
+
+    const registerRam = (raw?: string | null) => {
+      const label = String(raw || '').trim();
+      if (!label || label === 'ندارد' || label === '-' || label === '—') return;
+      if (!/(گیگ|gb)/i.test(label)) return;
+      const norm = normalizeCapacityKeyServer(label);
+      const numMatch = toEnglishDigitsServer(label).match(/(\d+(?:\.\d+)?)/);
+      const score = numMatch ? Number(numMatch[1]) : 0;
+      const prev = ramMap.get(norm);
+      if (!prev) ramMap.set(norm, { label, gbScore: score });
+      else if (/گیگابایت/.test(label) && !/گیگابایت/.test(prev.label)) {
+        ramMap.set(norm, { label, gbScore: score });
+      }
+    };
+    registerRam(p.specs?.ram);
+    for (const v of p.variants || []) registerRam(v.ram);
+  }
+
+  return {
+    brands: [...brandCounts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)),
+    colors: [...colorCounts.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'fa')),
+    storages: [...storageMap.values()]
+      .sort((a, b) => a.gbScore - b.gbScore || a.label.localeCompare(b.label, 'fa'))
+      .map((x) => x.label),
+    rams: [...ramMap.values()]
+      .sort((a, b) => a.gbScore - b.gbScore || a.label.localeCompare(b.label, 'fa'))
+      .map((x) => x.label),
+    minPrice: Number.isFinite(minPrice) ? minPrice : 0,
+    maxPrice,
+  };
+}
+
+export interface CouponEvaluationContext {
+  now?: Date;
+  userRedemptionCountByCode?: Record<string, number>;
+}
+
 export function evaluateCouponServer(
   codeRaw: string,
   netSubtotal: number,
-  rules: CouponRuleDTO[] = DEFAULT_DEV_COUPONS
+  rules: CouponRuleDTO[] = DEFAULT_DEV_COUPONS,
+  ctx?: CouponEvaluationContext
 ): {
   valid: boolean;
   code: string | null;
@@ -2135,9 +2278,62 @@ export function evaluateCouponServer(
       valid: false,
       code: null,
       discountAmount: 0,
-      message: 'کد تخفیف وارد شده معتبر نیست یا منقضی شده است.',
+      message: 'کد تخفیف وارد شده معتبر نیست یا غیرفعال شده است.',
     };
   }
+
+  const nowMs = (ctx?.now ?? new Date()).getTime();
+  if (rule.startsAt) {
+    const startMs = Date.parse(rule.startsAt);
+    if (Number.isFinite(startMs) && nowMs < startMs) {
+      return {
+        valid: false,
+        code: null,
+        discountAmount: 0,
+        message: `مهلت استفاده از کد تخفیف ${rule.code} هنوز آغاز نشده است.`,
+      };
+    }
+  }
+  if (rule.expiresAt) {
+    const endMs = Date.parse(rule.expiresAt);
+    if (Number.isFinite(endMs) && nowMs > endMs) {
+      return {
+        valid: false,
+        code: null,
+        discountAmount: 0,
+        message: `مهلت استفاده از کد تخفیف ${rule.code} به پایان رسیده است.`,
+      };
+    }
+  }
+  if (
+    typeof rule.usageLimit === 'number' &&
+    Number.isFinite(rule.usageLimit) &&
+    rule.usageLimit >= 0 &&
+    Number(rule.usedCount ?? 0) >= rule.usageLimit
+  ) {
+    return {
+      valid: false,
+      code: null,
+      discountAmount: 0,
+      message: `سقف مجاز استفاده از کد تخفیف ${rule.code} تکمیل شده است.`,
+    };
+  }
+  if (
+    typeof rule.perUserLimit === 'number' &&
+    Number.isFinite(rule.perUserLimit) &&
+    rule.perUserLimit >= 0
+  ) {
+    const usedByUser = Number(ctx?.userRedemptionCountByCode?.[rule.code.toUpperCase()] ?? 0);
+    if (usedByUser >= rule.perUserLimit) {
+      return {
+        valid: false,
+        code: null,
+        discountAmount: 0,
+        message: `شما پیش‌تر به حداکثر دفعات مجاز از کد تخفیف ${rule.code} استفاده کرده‌اید.`,
+      };
+    }
+  }
+
   if (rule.minOrderAmount && netSubtotal < rule.minOrderAmount) {
     return {
       valid: false,
@@ -2160,17 +2356,6 @@ export function evaluateCouponServer(
     discountAmount,
     message: `کد تخفیف ${rule.code} اعمال شد.`,
   };
-}
-
-export function calculateCareInsurancePriceServer(
-  unitPrice: number,
-  category: ProductCategory
-): number {
-  if (category !== 'phones' && category !== 'tablets' && category !== 'smartwatches') {
-    return 0;
-  }
-  const fourPercent = Math.round((unitPrice * 0.04) / 10_000) * 10_000;
-  return Math.max(490_000, Math.min(3_200_000, fourPercent));
 }
 
 export interface OrderItemInput {
@@ -2212,6 +2397,8 @@ export function calculateOrderTotalsServer(params: {
   products: ProductDTO[];
   couponCode?: string | null;
   couponRules?: CouponRuleDTO[];
+  couponContext?: CouponEvaluationContext;
+  strictCouponValidation?: boolean;
   freeShippingThreshold?: number;
   city?: string;
   deliverySlot?: 'express' | 'standard';
@@ -2309,21 +2496,12 @@ export function calculateOrderTotalsServer(params: {
     const storageOpt = product.storageOptions.find((v) => v.label === storageLabel);
     const delta = storageOpt ? storageOpt.priceDelta : 0;
 
-    let unitPrice = matchedProductVariant
+    const unitPrice = matchedProductVariant
       ? Math.max(0, matchedProductVariant.priceToman)
       : Math.max(0, product.price + delta);
-    let originalUnitPrice = matchedProductVariant
+    const originalUnitPrice = matchedProductVariant
       ? Math.max(unitPrice, matchedProductVariant.originalPriceToman ?? matchedProductVariant.priceToman)
       : Math.max(unitPrice, (product.originalPrice ?? product.price) + delta);
-
-    const requestedWarranty = String(rawItem?.warranty || '').trim();
-    const careRequested = requestedWarranty.includes('Care+');
-    const carePrice = careRequested
-      ? calculateCareInsurancePriceServer(unitPrice, product.category)
-      : 0;
-
-    unitPrice += carePrice;
-    originalUnitPrice += carePrice;
 
     const colorName =
       matchedProductVariant?.colorNameFa ||
@@ -2336,15 +2514,9 @@ export function calculateOrderTotalsServer(params: {
       String(rawItem?.colorHex || '').trim() ||
       matchedColor?.hex ||
       '#1e293b';
-    const baseWarranty = matchedProductVariant?.warrantyName || product.warranty;
-    const warranty =
-      careRequested && carePrice > 0
-        ? `${baseWarranty} + بیمه حوادث و شکستگی Amir Care+`
-        : baseWarranty;
+    const warranty = matchedProductVariant?.warrantyName || product.warranty;
 
-    const key =
-      String(rawItem?.key || '').trim() ||
-      `${product.id}__${matchedProductVariant?.id || colorName}__${storageLabel}__${warranty}`;
+    const key = `${product.id}__${matchedProductVariant?.id || colorName}__${storageLabel}__${warranty}`;
 
     computedItems.push({
       key,
@@ -2389,10 +2561,12 @@ export function calculateOrderTotalsServer(params: {
   let couponDiscount = 0;
 
   if (rawCoupon) {
-    const evalRes = evaluateCouponServer(rawCoupon, subtotal, rules);
+    const evalRes = evaluateCouponServer(rawCoupon, subtotal, rules, params.couponContext);
     if (evalRes.valid && evalRes.code) {
       couponCode = evalRes.code;
       couponDiscount = evalRes.discountAmount;
+    } else if (params.strictCouponValidation) {
+      return { ok: false, statusCode: 400, error: evalRes.message };
     }
   }
 
@@ -2473,6 +2647,7 @@ export function toSummaryOrderDTO(
   order: {
     orderCode: string;
     status: OrderStatus;
+    paymentStatus?: PaymentStatus;
     deliverySlot: 'express' | 'standard';
     createdAt: string;
   },
@@ -2481,6 +2656,7 @@ export function toSummaryOrderDTO(
   return {
     orderCode: order.orderCode,
     status: order.status,
+    ...(order.paymentStatus ? { paymentStatus: order.paymentStatus } : {}),
     deliverySlot: order.deliverySlot,
     createdAt: order.createdAt,
     requiresVerification: true,

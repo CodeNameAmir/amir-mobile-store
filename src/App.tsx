@@ -6,7 +6,6 @@ import { CompareTray } from './components/CompareTray';
 import { Footer } from './components/Footer';
 import { Navbar } from './components/Navbar';
 import { RouteTransitionBar } from './components/RouteTransitionBar';
-import { TempCommitBanner } from './components/TempCommitBanner';
 import { StoreProvider, useStore } from './context/StoreContext';
 import { UI_EASE } from './utils/motionHelpers';
 import {
@@ -347,8 +346,6 @@ const StoreShell: React.FC = () => {
     >
       <RouteTransitionBar />
       <Navbar />
-      {/* TEMPORARY: Delete TempCommitBanner when GitHub commit indicator is no longer needed */}
-      <TempCommitBanner />
       <main className="flex-1">
         <motion.div
           key={pageKey}

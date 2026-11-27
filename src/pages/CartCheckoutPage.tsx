@@ -725,7 +725,7 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
               <div className="p-4 rounded-xl bg-[#F1F3F6] border border-[#E4E8EE] flex items-center gap-3 text-xs text-[#11161E]">
                 <ShieldCheck className="w-5 h-5 text-[#4A5464] shrink-0" strokeWidth={1.5} />
                 <p className="leading-6">
-                  با کلیک روی «ثبت نهایی و تایید سفارش»، سفارش شما ثبت شده و به صفحه فاکتور رسمی و کد رهگیری منتقل می‌شوید.
+                  با ثبت سفارش، درخواست شما با وضعیت «در انتظار پرداخت» در سامانه ثبت می‌شود و درگاه پرداخت آنلاین در حال حاضر غیرفعال است. پس از ثبت، کد پیگیری و جزئیات فاکتور نمایش داده خواهد شد.
                 </p>
               </div>
             </form>
@@ -752,7 +752,7 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
                   dir="ltr"
                   value={couponInput}
                   onChange={(e) => setCouponInput(e.target.value)}
-                  placeholder="AMIR-OFF"
+                  placeholder="کد تخفیف خود را وارد کنید"
                   className="flex-1 h-10 px-3 rounded-lg bg-[#F7F8FA] border border-[#E4E8EE] text-xs font-mono font-medium text-left text-[#11161E] focus:bg-white focus:outline-none focus:border-[#1453D6]"
                 />
                 {appliedCoupon ? (
@@ -778,10 +778,6 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
                   </button>
                 )}
               </div>
-              <p className="text-[11px] text-[#4A5464]">
-                کد تخفیف فعال: <button type="button" onClick={() => setCouponInput('AMIR-OFF')} className="font-mono font-medium text-[#1453D6] underline" dir="ltr">AMIR-OFF</button> یا{' '}
-                <button type="button" onClick={() => setCouponInput('VIP-10')} className="font-mono font-medium text-[#1453D6] underline" dir="ltr">VIP-10</button>
-              </p>
               {couponFeedback && (
                 <p
                   className={`text-[11px] font-medium ${
@@ -877,7 +873,7 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
                   data-testid="submit-demo-order-btn"
                   className="w-full h-11 rounded-lg bg-[#1453D6] hover:bg-[#0F44B5] disabled:opacity-60 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors"
                 >
-                  <span>{submitting ? 'در حال ثبت سفارش...' : 'ثبت نهایی و تایید سفارش'}</span>
+                  <span>{submitting ? 'در حال ثبت سفارش...' : 'ثبت سفارش (در انتظار پرداخت)'}</span>
                   <CheckCircle2 className="w-4 h-4" strokeWidth={1.5} />
                 </button>
               )}

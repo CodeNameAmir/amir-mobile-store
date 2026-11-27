@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildSearchSuggestions,
-  calculateCareInsurancePrice,
   calculateCartSummary,
   calculateInstallmentPlan,
   computeCatalogMaxPrice,
@@ -17,6 +16,7 @@ import {
   formatToman,
   getDescendantCategoryIds,
   getOrderFlowStage,
+  getPaymentStatusLabel,
   getVariantPrice,
   isTehranCity,
   matchesProductSearch,
@@ -278,7 +278,7 @@ test('calculateCartSummary applies shipping fee below threshold', () => {
   assert.equal(summary.totalPayable, 750_000);
 });
 
-test('calculateInstallmentPlan and calculateCareInsurancePrice return accurate figures', () => {
+test('calculateInstallmentPlan returns accurate figures and getPaymentStatusLabel formats payment states honestly', () => {
   const plan = calculateInstallmentPlan(100_000_000, 30, 12, 2);
   assert.equal(plan.downPaymentAmount, 30_000_000);
   assert.equal(plan.financedAmount, 70_000_000);
@@ -286,9 +286,64 @@ test('calculateInstallmentPlan and calculateCareInsurancePrice return accurate f
   assert.equal(plan.totalInstallmentsAmount, 86_800_000);
   assert.equal(plan.totalPayableWithPlan, 116_800_000);
 
-  assert.equal(calculateCareInsurancePrice(60_000_000, 'phones'), 2_400_000);
-  assert.equal(calculateCareInsurancePrice(100_000_000, 'phones'), 3_200_000);
-  assert.equal(calculateCareInsurancePrice(5_000_000, 'chargers'), 0);
+  assert.match(getPaymentStatusLabel('unpaid'), /پرداخت‌نشده/);
+  assert.equal(getPaymentStatusLabel('paid'), 'پرداخت‌شده');
+  assert.equal(getPaymentStatusLabel('pending_gateway'), 'در انتظار پرداخت آنلاین');
+  assert.equal(getPaymentStatusLabel('not_required'), 'نیاز به پرداخت آنلاین ندارد');
+});
+
+test('evaluateCoupon enforces isActive, startsAt, expiresAt, and usageLimit lifecycle rules', () => {
+  const now = new Date('2026-11-27T12:00:00Z');
+  const rules: CouponRule[] = [
+    {
+      code: 'INACTIVE-1',
+      discountType: 'fixed',
+      discountValue: 500_000,
+      isActive: false,
+    },
+    {
+      code: 'FUTURE-1',
+      discountType: 'fixed',
+      discountValue: 500_000,
+      isActive: true,
+      startsAt: '2026-12-01T00:00:00Z',
+    },
+    {
+      code: 'EXPIRED-1',
+      discountType: 'fixed',
+      discountValue: 500_000,
+      isActive: true,
+      expiresAt: '2026-11-20T00:00:00Z',
+    },
+    {
+      code: 'MAXED-1',
+      discountType: 'fixed',
+      discountValue: 500_000,
+      isActive: true,
+      usageLimit: 5,
+      usedCount: 5,
+    },
+    {
+      code: 'LIVE-1',
+      discountType: 'percent',
+      discountValue: 10,
+      maxDiscount: 1_500_000,
+      isActive: true,
+      startsAt: '2026-11-01T00:00:00Z',
+      expiresAt: '2026-12-10T00:00:00Z',
+      usageLimit: 5,
+      usedCount: 2,
+    },
+  ];
+
+  assert.equal(evaluateCoupon('INACTIVE-1', 10_000_000, rules, now).valid, false);
+  assert.equal(evaluateCoupon('FUTURE-1', 10_000_000, rules, now).valid, false);
+  assert.equal(evaluateCoupon('EXPIRED-1', 10_000_000, rules, now).valid, false);
+  assert.equal(evaluateCoupon('MAXED-1', 10_000_000, rules, now).valid, false);
+
+  const ok = evaluateCoupon('LIVE-1', 10_000_000, rules, now);
+  assert.equal(ok.valid, true);
+  assert.equal(ok.discountAmount, 1_000_000);
 });
 
 test('validateCheckoutForm and validateContactForm catch invalid inputs', () => {

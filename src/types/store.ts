@@ -260,12 +260,34 @@ export interface FilterState {
   sortBy: SortOption;
 }
 
+export interface CatalogFacetBrand {
+  name: string;
+  count: number;
+}
+
+export interface CatalogFacetColor {
+  id: string;
+  label: string;
+  hex: string;
+  count: number;
+}
+
+export interface CatalogFacets {
+  brands: CatalogFacetBrand[];
+  colors: CatalogFacetColor[];
+  storages: string[];
+  rams: string[];
+  minPrice: number;
+  maxPrice: number;
+}
+
 export interface PaginatedProductsResponse {
   products: Product[];
   total: number;
   page: number;
   limit: number;
   totalPages: number;
+  facets?: CatalogFacets;
 }
 
 export interface CheckoutFormData {
@@ -286,6 +308,8 @@ export type OrderStatus =
   | 'delivered'
   | 'cancelled';
 
+export type PaymentStatus = 'unpaid' | 'pending_gateway' | 'paid' | 'not_required';
+
 export interface OrderRecord {
   orderCode: string;
   shaparakRef: string;
@@ -303,6 +327,8 @@ export interface OrderRecord {
   shippingCost: number;
   totalAmount: number;
   status: OrderStatus;
+  paymentStatus?: PaymentStatus;
+  idempotencyKey?: string;
   deliveryPin: string;
   imeiSample: string;
   adminNote?: string;
@@ -313,6 +339,7 @@ export interface OrderRecord {
 export interface OrderSummary {
   orderCode: string;
   status: OrderStatus;
+  paymentStatus?: PaymentStatus;
   deliverySlot: 'express' | 'standard';
   createdAt: string;
   requiresVerification: true;
@@ -455,6 +482,12 @@ export interface CouponRule {
   maxDiscount?: number;
   minOrderAmount?: number;
   descriptionFa?: string;
+  isActive?: boolean;
+  startsAt?: string | null;
+  expiresAt?: string | null;
+  usageLimit?: number | null;
+  perUserLimit?: number | null;
+  usedCount?: number;
 }
 
 export interface InstallmentPlan {

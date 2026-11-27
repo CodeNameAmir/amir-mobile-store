@@ -859,7 +859,7 @@ export const CUSTOMER_TESTIMONIALS = [
 
 export const DEMO_SAMPLE_ORDER: OrderRecord = {
   orderCode: 'AMIR-10492',
-  shaparakRef: '948271038221',
+  shaparakRef: '',
   customerName: 'علیرضا محمدی',
   customerPhone: '09123456789',
   city: 'تهران',
@@ -872,9 +872,10 @@ export const DEMO_SAMPLE_ORDER: OrderRecord = {
   couponDiscount: 0,
   shippingCost: 0,
   totalAmount: 97_090_000,
-  status: 'preparing',
+  status: 'pending_payment',
+  paymentStatus: 'unpaid',
   deliveryPin: '۸۴۲۱',
-  imeiSample: '359182390192384',
+  imeiSample: '',
   createdAt: 'امروز · ساعت ۱۳:۴۵',
   items: [
     {

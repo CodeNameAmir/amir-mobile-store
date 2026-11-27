@@ -19,7 +19,6 @@ import {
   Scale,
   Share2,
   ShieldCheck,
-  ShieldPlus,
   ShoppingBag,
   Smartphone,
   Star,
@@ -42,7 +41,6 @@ import type { CategoryId, Product, ProductQuestion, ProductReview } from '../typ
 import { UI_EASE } from '../utils/motionHelpers';
 import { useTemporarilyAdded } from '../utils/useTemporarilyAdded';
 import {
-  calculateCareInsurancePrice,
   calculateInstallmentPlan,
   formatPersianDate,
   formatToman,
@@ -128,7 +126,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [selectedColorId, setSelectedColorId] = useState('');
   const [selectedStorage, setSelectedStorage] = useState('');
-  const [includeCarePlus, setIncludeCarePlus] = useState(false);
+  const [selectedVariantId, setSelectedVariantId] = useState('');
   const [qty, setQty] = useState(1);
   const [activeTab, setActiveTab] = useState<'specs' | 'review' | 'comments' | 'qa'>('specs');
   const [reviews, setReviews] = useState<ProductReview[]>([]);
@@ -143,6 +141,7 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const [submittingQuestion, setSubmittingQuestion] = useState(false);
   const [questionAuthor, setQuestionAuthor] = useState(user?.fullName || '');
   const [questionText, setQuestionText] = useState('');
+  const [questionSubmittedNotice, setQuestionSubmittedNotice] = useState<string | null>(null);
   const [guestAlertEmail, setGuestAlertEmail] = useState('');
   const { recentlyAdded, triggerAdded } = useTemporarilyAdded(2000);
 
@@ -162,7 +161,8 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
     setLightboxOpen(false);
     setSelectedColorId(product.colors?.[0]?.id || 'default');
     setSelectedStorage(product.storageOptions?.[0]?.label || product.specs?.storageDefault || '');
-    setIncludeCarePlus(false);
+    setSelectedVariantId('');
+    setQuestionSubmittedNotice(null);
     setQty(1);
     markProductViewed(productId);
     setReviews([]);
@@ -328,20 +328,25 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const productColors = Array.isArray(product.colors) ? product.colors : [];
   const activeColor = productColors.find((c) => c.id === selectedColorId) ?? productColors[0];
 
-  const activeVariant = (() => {
-    if (!product.variants || product.variants.length === 0) return null;
+  const matchingVariants = (() => {
+    if (!product.variants || product.variants.length === 0) return [];
+    const published = product.variants.filter((v) => v.isPublished !== false);
+    const pool = published.length > 0 ? published : product.variants;
     const colorHexLow = (activeColor?.hex || '').toLowerCase();
     const colorName = activeColor?.name || '';
-    const exact = product.variants.find(
+    const exact = pool.filter(
       (v) =>
-        (!v.storage || v.storage === selectedStorage) &&
+        (!v.storage || !selectedStorage || v.storage === selectedStorage) &&
         (v.colorId === activeColor?.id ||
           v.colorNameFa === colorName ||
           (v.colorHex || '').toLowerCase() === colorHexLow)
     );
-    if (exact) return exact;
-    return product.variants.find((v) => v.storage === selectedStorage) || null;
+    if (exact.length > 0) return exact;
+    return pool.filter((v) => v.storage === selectedStorage);
   })();
+
+  const activeVariant =
+    matchingVariants.find((v) => v.id === selectedVariantId) ?? matchingVariants[0] ?? null;
 
   const fallbackPricing = getVariantPrice(product, selectedStorage);
   const variantPrice = activeVariant ? activeVariant.priceToman : fallbackPricing.price;
@@ -355,15 +360,9 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
   const effectiveInStock = product.inStock && effectiveStockCount > 0;
   const baseWarranty = activeVariant?.warrantyName || product.warranty;
 
-  const carePlusPrice = calculateCareInsurancePrice(variantPrice, product.category);
-  const effectiveUnitPrice =
-    includeCarePlus && carePlusPrice > 0 ? variantPrice + carePlusPrice : variantPrice;
-  const effectiveOriginalPrice =
-    includeCarePlus && carePlusPrice > 0 ? variantOriginal + carePlusPrice : variantOriginal;
-  const effectiveWarranty =
-    includeCarePlus && carePlusPrice > 0
-      ? `${baseWarranty} + بیمه حوادث و شکستگی Amir Care+`
-      : baseWarranty;
+  const effectiveUnitPrice = variantPrice;
+  const effectiveOriginalPrice = variantOriginal;
+  const effectiveWarranty = baseWarranty;
 
   const installmentPreview = calculateInstallmentPlan(effectiveUnitPrice, 30, 12);
 
@@ -462,10 +461,18 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
         authorName: questionAuthor.trim(),
         question: questionText.trim(),
       });
-      setQuestions((prev) => [created, ...prev]);
+      if (!created.pendingApproval && created.isApproved) {
+        setQuestions((prev) => [created, ...prev]);
+        setQuestionSubmittedNotice(null);
+        showToast('پرسش شما ثبت و منتشر شد.', 'success');
+      } else {
+        setQuestionSubmittedNotice(
+          'پرسش شما با موفقیت ثبت شد و پس از بررسی و تایید کارشناس در این صفحه نمایش داده می‌شود.'
+        );
+        showToast('پرسش شما ثبت شد و پس از تایید کارشناس نمایش داده می‌شود.', 'success');
+      }
       setQuestionText('');
       setQuestionAuthor(user?.fullName || '');
-      showToast('پرسش شما ثبت شد و به زودی توسط کارشناسان پاسخ داده می‌شود.', 'success');
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'خطا در ثبت پرسش.', 'error');
     } finally {
@@ -747,7 +754,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     key={color.id}
                     type="button"
                     whileTap={{ scale: 0.95 }}
-                    onClick={() => setSelectedColorId(color.id)}
+                    onClick={() => {
+                      setSelectedColorId(color.id);
+                      setSelectedVariantId('');
+                    }}
                     className={`px-3 py-2 rounded-lg border text-xs font-medium inline-flex items-center gap-2 transition-colors ${
                       selected
                         ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6] ring-1 ring-[#1453D6]/20'
@@ -777,7 +787,10 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     type="button"
                     whileTap={{ scale: 0.97 }}
                     data-testid={`variant-storage-${opt.label}`}
-                    onClick={() => setSelectedStorage(opt.label)}
+                    onClick={() => {
+                      setSelectedStorage(opt.label);
+                      setSelectedVariantId('');
+                    }}
                     className={`p-3 rounded-lg border text-right transition-colors ${
                       selected
                         ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6] ring-1 ring-[#1453D6]/20'
@@ -792,7 +805,48 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
             </div>
           </div>
 
-          {/* Active Variant (SKU / Part Number / SIM) Metadata */}
+          {/* Sub-variant Picker (when multiple part numbers / SIMs / RAMs / warranties exist for same color+storage) */}
+          {matchingVariants.length > 1 && (
+            <div className="space-y-2.5" data-testid="pdp-variant-options">
+              <p className="text-xs font-semibold text-[#11161E]">انتخاب پارت‌نامبر / گارانتی / مشخصات تنوع</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {matchingVariants.map((variant) => {
+                  const isSelected = activeVariant?.id === variant.id;
+                  const metaParts = [
+                    variant.partNumber,
+                    variant.simType,
+                    variant.ram ? `رم ${variant.ram}` : null,
+                    variant.warrantyName,
+                  ].filter(Boolean);
+                  return (
+                    <button
+                      key={variant.id}
+                      type="button"
+                      data-testid={`pdp-variant-option-${variant.sku}`}
+                      onClick={() => setSelectedVariantId(variant.id)}
+                      className={`p-3 rounded-lg border text-right transition-colors space-y-1 ${
+                        isSelected
+                          ? 'border-[#1453D6] bg-[#EEF3FC] text-[#1453D6]'
+                          : 'border-[#E4E8EE] bg-white text-[#11161E] hover:border-[#C5CEDB]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 text-xs font-semibold">
+                        <span dir="ltr" className="font-mono">
+                          {variant.partNumber || variant.sku}
+                        </span>
+                        <span className="tabular-nums-fa">{formatToman(variant.priceToman)} تومان</span>
+                      </div>
+                      {metaParts.length > 0 && (
+                        <p className="text-[11px] text-[#4A5464] line-clamp-1">{metaParts.join(' · ')}</p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Active Variant (SKU / Part Number / SIM / RAM) Metadata */}
           {activeVariant && (
             <div
               data-testid="pdp-variant-meta"
@@ -824,6 +878,12 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 <div className="space-y-0.5 col-span-2 sm:col-span-1">
                   <p className="text-[11px] text-[#576071] font-normal">پشتیبانی سیم‌کارت</p>
                   <p className="font-medium text-[#11161E]">{activeVariant.simType}</p>
+                </div>
+              )}
+              {activeVariant.ram && (
+                <div className="space-y-0.5">
+                  <p className="text-[11px] text-[#576071] font-normal">حافظه رم نسخه</p>
+                  <p className="font-medium text-[#11161E] tabular-nums-fa">{activeVariant.ram}</p>
                 </div>
               )}
             </div>
@@ -924,34 +984,6 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                     آخرین به‌روزرسانی قیمت: {formattedPriceDate}
                   </p>
                 </div>
-
-                {/* Amir Care+ Toggle */}
-                {carePlusPrice > 0 && (
-                  <label className="flex items-start gap-2.5 p-3 rounded-lg bg-white border border-[#E4E8EE] cursor-pointer hover:border-[#1453D6] transition-colors">
-                    <input
-                      type="checkbox"
-                      data-testid="pdp-care-plus-toggle"
-                      checked={includeCarePlus}
-                      onChange={(e) => setIncludeCarePlus(e.target.checked)}
-                      className="mt-1 w-4 h-4 rounded accent-[#1453D6] shrink-0"
-                    />
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between gap-2 text-xs font-semibold text-[#11161E]">
-                        <span className="inline-flex items-center gap-1 whitespace-nowrap">
-                          <ShieldPlus className="w-3.5 h-3.5 text-[#4A5464] shrink-0" strokeWidth={1.5} />
-                          <span>بیمه حوادث</span>
-                          <span dir="ltr">Care+</span>
-                        </span>
-                        <span dir="ltr" className="text-[#1453D6] tabular-nums-fa whitespace-nowrap">
-                          +{formatToman(carePlusPrice)}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-[#4A5464] leading-5">
-                        پوشش ۱۲ ماهه شکستگی نمایشگر، آب‌خوردگی و نوسان برق
-                      </p>
-                    </div>
-                  </label>
-                )}
 
                 {/* Quantity stepper */}
                 <div className="flex items-center justify-between bg-white rounded-lg border border-[#E4E8EE] p-2">
@@ -1276,15 +1308,22 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                 <div className="p-4 rounded-xl bg-[#ECFDF3] border border-[#ABEFC6] text-[#067647] space-y-1">
-                  <p className="font-semibold text-xs">نقاط قوت کلیدی</p>
+                  <p className="font-semibold text-xs">خلاصه مشخصات سخت‌افزاری {product.brand}</p>
                   <p className="text-xs leading-6">
-                    کیفیت ساخت بالا، پایداری نرم‌افزاری طولانی‌مدت، گارانتی ۱۸ ماهه امیر سرویس و ارزش خرید مناسب.
+                    {[
+                      product.specs.display,
+                      product.specs.chipset,
+                      product.specs.camera,
+                      product.specs.battery,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </p>
                 </div>
                 <div className="p-4 rounded-xl bg-[#F1F3F6] border border-[#E4E8EE] text-[#11161E] space-y-1">
-                  <p className="font-semibold text-xs">پیشنهاد کارشناسان</p>
+                  <p className="font-semibold text-xs">اصالت، گارانتی و رجیستری</p>
                   <p className="text-xs leading-6 text-[#4A5464]">
-                    برای حفظ سلامت باتری در بلندمدت حتماً از آداپتورهای استاندارد GaN انکر یا اپل استفاده نمایید.
+                    ارائه با {baseWarranty}، پلمپ شرکتی و امکان استعلام قانونی شناسه در سامانه همتا هنگام تحویل.
                   </p>
                 </div>
               </div>
@@ -1473,6 +1512,14 @@ export const ProductDetailPage: React.FC<ProductDetailPageProps> = ({ slug }) =>
                 className="lg:col-span-5 p-5 rounded-xl bg-[#F1F3F6] border border-[#E4E8EE] space-y-4 self-start"
               >
                 <h3 className="text-sm font-semibold text-[#11161E]">ثبت پرسش جدید درباره کالا</h3>
+                {questionSubmittedNotice && (
+                  <p
+                    data-testid="pdp-qa-pending-notice"
+                    className="p-3 rounded-lg bg-[#ECFDF3] border border-[#ABEFC6] text-[#067647] text-xs font-medium leading-5"
+                  >
+                    {questionSubmittedNotice}
+                  </p>
+                )}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-[#11161E] block">نام شما</label>
                   <input

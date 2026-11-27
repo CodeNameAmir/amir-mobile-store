@@ -18,6 +18,7 @@ import { storeApi } from '../lib/authApi';
 import type {
   AttributeDefinition,
   BrandId,
+  CatalogFacets,
   CategoryId,
   CategoryItem,
   Product,
@@ -78,6 +79,7 @@ export const CatalogPage: React.FC = () => {
     total: number;
     page: number;
     totalPages: number;
+    facets?: CatalogFacets;
     loading: boolean;
     ready: boolean;
     failed: boolean;
@@ -167,6 +169,7 @@ export const CatalogPage: React.FC = () => {
             total: res.total,
             page: res.page,
             totalPages: res.totalPages,
+            facets: res.facets,
             loading: false,
             ready: true,
             failed: false,
@@ -284,7 +287,14 @@ export const CatalogPage: React.FC = () => {
     );
   }, [categories, filters.category]);
 
-  const catalogMaxPrice = useMemo(() => computeCatalogMaxPrice(products), [products]);
+  const catalogMaxPrice = useMemo(() => {
+    const localMax = computeCatalogMaxPrice(products);
+    if (products.length > 0) return localMax;
+    const facetMax = serverPageState.facets?.maxPrice || 0;
+    return facetMax > 0
+      ? Math.max(10_000_000, Math.ceil(facetMax / 5_000_000) * 5_000_000)
+      : localMax;
+  }, [products, serverPageState.facets?.maxPrice]);
   const sliderMinPrice = Math.max(0, Math.min(filters.minPrice || 0, catalogMaxPrice));
   const sliderMaxPrice = Number.isFinite(filters.maxPrice)
     ? Math.max(sliderMinPrice, Math.min(filters.maxPrice, catalogMaxPrice))
@@ -293,7 +303,18 @@ export const CatalogPage: React.FC = () => {
   const isMaxPriceFiltered = Number.isFinite(filters.maxPrice) && filters.maxPrice < catalogMaxPrice;
   const isPriceFiltered = isMinPriceFiltered || isMaxPriceFiltered;
 
-  const availableColors = useMemo(() => extractAvailableColors(products), [products]);
+  const availableColors = useMemo(() => {
+    if (
+      useServerPagination &&
+      serverPageState.facets &&
+      !filters.colorId &&
+      serverPageState.facets.colors.length > 0
+    ) {
+      return serverPageState.facets.colors;
+    }
+    return extractAvailableColors(products);
+  }, [useServerPagination, serverPageState.facets, filters.colorId, products]);
+
   const visibleColors = useMemo(() => {
     if (showAllColors || availableColors.length <= 12) return availableColors;
     const base = availableColors.slice(0, 12);
@@ -308,14 +329,39 @@ export const CatalogPage: React.FC = () => {
     }
     return base;
   }, [availableColors, filters.colorId, showAllColors]);
-  const availableStorageChips = useMemo(
-    () => extractAvailableStorageOptions(products),
-    [products]
-  );
-  const availableRamChips = useMemo(() => extractAvailableRamOptions(products), [products]);
+
+  const availableStorageChips = useMemo(() => {
+    if (
+      useServerPagination &&
+      serverPageState.facets &&
+      !filters.storage &&
+      serverPageState.facets.storages.length > 0
+    ) {
+      return serverPageState.facets.storages;
+    }
+    return extractAvailableStorageOptions(products);
+  }, [useServerPagination, serverPageState.facets, filters.storage, products]);
+
+  const availableRamChips = useMemo(() => {
+    if (
+      useServerPagination &&
+      serverPageState.facets &&
+      !filters.ram &&
+      serverPageState.facets.rams.length > 0
+    ) {
+      return serverPageState.facets.rams;
+    }
+    return extractAvailableRamOptions(products);
+  }, [useServerPagination, serverPageState.facets, filters.ram, products]);
 
   const allBrands = useMemo(() => {
-    const names = extractAvailableBrands(products, brands);
+    const names =
+      useServerPagination &&
+      serverPageState.facets &&
+      filters.brands.length === 0 &&
+      serverPageState.facets.brands.length > 0
+        ? serverPageState.facets.brands.map((b) => b.name)
+        : extractAvailableBrands(products, brands);
     return names.map((name) => {
       const found = brands.find((b) => b.name.toLowerCase() === name.toLowerCase());
       return {
@@ -323,7 +369,7 @@ export const CatalogPage: React.FC = () => {
         label: found?.labelFa ? `${found.labelFa} (${name})` : name,
       };
     });
-  }, [brands, products]);
+  }, [useServerPagination, serverPageState.facets, filters.brands.length, brands, products]);
 
   const visibleBrands = useMemo(() => {
     const q = brandSearch.trim().toLowerCase();

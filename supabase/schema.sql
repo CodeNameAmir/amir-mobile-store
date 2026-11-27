@@ -887,4 +887,81 @@ values
 )
 on conflict (slug) do nothing;
 
+-- ============================================================================
+-- 15. Storefront Hardening: Payment Status, Order Idempotency, Coupon Limits,
+--     Q&A Moderation Default, Duplicate Review Guard, Newsletter Unsubscribe,
+--     and Atomic Order Placement / Cancellation RPCs
+-- ============================================================================
+alter table public.orders
+  add column if not exists payment_status text not null default 'unpaid',
+  add column if not exists idempotency_key text,
+  add column if not exists stock_restored boolean not null default false;
 
+alter table public.orders
+  alter column status set default 'pending_payment';
+
+alter table public.orders
+  drop constraint if exists orders_payment_status_check;
+
+alter table public.orders
+  add constraint orders_payment_status_check
+  check (payment_status in ('unpaid', 'pending_gateway', 'paid', 'not_required'));
+
+create unique index if not exists idx_orders_idempotency_key
+  on public.orders (idempotency_key)
+  where idempotency_key is not null;
+
+alter table public.coupons
+  add column if not exists starts_at timestamptz,
+  add column if not exists expires_at timestamptz,
+  add column if not exists usage_limit integer,
+  add column if not exists per_user_limit integer,
+  add column if not exists used_count integer not null default 0;
+
+create table if not exists public.coupon_redemptions (
+  id uuid primary key default gen_random_uuid(),
+  coupon_code text not null,
+  order_code text not null,
+  user_id uuid references public.app_users(id) on delete set null,
+  customer_phone text,
+  status text not null default 'applied' check (status in ('applied', 'cancelled')),
+  created_at timestamptz not null default now(),
+  unique (coupon_code, order_code)
+);
+
+create index if not exists idx_coupon_redemptions_code_user
+  on public.coupon_redemptions (coupon_code, user_id);
+create index if not exists idx_coupon_redemptions_code_phone
+  on public.coupon_redemptions (coupon_code, customer_phone);
+create index if not exists idx_coupon_redemptions_order_code
+  on public.coupon_redemptions (order_code);
+
+alter table public.coupon_redemptions enable row level security;
+revoke all on table public.coupon_redemptions from anon;
+
+alter table public.product_questions
+  alter column is_approved set default false;
+
+alter table public.product_reviews
+  add column if not exists user_id uuid references public.app_users(id) on delete set null;
+
+create unique index if not exists idx_product_reviews_product_user_unique
+  on public.product_reviews (product_id, user_id)
+  where user_id is not null;
+
+alter table public.newsletter_subscribers
+  add column if not exists contact_type text,
+  add column if not exists status text not null default 'active',
+  add column if not exists unsubscribe_token text,
+  add column if not exists unsubscribed_at timestamptz;
+
+alter table public.newsletter_subscribers
+  drop constraint if exists newsletter_subscribers_status_check;
+
+alter table public.newsletter_subscribers
+  add constraint newsletter_subscribers_status_check
+  check (status in ('active', 'unsubscribed'));
+
+create unique index if not exists idx_newsletter_unsubscribe_token
+  on public.newsletter_subscribers (unsubscribe_token)
+  where unsubscribe_token is not null;

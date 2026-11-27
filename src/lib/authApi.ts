@@ -170,6 +170,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
       ...(init?.headers || {}),
     },
   });
@@ -376,14 +377,22 @@ export const authApi = {
   },
 
   async createOrder(
-    order: OrderRecord
-  ): Promise<{ order: OrderRecord; syncedToDatabase: boolean; trackingToken?: string }> {
+    order: OrderRecord & { idempotencyKey?: string }
+  ): Promise<{
+    order: OrderRecord;
+    syncedToDatabase: boolean;
+    trackingToken?: string;
+    deduplicated?: boolean;
+  }> {
+    const idempotencyKey = order.idempotencyKey?.trim();
     const res = await requestJson<{
       order: OrderRecord;
       syncedToDatabase: boolean;
       trackingToken?: string;
+      deduplicated?: boolean;
     }>('/api/orders', {
       method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
       body: JSON.stringify(order),
     });
     if (res.trackingToken && res.order?.orderCode) {
@@ -645,6 +654,7 @@ export const storeApi = {
       page: typeof res.page === 'number' ? res.page : params?.page || 1,
       limit: typeof res.limit === 'number' ? res.limit : params?.limit || list.length || 12,
       totalPages: typeof res.totalPages === 'number' ? res.totalPages : 1,
+      facets: res.facets,
     };
   },
 
@@ -699,15 +709,18 @@ export const storeApi = {
   async submitProductQuestion(
     productId: string,
     payload: { authorName: string; question: string }
-  ): Promise<ProductQuestion> {
-    const res = await requestJson<{ question: ProductQuestion }>(
+  ): Promise<ProductQuestion & { pendingApproval?: boolean }> {
+    const res = await requestJson<{ question: ProductQuestion; pendingApproval?: boolean }>(
       `/api/products/${encodeURIComponent(productId)}/questions`,
       {
         method: 'POST',
         body: JSON.stringify(payload),
       }
     );
-    return res.question;
+    return {
+      ...res.question,
+      pendingApproval: res.pendingApproval ?? !res.question?.isApproved,
+    };
   },
 
   async subscribeStockAlert(payload: {
@@ -751,6 +764,15 @@ export const storeApi = {
     return requestJson<{ ok: boolean; alreadySubscribed?: boolean }>('/api/newsletter', {
       method: 'POST',
       body: JSON.stringify({ contact }),
+    });
+  },
+
+  async unsubscribeNewsletter(
+    contactOrToken: string
+  ): Promise<{ ok: boolean; unsubscribed?: boolean }> {
+    return requestJson<{ ok: boolean; unsubscribed?: boolean }>('/api/newsletter/unsubscribe', {
+      method: 'POST',
+      body: JSON.stringify({ contact: contactOrToken }),
     });
   },
 

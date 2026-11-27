@@ -38,7 +38,12 @@ import {
   validateProfileForm,
   validateUsername,
 } from '../../utils/authLogic';
-import { formatPersianDate, formatToman, toPersianDigits } from '../../utils/storeLogic';
+import {
+  formatPersianDate,
+  formatToman,
+  getPaymentStatusLabel,
+  toPersianDigits,
+} from '../../utils/storeLogic';
 import { ProductCard } from '../ProductCard';
 import { OrderRowSkeleton, SkeletonBox } from '../Skeleton';
 
@@ -909,7 +914,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                         <strong dir="ltr" className="text-sm text-[#1453D6] font-mono font-semibold">
                           {ord.orderCode}
                         </strong>{' '}
-                        · {STATUS_LABELS[ord.status]} · {ord.createdAt}
+                        · {STATUS_LABELS[ord.status]} · {getPaymentStatusLabel(ord.paymentStatus)} · {ord.createdAt}
                       </p>
                       <p className="text-xs text-[#11161E] tabular-nums-fa">
                         {ord.customerName} · {toPersianDigits(ord.items.length)} کالا ·{' '}
@@ -1594,6 +1599,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                 {(
                   [
                     { id: 'all', label: 'همه' },
+                    { id: 'pending_payment', label: 'در انتظار پرداخت' },
                     { id: 'paid', label: 'پرداخت موفق' },
                     { id: 'preparing', label: 'در حال آماده‌سازی' },
                     { id: 'shipped', label: 'ارسال‌شده' },
@@ -1660,7 +1666,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                         <span dir="ltr" className="text-sm font-mono font-semibold text-[#1453D6]">
                           {ord.orderCode}
                         </span>{' '}
-                        · {STATUS_LABELS[ord.status]} · {ord.createdAt}
+                        · {STATUS_LABELS[ord.status]} · {getPaymentStatusLabel(ord.paymentStatus)} · {ord.createdAt}
                       </p>
                       <p className="text-xs text-[#4A5464]">
                         تحویل‌گیرنده: {ord.customerName} · {toPersianDigits(ord.items.length)} کالا ·{' '}
