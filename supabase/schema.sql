@@ -965,3 +965,56 @@ alter table public.newsletter_subscribers
 create unique index if not exists idx_newsletter_unsubscribe_token
   on public.newsletter_subscribers (unsubscribe_token)
   where unsubscribe_token is not null;
+
+-- ============================================================================
+-- 16. 30-Minute Order Expiration (Additive & Non-Destructive)
+-- ============================================================================
+alter table public.orders
+  add column if not exists expires_at timestamptz,
+  add column if not exists expired_at timestamptz;
+
+alter table public.orders
+  drop constraint if exists orders_status_check;
+
+alter table public.orders
+  add constraint orders_status_check
+  check (
+    status in (
+      'pending_payment',
+      'paid',
+      'preparing',
+      'shipped',
+      'delivered',
+      'cancelled',
+      'expired'
+    )
+  );
+
+create index if not exists idx_orders_pending_expiration
+  on public.orders (expires_at asc)
+  where status = 'pending_payment'
+    and payment_status = 'unpaid'
+    and expires_at is not null;
+
+do $$
+declare
+  v_constraint_name text;
+begin
+  for v_constraint_name in
+    select c.conname
+    from pg_constraint c
+    join pg_class t on t.oid = c.conrelid
+    join pg_namespace n on n.oid = t.relnamespace
+    where n.nspname = 'public'
+      and t.relname = 'coupon_redemptions'
+      and c.contype = 'c'
+      and pg_get_constraintdef(c.oid) ilike '%status%'
+  loop
+    execute format('alter table public.coupon_redemptions drop constraint if exists %I', v_constraint_name);
+  end loop;
+end $$;
+
+alter table public.coupon_redemptions
+  add constraint coupon_redemptions_status_check
+  check (status in ('applied', 'cancelled', 'expired'));
+

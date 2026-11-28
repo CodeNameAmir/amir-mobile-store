@@ -13,6 +13,7 @@ import {
   extractAvailableStorageOptions,
   extractFirstNumericSpec,
   filterAndSortProducts,
+  formatOrderExpirationCountdown,
   formatToman,
   getDescendantCategoryIds,
   getOrderFlowStage,
@@ -481,7 +482,24 @@ test('typo-tolerant search, nested category filtering, dual price range, dynamic
   assert.equal(getOrderFlowStage('delivered').isDelivered, true);
   assert.equal(getOrderFlowStage('delivered').activeStageIndex, 3);
   assert.equal(getOrderFlowStage('cancelled').isCancelled, true);
+  assert.equal(getOrderFlowStage('cancelled').isExpired, false);
   assert.equal(getOrderFlowStage('cancelled').activeStageIndex, -1);
+  assert.equal(getOrderFlowStage('expired').isExpired, true);
+  assert.equal(getOrderFlowStage('expired').isCancelled, false);
+  assert.equal(getOrderFlowStage('expired').activeStageIndex, -1);
+
+  assert.equal(formatOrderExpirationCountdown(null, 1000), null);
+  assert.equal(formatOrderExpirationCountdown('not-a-date', 1000), null);
+  const baseMs = Date.UTC(2026, 10, 27, 12, 0, 0);
+  const thirtyMinLater = new Date(baseMs + 30 * 60 * 1000).toISOString();
+  const activeCd = formatOrderExpirationCountdown(thirtyMinLater, baseMs + 5 * 60 * 1000);
+  assert.ok(activeCd);
+  assert.equal(activeCd.isPastDue, false);
+  assert.equal(activeCd.formattedTime, `${toPersianDigits('25')}:${toPersianDigits('00')}`);
+  const dueCd = formatOrderExpirationCountdown(thirtyMinLater, baseMs + 31 * 60 * 1000);
+  assert.ok(dueCd);
+  assert.equal(dueCd.isPastDue, true);
+  assert.equal(dueCd.formattedTime, `${toPersianDigits('00')}:${toPersianDigits('00')}`);
 });
 
 test('city-based shipping differentiates Tehran express vs National Post and auto-falls back outside Tehran', () => {

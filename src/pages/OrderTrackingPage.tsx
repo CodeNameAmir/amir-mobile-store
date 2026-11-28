@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import {
   CheckCircle2,
+  Clock,
   KeyRound,
   Lock,
   MapPin,
   MessageSquareText,
   Navigation,
   Package,
+  RefreshCw,
   Search,
   ShieldCheck,
   Truck,
@@ -15,7 +17,12 @@ import {
 import { TrackingPageSkeleton } from '../components/Skeleton';
 import { useStore } from '../context/StoreContext';
 import type { OrderLookupResult, OrderRecord, OrderStatus } from '../types/store';
-import { formatToman, getPaymentStatusLabel, toPersianDigits } from '../utils/storeLogic';
+import {
+  formatOrderExpirationCountdown,
+  formatToman,
+  getPaymentStatusLabel,
+  toPersianDigits,
+} from '../utils/storeLogic';
 
 interface OrderTrackingPageProps {
   initialCode?: string;
@@ -27,7 +34,8 @@ const STATUS_INDEX: Record<OrderStatus, number> = {
   preparing: 1,
   shipped: 2,
   delivered: 3,
-  cancelled: 0,
+  cancelled: -1,
+  expired: -1,
 };
 
 const STATUS_LABELS: Record<OrderStatus, string> = {
@@ -37,6 +45,7 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
   shipped: 'تحویل به پیک / پست',
   delivered: 'تحویل‌شده به خریدار',
   cancelled: 'لغو شده',
+  expired: 'منقضی‌شده (پایان مهلت ۳۰ دقیقه)',
 };
 
 export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCode }) => {
@@ -60,6 +69,9 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancellingOrder, setCancellingOrder] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
+  const [autoCheckedExpiry, setAutoCheckedExpiry] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -75,6 +87,7 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
     }
 
     setLoading(true);
+    setAutoCheckedExpiry(false);
     lookupOrder(target)
       .then((res) => {
         if (!active) return;
@@ -99,6 +112,46 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
       active = false;
     };
   }, [initialCode, orders, lookupOrder]);
+
+  useEffect(() => {
+    if (!order || order.status !== 'pending_payment' || !order.expiresAt) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [order?.orderCode, order?.status, order?.expiresAt]);
+
+  const refreshOrderFromServer = async (codeToRefresh?: string) => {
+    const code = (codeToRefresh || order?.orderCode || searchCode).trim().toUpperCase();
+    if (!code) return;
+    setRefreshingStatus(true);
+    try {
+      const res = await lookupOrder(code);
+      setLookup(res);
+      if (res.order) {
+        setOrder(res.order);
+      }
+    } finally {
+      setRefreshingStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!order || order.status !== 'pending_payment' || !order.expiresAt || autoCheckedExpiry) {
+      return;
+    }
+    const check = formatOrderExpirationCountdown(order.expiresAt, nowMs);
+    if (check?.isPastDue) {
+      setAutoCheckedExpiry(true);
+      void lookupOrder(order.orderCode).then((res) => {
+        setLookup(res);
+        if (res.order) {
+          setOrder(res.order);
+        }
+      });
+    }
+  }, [order, nowMs, autoCheckedExpiry, lookupOrder]);
 
   const handleLookup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,7 +198,11 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
     }
   };
 
-  const currentStage = order ? STATUS_INDEX[order.status] ?? 1 : 1;
+  const currentStage = order ? STATUS_INDEX[order.status] ?? 0 : 0;
+  const countdown =
+    order && order.status === 'pending_payment' && (order.paymentStatus ?? 'unpaid') === 'unpaid'
+      ? formatOrderExpirationCountdown(order.expiresAt, nowMs)
+      : null;
 
   return (
     <div className="max-w-[1440px] mx-auto px-4 lg:px-8 py-8 space-y-6">
@@ -291,6 +348,14 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                     <XCircle className="w-4 h-4" strokeWidth={1.5} />
                     <span>سفارش لغو شده است</span>
                   </div>
+                ) : order.status === 'expired' ? (
+                  <div
+                    data-testid="tracking-expired-badge"
+                    className="px-4 py-2 rounded-lg bg-[#FFFAEB] border border-[#FEDF89] text-[#B54708] text-xs font-semibold inline-flex items-center gap-2"
+                  >
+                    <Clock className="w-4 h-4" strokeWidth={1.5} />
+                    <span>مهلت ۳۰ دقیقه‌ای منقضی شد</span>
+                  </div>
                 ) : (
                   <div className="px-4 py-2 rounded-lg bg-[#EEF3FC] border border-[#D4E2FC] text-[#1453D6] text-xs font-semibold inline-flex items-center gap-2 tabular-nums-fa">
                     <KeyRound className="w-4 h-4" strokeWidth={1.5} />
@@ -327,6 +392,7 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                               err instanceof Error ? err.message : 'لغو سفارش امکان‌پذیر نیست.',
                               'error'
                             );
+                            void refreshOrderFromServer(order.orderCode);
                           } finally {
                             setCancellingOrder(false);
                           }
@@ -349,6 +415,40 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
               </div>
             </div>
 
+            {countdown && (
+              <div
+                data-testid="tracking-reservation-countdown"
+                className={`p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+                  countdown.isPastDue
+                    ? 'bg-[#FFFAEB] border-[#FEDF89] text-[#B54708]'
+                    : 'bg-[#EEF3FC] border-[#D4E2FC] text-[#1453D6]'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 shrink-0" strokeWidth={1.5} />
+                  {countdown.isPastDue ? (
+                    <span>
+                      مهلت ۳۰ دقیقه‌ای رزرو سفارش به پایان رسیده است. برای مشاهده آخرین وضعیت از سرور استعلام بگیرید.
+                    </span>
+                  ) : (
+                    <span className="tabular-nums-fa">
+                      مهلت رزرو موجودی کالاهای این سفارش (نمایشی):{' '}
+                      <strong className="font-mono font-semibold">{countdown.formattedTime}</strong>
+                    </span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={refreshingStatus}
+                  onClick={() => refreshOrderFromServer(order.orderCode)}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-current/20 text-[11px] font-semibold inline-flex items-center gap-1.5 hover:opacity-90 disabled:opacity-60"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingStatus ? 'animate-spin' : ''}`} />
+                  <span>به‌روزرسانی وضعیت</span>
+                </button>
+              </div>
+            )}
+
             {order.adminNote && (
               <div className="p-3.5 rounded-xl bg-[#EEF3FC] border border-[#D4E2FC] text-xs font-medium text-[#11161E] flex items-center gap-2">
                 <MessageSquareText className="w-4 h-4 text-[#1453D6] shrink-0" strokeWidth={1.5} />
@@ -356,42 +456,78 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-              {[
-                { title: 'ثبت و تایید سفارش', sub: toPersianDigits(order.createdAt) },
-                { title: 'ثبت IMEI و کنترل کیفیت', sub: 'پردازش انبار مرکزی' },
-                { title: 'تحویل به سفیر اکسپرس', sub: 'در مسیر ارسال به مقصد' },
-                { title: 'تحویل نهایی به خریدار', sub: `نشانی: ${order.city || 'تهران'}` },
-              ].map((st, idx) => {
-                const done = idx < currentStage;
-                const active = idx === currentStage;
-                return (
-                  <div
-                    key={st.title}
-                    className={`p-4 rounded-xl border ${
-                      active
-                        ? 'bg-[#EEF3FC] border-[#1453D6]'
-                        : done
-                        ? 'bg-[#F7F8FA] border-[#D4E2FC]'
-                        : 'bg-[#F7F8FA] border-[#E4E8EE] opacity-70'
-                    }`}
-                  >
-                    <p className="text-xs font-semibold text-[#11161E] flex items-center gap-1.5">
-                      <CheckCircle2
-                        className={`w-4 h-4 ${
-                          active || done ? 'text-[#1453D6]' : 'text-[#576071]'
-                        }`}
-                        strokeWidth={1.5}
-                      />
-                      <span>
-                        {toPersianDigits(idx + 1)}. {st.title}
-                      </span>
+            {order.status === 'expired' ? (
+              <div
+                data-testid="tracking-expired-banner"
+                className="p-5 rounded-xl bg-[#FFFAEB] border border-[#FEDF89] flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-[#B54708]"
+              >
+                <div className="flex items-start gap-3">
+                  <Clock className="w-5 h-5 shrink-0 mt-0.5" strokeWidth={1.5} />
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold">
+                      سفارش به دلیل عدم تکمیل پرداخت در بازه ۳۰ دقیقه‌ای منقضی شد
                     </p>
-                    <p className="text-[11px] text-[#4A5464] mt-1">{st.sub}</p>
+                    <p className="text-xs leading-6">
+                      موجودی کالاها و کد تخفیف استفاده‌شده به انبار بازگردانده شده است. امکان لغو یا ارسال این سفارش وجود ندارد.
+                    </p>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+                <a
+                  href={buildHref('/catalog')}
+                  onClick={(e) => handleLinkClick(e, '/catalog')}
+                  className="px-4 py-2 rounded-lg bg-[#B54708] hover:bg-[#93370D] text-white text-xs font-semibold shrink-0 text-center transition-colors"
+                >
+                  مشاهده محصولات و خرید مجدد
+                </a>
+              </div>
+            ) : order.status === 'cancelled' ? (
+              <div className="p-5 rounded-xl bg-[#FEF3F2] border border-[#FECDCA] flex items-start gap-3 text-[#B42318]">
+                <XCircle className="w-5 h-5 shrink-0 mt-0.5" strokeWidth={1.5} />
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold">این سفارش لغو شده است</p>
+                  <p className="text-xs leading-6">
+                    موجودی کالاهای سفارش به انبار بازگردانده شده و فرآیند ارسال متوقف گردیده است.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                {[
+                  { title: 'ثبت و تایید سفارش', sub: toPersianDigits(order.createdAt) },
+                  { title: 'ثبت IMEI و کنترل کیفیت', sub: 'پردازش انبار مرکزی' },
+                  { title: 'تحویل به سفیر اکسپرس', sub: 'در مسیر ارسال به مقصد' },
+                  { title: 'تحویل نهایی به خریدار', sub: `نشانی: ${order.city || 'تهران'}` },
+                ].map((st, idx) => {
+                  const done = idx < currentStage;
+                  const active = idx === currentStage;
+                  return (
+                    <div
+                      key={st.title}
+                      className={`p-4 rounded-xl border ${
+                        active
+                          ? 'bg-[#EEF3FC] border-[#1453D6]'
+                          : done
+                          ? 'bg-[#F7F8FA] border-[#D4E2FC]'
+                          : 'bg-[#F7F8FA] border-[#E4E8EE] opacity-70'
+                      }`}
+                    >
+                      <p className="text-xs font-semibold text-[#11161E] flex items-center gap-1.5">
+                        <CheckCircle2
+                          className={`w-4 h-4 ${
+                            active || done ? 'text-[#1453D6]' : 'text-[#576071]'
+                          }`}
+                          strokeWidth={1.5}
+                        />
+                        <span>
+                          {toPersianDigits(idx + 1)}. {st.title}
+                        </span>
+                      </p>
+                      <p className="text-[11px] text-[#4A5464] mt-1">{st.sub}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           {/* Route Illustration + IMEI Verification */}
@@ -442,6 +578,8 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                     className={`px-3 py-1 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 ${
                       order.status === 'cancelled'
                         ? 'bg-[#B42318] text-white'
+                        : order.status === 'expired'
+                        ? 'bg-[#B54708] text-white'
                         : order.status === 'delivered'
                         ? 'bg-[#067647] text-white'
                         : 'bg-[#1453D6] text-white'
@@ -451,6 +589,8 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                     <span>
                       {order.status === 'cancelled'
                         ? 'لغو شده'
+                        : order.status === 'expired'
+                        ? 'منقضی‌شده'
                         : order.status === 'delivered'
                         ? 'تحویل داده شده'
                         : order.status === 'shipped'
@@ -518,6 +658,8 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({ initialCod
                     <span className="text-[#4A5464]">
                       {order.status === 'cancelled'
                         ? 'لغو شده'
+                        : order.status === 'expired'
+                        ? 'منقضی شده (مهلت ۳۰ دقیقه پایان یافت)'
                         : order.status === 'pending_payment'
                         ? 'در انتظار تکمیل پرداخت'
                         : STATUS_LABELS[order.status]}

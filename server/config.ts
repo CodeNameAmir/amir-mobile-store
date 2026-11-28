@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { HelmetOptions } from 'helmet';
 
 export interface CookieOptionsShape {
@@ -163,17 +164,44 @@ export function resolveSupabaseAdminConfig(env: NodeJS.ProcessEnv = process.env)
   configured: boolean;
 } {
   const isProd = env.NODE_ENV === 'production';
+  const isRender = env.RENDER === 'true';
   const url = (env.SUPABASE_URL || env.VITE_SUPABASE_URL || '').trim() || null;
   const serviceRoleKey = (env.SUPABASE_SERVICE_ROLE_KEY || '').trim() || null;
   const configured = Boolean(url && serviceRoleKey);
 
-  if (isProd && !configured) {
+  if ((isProd || isRender) && !configured) {
     throw new Error(
       'FATAL: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production for persistent auth & OTP storage.'
     );
   }
 
+  if (env.NODE_ENV !== 'test' && Boolean(url) !== Boolean(serviceRoleKey)) {
+    throw new Error(
+      'FATAL: Partial Supabase configuration detected. Both SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set together.'
+    );
+  }
+
   return { url, serviceRoleKey, configured };
+}
+
+export function resolveInternalJobSecret(env: NodeJS.ProcessEnv = process.env): string | null {
+  const raw = (env.INTERNAL_JOB_SECRET || env.CRON_SECRET || '').trim();
+  if (raw.length < 32) {
+    return null;
+  }
+  return raw;
+}
+
+export function verifyInternalJobSecret(
+  provided: string | undefined,
+  expected: string | null
+): boolean {
+  if (!provided || !expected) return false;
+  const trimmed = provided.trim();
+  if (!trimmed) return false;
+  const providedDigest = crypto.createHash('sha256').update(trimmed).digest();
+  const expectedDigest = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(providedDigest, expectedDigest);
 }
 
 export function resolveCorsConfig(env: NodeJS.ProcessEnv = process.env): {

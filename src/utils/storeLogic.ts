@@ -580,12 +580,46 @@ export function paginateItems<T>(
 }
 
 export interface OrderStageDisplay {
-  activeStageIndex: number; // 0..3 (-1 if cancelled)
+  activeStageIndex: number; // 0..3 (-1 if cancelled or expired)
   isCancelled: boolean;
+  isExpired: boolean;
   isDelivered: boolean;
   badgeLabel: string;
   headlineText: string;
   summaryText: string;
+}
+
+export interface OrderCountdownDisplay {
+  remainingMs: number;
+  isPastDue: boolean;
+  formattedTime: string;
+}
+
+export function formatOrderExpirationCountdown(
+  expiresAt?: string | null,
+  nowMs: number = Date.now()
+): OrderCountdownDisplay | null {
+  if (!expiresAt) return null;
+  const parsed = Date.parse(expiresAt);
+  if (!Number.isFinite(parsed)) return null;
+  const diff = parsed - nowMs;
+  if (diff <= 0) {
+    return {
+      remainingMs: 0,
+      isPastDue: true,
+      formattedTime: `${toPersianDigits('00')}:${toPersianDigits('00')}`,
+    };
+  }
+  const totalSeconds = Math.ceil(diff / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(seconds).padStart(2, '0');
+  return {
+    remainingMs: diff,
+    isPastDue: false,
+    formattedTime: `${toPersianDigits(mm)}:${toPersianDigits(ss)}`,
+  };
 }
 
 export function getPaymentStatusLabel(status?: PaymentStatus): string {
@@ -608,16 +642,18 @@ export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
       return {
         activeStageIndex: 0,
         isCancelled: false,
+        isExpired: false,
         isDelivered: false,
         badgeLabel: 'ثبت‌شده · در انتظار پرداخت',
         headlineText: 'سفارش شما ثبت شد و در وضعیت «در انتظار پرداخت» قرار دارد',
         summaryText:
-          'درگاه پرداخت آنلاین در حال حاضر غیرفعال است؛ این سفارش تا زمان هماهنگی و تکمیل پرداخت به‌صورت پرداخت‌نشده باقی می‌ماند و پس از تایید وارد مرحله آماده‌سازی می‌شود.',
+          'درگاه پرداخت آنلاین در حال حاضر غیرفعال است؛ موجودی کالاهای این سفارش به مدت ۳۰ دقیقه رزرو می‌شود و در صورت عدم تکمیل پرداخت، سفارش به‌صورت خودکار منقضی می‌گردد.',
       };
     case 'paid':
       return {
         activeStageIndex: 0,
         isCancelled: false,
+        isExpired: false,
         isDelivered: false,
         badgeLabel: 'تایید پرداخت موفق',
         headlineText: 'سفارش شما ثبت و پرداخت با موفقیت تایید شد',
@@ -627,6 +663,7 @@ export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
       return {
         activeStageIndex: 1,
         isCancelled: false,
+        isExpired: false,
         isDelivered: false,
         badgeLabel: 'در حال پردازش و بسته‌بندی',
         headlineText: 'سفارش شما تایید شده و در حال آماده‌سازی است',
@@ -636,6 +673,7 @@ export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
       return {
         activeStageIndex: 2,
         isCancelled: false,
+        isExpired: false,
         isDelivered: false,
         badgeLabel: 'تحویل به پیک / در مسیر ارسال',
         headlineText: 'مرسوله شما ارسال شده و در مسیر تحویل به شماست',
@@ -645,6 +683,7 @@ export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
       return {
         activeStageIndex: 3,
         isCancelled: false,
+        isExpired: false,
         isDelivered: true,
         badgeLabel: 'تحویل‌شده به مشتری',
         headlineText: 'مرسوله شما با موفقیت تحویل داده شد',
@@ -654,15 +693,28 @@ export function getOrderFlowStage(status: OrderStatus): OrderStageDisplay {
       return {
         activeStageIndex: -1,
         isCancelled: true,
+        isExpired: false,
         isDelivered: false,
         badgeLabel: 'سفارش لغو شده است',
         headlineText: 'این سفارش لغو شده است',
         summaryText: 'موجودی کالاهای این سفارش به انبار بازگردانده شده و سفارش بسته شده است.',
       };
+    case 'expired':
+      return {
+        activeStageIndex: -1,
+        isCancelled: false,
+        isExpired: true,
+        isDelivered: false,
+        badgeLabel: 'منقضی‌شده (پایان مهلت ۳۰ دقیقه)',
+        headlineText: 'مهلت ۳۰ دقیقه‌ای پرداخت این سفارش به پایان رسیده است',
+        summaryText:
+          'به دلیل عدم تکمیل پرداخت در بازه ۳۰ دقیقه‌ای، سفارش به‌صورت خودکار منقضی شده و موجودی کالاها و ظرفیت کد تخفیف به فروشگاه بازگردانده شده است.',
+      };
     default:
       return {
         activeStageIndex: 0,
         isCancelled: false,
+        isExpired: false,
         isDelivered: false,
         badgeLabel: 'در انتظار پرداخت',
         headlineText: 'سفارش شما ثبت شد و در انتظار پرداخت است',

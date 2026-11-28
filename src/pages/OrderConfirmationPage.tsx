@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   ArrowLeft,
   CheckCircle2,
+  Clock,
   Copy,
   Lock,
   MapPin,
@@ -9,6 +10,7 @@ import {
   PackageCheck,
   Phone,
   Printer,
+  RefreshCw,
   Send,
   ShieldCheck,
   Truck,
@@ -20,6 +22,7 @@ import { SmartImage } from '../components/SmartImage';
 import { useStore } from '../context/StoreContext';
 import type { OrderLookupResult, OrderRecord } from '../types/store';
 import {
+  formatOrderExpirationCountdown,
   formatToman,
   getOrderFlowStage,
   getPaymentStatusLabel,
@@ -47,11 +50,15 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [refreshingStatus, setRefreshingStatus] = useState(false);
+  const [autoCheckedExpiry, setAutoCheckedExpiry] = useState(false);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setVerifyError(null);
+    setAutoCheckedExpiry(false);
     lookupOrder(orderCode)
       .then((res) => {
         if (!active) return;
@@ -69,6 +76,44 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
       active = false;
     };
   }, [orderCode, lookupOrder]);
+
+  useEffect(() => {
+    if (!order || order.status !== 'pending_payment' || !order.expiresAt) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [order?.orderCode, order?.status, order?.expiresAt]);
+
+  const refreshOrderFromServer = async () => {
+    setRefreshingStatus(true);
+    try {
+      const res = await lookupOrder(orderCode);
+      setLookup(res);
+      if (res.order) {
+        setOrder(res.order);
+      }
+    } finally {
+      setRefreshingStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!order || order.status !== 'pending_payment' || !order.expiresAt || autoCheckedExpiry) {
+      return;
+    }
+    const countdownCheck = formatOrderExpirationCountdown(order.expiresAt, nowMs);
+    if (countdownCheck?.isPastDue) {
+      setAutoCheckedExpiry(true);
+      void lookupOrder(orderCode).then((res) => {
+        setLookup(res);
+        if (res.order) {
+          setOrder(res.order);
+        }
+      });
+    }
+  }, [order, nowMs, autoCheckedExpiry, orderCode, lookupOrder]);
 
   const handleVerifyGuest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -192,6 +237,10 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
   const flow = getOrderFlowStage(order.status);
   const paymentStatusLabel = getPaymentStatusLabel(order.paymentStatus);
   const hasShaparakRef = Boolean(order.shaparakRef && order.shaparakRef.trim());
+  const countdown =
+    order.status === 'pending_payment' && (order.paymentStatus ?? 'unpaid') === 'unpaid'
+      ? formatOrderExpirationCountdown(order.expiresAt, nowMs)
+      : null;
 
   const stages = [
     {
@@ -227,6 +276,8 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
           className={`w-14 h-14 rounded-xl border flex items-center justify-center mx-auto ${
             flow.isCancelled
               ? 'bg-[#FEF3F2] border-[#FECDCA] text-[#B42318]'
+              : flow.isExpired
+              ? 'bg-[#FFFAEB] border-[#FEDF89] text-[#B54708]'
               : flow.isDelivered
               ? 'bg-[#ECFDF3] border-[#ABEFC6] text-[#067647]'
               : 'bg-[#EEF3FC] border-[#D4E2FC] text-[#1453D6]'
@@ -234,6 +285,8 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
         >
           {flow.isCancelled ? (
             <XCircle className="w-7 h-7" strokeWidth={1.5} />
+          ) : flow.isExpired ? (
+            <Clock className="w-7 h-7" strokeWidth={1.5} />
           ) : flow.isDelivered ? (
             <CheckCircle2 className="w-7 h-7" strokeWidth={1.5} />
           ) : (
@@ -246,6 +299,8 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
             className={`inline-block px-3 py-1 rounded-lg border text-xs font-medium ${
               flow.isCancelled
                 ? 'bg-[#FEF3F2] border-[#FECDCA] text-[#B42318]'
+                : flow.isExpired
+                ? 'bg-[#FFFAEB] border-[#FEDF89] text-[#B54708]'
                 : flow.isDelivered
                 ? 'bg-[#ECFDF3] border-[#ABEFC6] text-[#067647]'
                 : 'bg-[#EEF3FC] border-[#D4E2FC] text-[#1453D6]'
@@ -268,6 +323,40 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
         <p className="text-xs sm:text-sm text-[#4A5464] max-w-2xl mx-auto leading-7">
           {flow.summaryText}
         </p>
+
+        {countdown && (
+          <div
+            data-testid="order-reservation-countdown"
+            className={`max-w-2xl mx-auto p-3.5 rounded-xl border flex flex-wrap items-center justify-between gap-3 text-xs ${
+              countdown.isPastDue
+                ? 'bg-[#FFFAEB] border-[#FEDF89] text-[#B54708]'
+                : 'bg-[#EEF3FC] border-[#D4E2FC] text-[#1453D6]'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 shrink-0" strokeWidth={1.5} />
+              {countdown.isPastDue ? (
+                <span>
+                  مهلت ۳۰ دقیقه‌ای رزرو این سفارش به پایان رسیده است. وضعیت نهایی از سامانه استعلام می‌شود.
+                </span>
+              ) : (
+                <span className="tabular-nums-fa">
+                  زمان باقی‌مانده رزرو موجودی (نمایشی):{' '}
+                  <strong className="font-mono font-semibold">{countdown.formattedTime}</strong>
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={refreshingStatus}
+              onClick={refreshOrderFromServer}
+              className="px-3 py-1.5 rounded-lg bg-white border border-current/20 text-[11px] font-semibold inline-flex items-center gap-1.5 hover:opacity-90 disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshingStatus ? 'animate-spin' : ''}`} />
+              <span>بررسی وضعیت از سرور</span>
+            </button>
+          </div>
+        )}
 
         {/* Order Code + Payment Ref */}
         <div className="max-w-2xl mx-auto grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
@@ -332,6 +421,8 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
             className={`text-xs font-medium ${
               flow.isCancelled
                 ? 'text-[#B42318]'
+                : flow.isExpired
+                ? 'text-[#B54708]'
                 : flow.isDelivered
                 ? 'text-[#067647]'
                 : 'text-[#1453D6]'
@@ -357,6 +448,28 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
                 پردازش ارسال متوقف گردیده است. در صورت نیاز به راهنمایی بیشتر می‌توانید شماره سفارش خود را با پشتیبانی مطرح کنید.
               </p>
             </div>
+          </div>
+        ) : flow.isExpired ? (
+          <div
+            data-testid="invoice-expired-notice"
+            className="p-5 rounded-xl bg-[#FFFAEB] border border-[#FEDF89] flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-[#B54708]"
+          >
+            <div className="flex items-start gap-3">
+              <Clock className="w-5 h-5 shrink-0 mt-0.5" strokeWidth={1.5} />
+              <div className="space-y-1">
+                <p className="text-sm font-semibold">این سفارش به دلیل پایان مهلت ۳۰ دقیقه‌ای منقضی شده است</p>
+                <p className="text-xs leading-6">
+                  موجودی کالاها و کد تخفیف استفاده‌شده به سامانه بازگردانده شده است. برای خرید مجدد می‌توانید سفارش جدیدی ثبت کنید.
+                </p>
+              </div>
+            </div>
+            <a
+              href={buildHref('/catalog')}
+              onClick={(e) => handleLinkClick(e, '/catalog')}
+              className="px-4 py-2 rounded-lg bg-[#B54708] hover:bg-[#93370D] text-white text-xs font-semibold shrink-0 text-center transition-colors"
+            >
+              ثبت سفارش جدید
+            </a>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -596,6 +709,7 @@ export const OrderConfirmationPage: React.FC<OrderConfirmationPageProps> = ({ or
                             err instanceof Error ? err.message : 'لغو سفارش امکان‌پذیر نیست.',
                             'error'
                           );
+                          void refreshOrderFromServer();
                         } finally {
                           setCancelling(false);
                         }

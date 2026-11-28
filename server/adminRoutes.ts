@@ -498,6 +498,12 @@ export function createAdminRouter(storage: AuthStorageAdapter, options?: AdminRo
       }
 
       const nextStatus = normalizeOrderStatus(rawStatus);
+      if (existing.status === 'expired' && nextStatus !== 'expired') {
+        res.status(409).json({
+          error: 'این سفارش منقضی شده و موجودی آن به انبار بازگردانده شده است؛ تغییر وضعیت ممکن نیست.',
+        });
+        return;
+      }
       const adminNote =
         req.body?.adminNote !== undefined ? String(req.body.adminNote).trim() : undefined;
       const updated = await storage.updateOrderStatus(existing.orderCode, nextStatus, adminNote);

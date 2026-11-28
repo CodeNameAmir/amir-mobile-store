@@ -24,3 +24,10 @@ services:
         sync: false
       - key: AUTH_SESSION_SECRET
         generateValue: true
+      - key: INTERNAL_JOB_SECRET
+        sync: false
+
+# Note: Render Cron Jobs are configured as a separate scheduled service in the Render Dashboard
+# (or external scheduler) executing an authenticated HTTP POST every 5 minutes against:
+#   https://api.codenameamir.ir/internal/jobs/expire-pending-orders
+# with header: Authorization: Bearer $INTERNAL_JOB_SECRET (matching INTERNAL_JOB_SECRET above).

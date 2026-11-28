@@ -725,7 +725,7 @@ export const CartCheckoutPage: React.FC<CartCheckoutPageProps> = ({ mode }) => {
               <div className="p-4 rounded-xl bg-[#F1F3F6] border border-[#E4E8EE] flex items-center gap-3 text-xs text-[#11161E]">
                 <ShieldCheck className="w-5 h-5 text-[#4A5464] shrink-0" strokeWidth={1.5} />
                 <p className="leading-6">
-                  با ثبت سفارش، درخواست شما با وضعیت «در انتظار پرداخت» در سامانه ثبت می‌شود و درگاه پرداخت آنلاین در حال حاضر غیرفعال است. پس از ثبت، کد پیگیری و جزئیات فاکتور نمایش داده خواهد شد.
+                  با ثبت سفارش، درخواست شما با وضعیت «در انتظار پرداخت» ثبت شده و موجودی کالاها به مدت ۳۰ دقیقه برای شما رزرو می‌شود (درگاه پرداخت آنلاین در حال حاضر غیرفعال است). در صورت عدم تکمیل پرداخت طی ۳۰ دقیقه، سفارش به‌صورت خودکار منقضی شده و موجودی بازگردانده می‌شود.
                 </p>
               </div>
             </form>

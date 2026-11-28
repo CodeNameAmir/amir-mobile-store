@@ -8,7 +8,10 @@ export type OrderStatus =
   | 'preparing'
   | 'shipped'
   | 'delivered'
-  | 'cancelled';
+  | 'cancelled'
+  | 'expired';
+
+export const ORDER_RESERVATION_TTL_MS = 30 * 60 * 1000;
 
 export type PaymentStatus = 'unpaid' | 'pending_gateway' | 'paid' | 'not_required';
 
@@ -367,6 +370,7 @@ export interface OrderSummaryDTO {
   orderCode: string;
   status: OrderStatus;
   paymentStatus?: PaymentStatus;
+  expiresAt?: string | null;
   deliverySlot: 'express' | 'standard';
   createdAt: string;
   requiresVerification: true;
@@ -431,6 +435,7 @@ export interface AdminStatsDTO {
   shippedOrders: number;
   deliveredOrders: number;
   cancelledOrders: number;
+  expiredOrders?: number;
   totalProducts: number;
   outOfStockProducts: number;
   lowStockProducts: number;
@@ -1793,7 +1798,8 @@ export function normalizeOrderStatus(raw: unknown): OrderStatus {
     s === 'preparing' ||
     s === 'shipped' ||
     s === 'delivered' ||
-    s === 'cancelled'
+    s === 'cancelled' ||
+    s === 'expired'
   ) {
     return s;
   }
@@ -2648,6 +2654,7 @@ export function toSummaryOrderDTO(
     orderCode: string;
     status: OrderStatus;
     paymentStatus?: PaymentStatus;
+    expiresAt?: string | null;
     deliverySlot: 'express' | 'standard';
     createdAt: string;
   },
@@ -2657,6 +2664,7 @@ export function toSummaryOrderDTO(
     orderCode: order.orderCode,
     status: order.status,
     ...(order.paymentStatus ? { paymentStatus: order.paymentStatus } : {}),
+    ...(order.expiresAt !== undefined ? { expiresAt: order.expiresAt } : {}),
     deliverySlot: order.deliverySlot,
     createdAt: order.createdAt,
     requiresVerification: true,

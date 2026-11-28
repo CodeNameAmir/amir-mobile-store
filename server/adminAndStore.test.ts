@@ -5,17 +5,25 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerApp } from '../server.ts';
 import { resolveApiBaseUrl } from '../src/lib/authApi.ts';
 import {
+  createDefaultAuthStorage,
   createMemoryAuthStorage,
   createSupabaseAuthStorage,
   hashPassword,
+  StoreOperationError,
 } from './authStore.ts';
-import { parseCorsOrigins, resolveCorsConfig } from './config.ts';
+import {
+  parseCorsOrigins,
+  resolveCorsConfig,
+  resolveInternalJobSecret,
+  verifyInternalJobSecret,
+} from './config.ts';
 import {
   applyStockMovementDelta,
   calculateOrderTotalsServer,
   DEFAULT_DEV_PRODUCTS,
   DEFAULT_DEV_VARIANTS,
   formatAttributeDisplayValue,
+  ORDER_RESERVATION_TTL_MS,
   sanitizeAuditDetails,
   stripPrivateVariantFields,
 } from './storeData.ts';
@@ -2657,6 +2665,648 @@ test('Storefront hardening: atomic checkout race, idempotency, cancel rollback, 
     await new Promise<void>((resolve, reject) =>
       server.close((err?: Error) => (err ? reject(err) : resolve()))
     );
+  }
+});
+
+test('production storage & RPC safety: no silent dev-memory or non-atomic fallbacks', async () => {
+  // 1. Production and Render require Supabase and never silently fall back to dev-memory
+  assert.throws(
+    () => createDefaultAuthStorage({ NODE_ENV: 'production', AUTH_SESSION_SECRET: TEST_SECRET }),
+    /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/
+  );
+  assert.throws(
+    () => createDefaultAuthStorage({ RENDER: 'true' }),
+    /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/
+  );
+
+  // 2. Missing or failing RPCs in createSupabaseAuthStorage must fail safely without fallback writes
+  const tableMutations: string[] = [];
+  const createStubSupabase = (
+    rpcImpl?: (
+      fn: string,
+      args: Record<string, unknown>
+    ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>
+  ) =>
+    ({
+      from(table: string) {
+        const builder: Record<string, unknown> = {
+          select() {
+            return builder;
+          },
+          eq() {
+            return builder;
+          },
+          order() {
+            return builder;
+          },
+          maybeSingle: async () => ({ data: null, error: null }),
+          insert() {
+            tableMutations.push(`insert:${table}`);
+            return builder;
+          },
+          update() {
+            tableMutations.push(`update:${table}`);
+            return builder;
+          },
+          upsert() {
+            tableMutations.push(`upsert:${table}`);
+            return builder;
+          },
+          single: async () => ({ data: null, error: null }),
+        };
+        return builder;
+      },
+      ...(rpcImpl ? { rpc: rpcImpl } : {}),
+    } as unknown as SupabaseClient);
+
+  const missingRpcClient = createStubSupabase(async (fn) => ({
+    data: null,
+    error: {
+      code: 'PGRST202',
+      message: `Could not find the function public.${fn} in the schema cache`,
+    },
+  }));
+  const missingRpcStorage = createSupabaseAuthStorage(missingRpcClient);
+
+  const sampleOrder = {
+    orderCode: 'AMIR-99001',
+    userId: null,
+    shaparakRef: '',
+    customerName: 'کاربر تست ایمنی',
+    customerPhone: '09120001122',
+    city: 'تهران',
+    shippingAddress: 'خیابان ولیعصر، پلاک ۱۰',
+    postalCode: '1111111111',
+    deliverySlot: 'express' as const,
+    couponCode: null,
+    subtotal: 2_000_000,
+    productDiscount: 0,
+    couponDiscount: 0,
+    shippingCost: 0,
+    totalAmount: 2_000_000,
+    status: 'pending_payment' as const,
+    paymentStatus: 'unpaid' as const,
+    expiresAt: new Date(Date.now() + ORDER_RESERVATION_TTL_MS).toISOString(),
+    expiredAt: null,
+    deliveryPin: '1234',
+    imeiSample: '',
+    items: [],
+    createdAt: new Date().toISOString(),
+  };
+
+  await assert.rejects(
+    () =>
+      missingRpcStorage.placeOrderAtomic({
+        userId: null,
+        idempotencyKey: null,
+        order: sampleOrder,
+        stockDecrements: [{ productId: 'p1', qty: 1 }],
+      }),
+    (err: unknown) => err instanceof StoreOperationError && err.statusCode === 503
+  );
+
+  await assert.rejects(
+    () => missingRpcStorage.cancelOrderAtomic('AMIR-99001'),
+    (err: unknown) => err instanceof StoreOperationError && err.statusCode === 503
+  );
+
+  await assert.rejects(
+    () => missingRpcStorage.expirePendingOrdersAtomic({ limit: 50 }),
+    (err: unknown) => err instanceof StoreOperationError && err.statusCode === 503
+  );
+
+  // Zero fallback table mutations allowed
+  assert.deepEqual(tableMutations, []);
+
+  // Missing .rpc method completely also throws 503 safely
+  const noRpcMethodStorage = createSupabaseAuthStorage(createStubSupabase(undefined));
+  await assert.rejects(
+    () => noRpcMethodStorage.cancelOrderAtomic('AMIR-99001'),
+    (err: unknown) => err instanceof StoreOperationError && err.statusCode === 503
+  );
+
+  // HTTP POST /api/orders returns controlled 503 when placeOrderAtomic throws 503
+  const baseStorage = createMemoryAuthStorage();
+  const brokenStorage = {
+    ...baseStorage,
+    async placeOrderAtomic() {
+      throw new StoreOperationError(
+        'در حال حاضر امکان ثبت تراکنشی سفارش در پایگاه داده وجود ندارد.',
+        503
+      );
+    },
+    async cancelOrderAtomic() {
+      throw new StoreOperationError(
+        'در حال حاضر امکان لغو تراکنشی سفارش و بازگشت موجودی وجود ندارد.',
+        503
+      );
+    },
+  };
+
+  const app = await createServerApp({
+    storage: brokenStorage,
+    disableVite: true,
+    env: {
+      NODE_ENV: 'test',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      CORS_ORIGIN: STOREFRONT_ORIGIN,
+    },
+  });
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    const product = DEFAULT_DEV_PRODUCTS[0];
+    const res = await fetch(`${baseUrl}/api/orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: STOREFRONT_ORIGIN,
+      },
+      body: JSON.stringify({
+        customerName: 'خریدار تست شکست امن',
+        customerPhone: '09128887766',
+        city: 'تهران',
+        shippingAddress: 'خیابان انقلاب، پلاک ۲۵، واحد ۲',
+        postalCode: '1311111111',
+        items: [{ productId: product.id, qty: 1 }],
+      }),
+    });
+    assert.equal(res.status, 503);
+    const body = (await res.json()) as { error?: string };
+    assert.ok(body.error);
+    // Product stock was NOT decremented and no order was created
+    const prodAfter = await baseStorage.findProductByIdOrSlug(product.id);
+    assert.equal(prodAfter?.stockCount, product.stockCount);
+    const listAfter = await baseStorage.listAllOrders({});
+    assert.equal(listAfter.total, 0);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err?: Error) => (err ? reject(err) : resolve()))
+    );
+  }
+});
+
+test('30-minute order expiration, atomic stock/coupon restoration, concurrency races, and protected cron job endpoint', async () => {
+  const storage = createMemoryAuthStorage({
+    seedCoupons: [
+      {
+        code: 'ONCE-PER-USER',
+        discountType: 'fixed',
+        discountValue: 300_000,
+        isActive: true,
+        usageLimit: 5,
+        perUserLimit: 1,
+      },
+    ],
+  });
+  let simulatedNow: Date | undefined;
+  const testStorage = {
+    ...storage,
+    expirePendingOrdersAtomic(params: { limit?: number; now?: Date } = {}) {
+      return storage.expirePendingOrdersAtomic({
+        ...params,
+        ...(simulatedNow ? { now: simulatedNow } : {}),
+      });
+    },
+  };
+  const jobSecret = 'cron-secret-0123456789abcdef0123456789abcdef';
+  assert.equal(resolveInternalJobSecret({ INTERNAL_JOB_SECRET: jobSecret }), jobSecret);
+  assert.equal(resolveInternalJobSecret({ INTERNAL_JOB_SECRET: 'too-short' }), null);
+  assert.equal(verifyInternalJobSecret(jobSecret, jobSecret), true);
+  assert.equal(verifyInternalJobSecret('wrong-secret', jobSecret), false);
+
+  const sentEmails: Array<{ to: string; subject: string; idempotencyKey: string }> = [];
+  let failEmails = false;
+
+  const app = await createServerApp({
+    storage: testStorage,
+    disableVite: true,
+    env: {
+      NODE_ENV: 'test',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      INTERNAL_JOB_SECRET: jobSecret,
+      CORS_ORIGIN: `${STOREFRONT_ORIGIN},${ADMIN_ORIGIN}`,
+    },
+    sendEmail: async (input) => {
+      sentEmails.push({
+        to: input.to,
+        subject: input.subject,
+        idempotencyKey: input.idempotencyKey,
+      });
+      if (failEmails) {
+        return {
+          sent: false,
+          provider: 'resend',
+          errorMessage: 'Simulated Resend outage',
+        };
+      }
+      return { sent: true, provider: 'resend', emailId: `em-${sentEmails.length}` };
+    },
+  });
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  const adminJar = createCookieJar();
+  const customerJar = createCookieJar();
+
+  const request = async (
+    jar: ReturnType<typeof createCookieJar> | null,
+    urlPath: string,
+    init: RequestInit = {},
+    origin = STOREFRONT_ORIGIN
+  ) => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Origin: origin,
+      ...(init.headers as Record<string, string> | undefined),
+    };
+    const cookieHeader = jar?.header();
+    if (cookieHeader) headers.Cookie = cookieHeader;
+    const res = await fetch(`${baseUrl}${urlPath}`, { ...init, headers });
+    jar?.capture(res);
+    const body = await res.json().catch(() => ({}));
+    return { res, body: body as Record<string, any> };
+  };
+
+  try {
+    // Bootstrap admin and customer
+    const adminUser = await storage.createUser({
+      email: 'cron-admin@amirmobile.ir',
+      username: 'cronadmin',
+      fullName: 'مدیر کرون',
+      phone: '09120000010',
+      passwordHash: hashPassword('StrongAdmin!123'),
+      role: 'admin',
+    });
+    assert.ok(adminUser.id);
+    const adminLogin = await request(
+      adminJar,
+      '/api/auth/login-password',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          email: 'cron-admin@amirmobile.ir',
+          password: 'StrongAdmin!123',
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(adminLogin.res.status, 200);
+
+    const customerUser = await storage.createUser({
+      email: 'expire-buyer@example.com',
+      username: 'expirebuyer',
+      fullName: 'خریدار منقضی',
+      phone: '09123334400',
+      passwordHash: hashPassword('StrongBuyer!123'),
+      role: 'customer',
+    });
+    const custLogin = await request(customerJar, '/api/auth/login-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'expire-buyer@example.com',
+        password: 'StrongBuyer!123',
+      }),
+    });
+    assert.equal(custLogin.res.status, 200);
+
+    // Dedicated product + variant + warehouse stock
+    const createProd = await request(
+      adminJar,
+      '/api/admin/products',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 'exp-phone-1',
+          slug: 'exp-phone-1',
+          nameFa: 'گوشی تست انقضای ۳۰ دقیقه‌ای',
+          nameEn: 'Expire Test Phone 1',
+          brand: 'Apple',
+          category: 'smartphones',
+          price: 10_000_000,
+          stockCount: 5,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(createProd.res.status, 201);
+
+    const createVar = await request(
+      adminJar,
+      '/api/admin/products/exp-phone-1/variants',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          sku: 'EXP-PH-1-BLK-256',
+          colorNameFa: 'مشکی',
+          colorHex: '#111111',
+          storage: '256GB',
+          priceToman: 10_000_000,
+          initialStock: 5,
+        }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(createVar.res.status, 201);
+    const variantId = createVar.body.variant.id as string;
+
+    // 1. Place order with ONCE-PER-USER coupon -> verify expiresAt ~30 minutes and stock/coupon decremented
+    const placeRes = await request(customerJar, '/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        customerName: 'خریدار منقضی',
+        customerPhone: '09123334400',
+        city: 'تهران',
+        shippingAddress: 'خیابان شریعتی، پلاک ۱۰۰، واحد ۳',
+        postalCode: '1555511111',
+        couponCode: 'ONCE-PER-USER',
+        items: [{ productId: 'exp-phone-1', variantId, qty: 2 }],
+      }),
+    });
+    assert.equal(placeRes.res.status, 201);
+    const order1 = placeRes.body.order;
+    assert.equal(order1.status, 'pending_payment');
+    assert.equal(order1.paymentStatus, 'unpaid');
+    assert.ok(order1.expiresAt);
+    const ttlDelta = Date.parse(order1.expiresAt) - Date.now();
+    assert.ok(ttlDelta > 28 * 60 * 1000 && ttlDelta <= 31 * 60 * 1000);
+
+    // Variant stock dropped 5 -> 3; coupon usedCount incremented 0 -> 1
+    const pAfterOrder = await request(null, '/api/products/exp-phone-1', { method: 'GET' });
+    assert.equal(pAfterOrder.body.product.stockCount, 3);
+    const couponAfterOrder = (await storage.listActiveCoupons()).find((c) => c.code === 'ONCE-PER-USER');
+    assert.equal(couponAfterOrder?.usedCount, 1);
+
+    // 2. Before 30 minutes (<30m), expiration must NOT expire the order
+    const earlyRun = await storage.expirePendingOrdersAtomic({
+      now: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    assert.equal(earlyRun.expired, 0);
+
+    // 3. Historical null-expiresAt order and paid/cancelled orders must NEVER expire
+    await storage.createOrder(customerUser.id, {
+      orderCode: 'AMIR-HIST1',
+      userId: customerUser.id,
+      shaparakRef: '',
+      customerName: 'خریدار قدیمی',
+      customerPhone: '09123334400',
+      city: 'تهران',
+      shippingAddress: 'نشانی قدیمی آزمایشی شماره ۱',
+      postalCode: '1555511112',
+      deliverySlot: 'express',
+      couponCode: null,
+      subtotal: 1_000_000,
+      productDiscount: 0,
+      couponDiscount: 0,
+      shippingCost: 0,
+      totalAmount: 1_000_000,
+      status: 'pending_payment',
+      paymentStatus: 'unpaid',
+      expiresAt: null,
+      expiredAt: null,
+      deliveryPin: '1111',
+      imeiSample: '',
+      items: [],
+      createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+    });
+
+    await storage.createOrder(customerUser.id, {
+      orderCode: 'AMIR-PAID1',
+      userId: customerUser.id,
+      shaparakRef: 'SHP-991',
+      customerName: 'خریدار پرداخت‌شده',
+      customerPhone: '09123334400',
+      city: 'تهران',
+      shippingAddress: 'نشانی سفارش پرداخت شده شماره ۱',
+      postalCode: '1555511113',
+      deliverySlot: 'express',
+      couponCode: null,
+      subtotal: 1_000_000,
+      productDiscount: 0,
+      couponDiscount: 0,
+      shippingCost: 0,
+      totalAmount: 1_000_000,
+      status: 'paid',
+      paymentStatus: 'paid',
+      expiresAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      expiredAt: null,
+      deliveryPin: '2222',
+      imeiSample: '',
+      items: [],
+      createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+    });
+
+    // 4. Auth protection checks on /internal/jobs/expire-pending-orders
+    const unauthNoHeader = await fetch(`${baseUrl}/internal/jobs/expire-pending-orders`, {
+      method: 'POST',
+    });
+    assert.equal(unauthNoHeader.status, 401);
+
+    const unauthWrongSecret = await fetch(`${baseUrl}/internal/jobs/expire-pending-orders`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer invalid-cron-secret-value' },
+    });
+    assert.equal(unauthWrongSecret.status, 401);
+
+    // 5. Advance clock +31 minutes & run TWO concurrent cron invocations + check idempotency
+    simulatedNow = new Date(Date.now() + 31 * 60 * 1000);
+
+    sentEmails.length = 0;
+    const [cronA, cronB] = await Promise.all([
+      fetch(`${baseUrl}/internal/jobs/expire-pending-orders`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${jobSecret}` },
+      }).then(async (r) => ({ status: r.status, body: (await r.json()) as Record<string, any> })),
+      fetch(`${baseUrl}/internal/jobs/expire-pending-orders`, {
+        method: 'POST',
+        headers: { 'X-Internal-Job-Secret': jobSecret },
+      }).then(async (r) => ({ status: r.status, body: (await r.json()) as Record<string, any> })),
+    ]);
+    assert.equal(cronA.status, 200);
+    assert.equal(cronB.status, 200);
+    // In single-threaded event loop or concurrent locks, total expired across both runs === 1
+    assert.equal(cronA.body.expired + cronB.body.expired, 1);
+
+    // Check order1 is expired, historical & paid untouched
+    const order1After = await storage.findOrderByCode(order1.orderCode);
+    assert.equal(order1After?.status, 'expired');
+    assert.equal(order1After?.stockRestored, true);
+    assert.ok(order1After?.expiredAt);
+    assert.equal((await storage.findOrderByCode('AMIR-HIST1'))?.status, 'pending_payment');
+    assert.equal((await storage.findOrderByCode('AMIR-PAID1'))?.status, 'paid');
+
+    // Variant stock restored exact-once 3 -> 5; coupon usedCount released exact-once 1 -> 0
+    const pAfterExpire = await request(null, '/api/products/exp-phone-1', { method: 'GET' });
+    assert.equal(pAfterExpire.body.product.stockCount, 5);
+    const couponAfterExpire = (await storage.listActiveCoupons()).find((c) => c.code === 'ONCE-PER-USER');
+    assert.equal(couponAfterExpire?.usedCount, 0);
+
+    // Notification & idempotent expiration email dispatched once
+    assert.equal(sentEmails.length, 1);
+    assert.equal(sentEmails[0].to, 'expire-buyer@example.com');
+    assert.equal(sentEmails[0].idempotencyKey, `order-expired-${order1.orderCode}`);
+    const notifications = await storage.listUserNotifications(customerUser.id);
+    assert.ok(notifications.some((n) => n.link === `/tracking/${order1.orderCode}`));
+
+    // ONCE-PER-USER coupon capacity released -> customer can use it again!
+    const reuseOrder = await request(customerJar, '/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        customerName: 'خریدار منقضی',
+        customerPhone: '09123334400',
+        city: 'تهران',
+        shippingAddress: 'خیابان شریعتی، پلاک ۱۰۰، واحد ۳',
+        postalCode: '1555511111',
+        couponCode: 'ONCE-PER-USER',
+        items: [{ productId: 'exp-phone-1', variantId, qty: 1 }],
+      }),
+    });
+    assert.equal(reuseOrder.res.status, 201);
+    const order2 = reuseOrder.body.order;
+
+    // Customer cannot cancel an expired order (409) & Admin cannot revive an expired order (409)
+    const custCancelExp = await request(customerJar, `/api/orders/${order1.orderCode}/cancel`, {
+      method: 'POST',
+    });
+    assert.equal(custCancelExp.res.status, 409);
+
+    const adminReviveExp = await request(
+      adminJar,
+      `/api/admin/orders/${order1.orderCode}/status`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'preparing' }),
+      },
+      ADMIN_ORIGIN
+    );
+    assert.equal(adminReviveExp.res.status, 409);
+
+    // 6. Race: Cancel vs Expire on order2 -> stock restored strictly ONCE (4 -> 5, never 6)
+    simulatedNow = new Date(Date.now() + 31 * 60 * 1000);
+
+    const [cancelRace, expireRace] = await Promise.all([
+      testStorage.cancelOrderAtomic(order2.orderCode, 'رقابت لغو و انقضا').catch((e) => e),
+      testStorage.expirePendingOrdersAtomic({ limit: 50 }),
+    ]);
+    const pAfterRace = await request(null, '/api/products/exp-phone-1', { method: 'GET' });
+    assert.equal(pAfterRace.body.product.stockCount, 5);
+    // Either cancel won (expired === 0) or expire won (cancel threw 409)
+    const cancelWon = !(cancelRace instanceof Error);
+    if (cancelWon) {
+      assert.equal(expireRace.expired, 0);
+      assert.equal((await storage.findOrderByCode(order2.orderCode))?.status, 'cancelled');
+    } else {
+      assert.equal(expireRace.expired, 1);
+      assert.equal((await storage.findOrderByCode(order2.orderCode))?.status, 'expired');
+    }
+
+    // 7. Email failure does NOT roll back DB expiration and reports truthful emailSummary.failed
+    const order3Res = await request(customerJar, '/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        customerName: 'خریدار خطای ایمیل',
+        customerPhone: '09123334400',
+        city: 'تهران',
+        shippingAddress: 'خیابان شریعتی، پلاک ۱۰۰، واحد ۳',
+        postalCode: '1555511111',
+        items: [{ productId: 'exp-phone-1', variantId, qty: 1 }],
+      }),
+    });
+    assert.equal(order3Res.res.status, 201);
+    const order3 = order3Res.body.order;
+    simulatedNow = new Date(Date.now() + 31 * 60 * 1000);
+
+    failEmails = true;
+    const cronEmailFail = await fetch(`${baseUrl}/internal/jobs/expire-pending-orders`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jobSecret}` },
+    });
+    assert.equal(cronEmailFail.status, 200);
+    const emailFailBody = (await cronEmailFail.json()) as Record<string, any>;
+    assert.equal(emailFailBody.expired, 1);
+    assert.equal(emailFailBody.emailSummary.attempted, 1);
+    assert.equal(emailFailBody.emailSummary.sent, 0);
+    assert.equal(emailFailBody.emailSummary.failed, 1);
+    assert.equal((await storage.findOrderByCode(order3.orderCode))?.status, 'expired');
+
+    // Stats exclude cancelled & expired orders from revenue; expiredOrders reflects exact count
+    const statsRes = await request(adminJar, '/api/admin/stats', { method: 'GET' }, ADMIN_ORIGIN);
+    assert.equal(statsRes.res.status, 200);
+    assert.equal(statsRes.body.stats.totalRevenue, 2_000_000); // AMIR-HIST1 + AMIR-PAID1 only
+    assert.ok(statsRes.body.stats.expiredOrders >= 2);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((err?: Error) => (err ? reject(err) : resolve()))
+    );
+  }
+});
+
+test('internal job endpoint fails cleanly with 503 when secret is unconfigured or backend RPC fails', async () => {
+  // Case A: Unconfigured INTERNAL_JOB_SECRET -> 503
+  const storageA = createMemoryAuthStorage();
+  const appNoSecret = await createServerApp({
+    storage: storageA,
+    disableVite: true,
+    env: {
+      NODE_ENV: 'test',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      CORS_ORIGIN: STOREFRONT_ORIGIN,
+    },
+  });
+  const srvA = http.createServer(appNoSecret);
+  await new Promise<void>((resolve) => srvA.listen(0, '127.0.0.1', resolve));
+  const addrA = srvA.address();
+  assert.ok(addrA && typeof addrA !== 'string');
+  try {
+    const res = await fetch(`http://127.0.0.1:${addrA.port}/internal/jobs/expire-pending-orders`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer anything' },
+    });
+    assert.equal(res.status, 503);
+  } finally {
+    await new Promise<void>((resolve, reject) => srvA.close((e?: Error) => (e ? reject(e) : resolve())));
+  }
+
+  // Case B: RPC failure -> 503 without leaking secret
+  const jobSecret = 'cron-secret-abcdef0123456789abcdef0123456789';
+  const brokenStorage = {
+    ...createMemoryAuthStorage(),
+    async expirePendingOrdersAtomic() {
+      throw new StoreOperationError('تابع تراکنشی انقضای سفارش‌ها در پایگاه داده در دسترس نیست.', 503);
+    },
+  };
+  const appRpcErr = await createServerApp({
+    storage: brokenStorage,
+    disableVite: true,
+    env: {
+      NODE_ENV: 'test',
+      AUTH_SESSION_SECRET: TEST_SECRET,
+      INTERNAL_JOB_SECRET: jobSecret,
+      CORS_ORIGIN: STOREFRONT_ORIGIN,
+    },
+  });
+  const srvB = http.createServer(appRpcErr);
+  await new Promise<void>((resolve) => srvB.listen(0, '127.0.0.1', resolve));
+  const addrB = srvB.address();
+  assert.ok(addrB && typeof addrB !== 'string');
+  try {
+    const res = await fetch(`http://127.0.0.1:${addrB.port}/internal/jobs/expire-pending-orders`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jobSecret}` },
+    });
+    assert.equal(res.status, 503);
+    const text = await res.text();
+    assert.equal(text.includes(jobSecret), false);
+  } finally {
+    await new Promise<void>((resolve, reject) => srvB.close((e?: Error) => (e ? reject(e) : resolve())));
   }
 });
 

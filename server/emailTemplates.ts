@@ -160,7 +160,32 @@ export function buildOrderReceiptEmailContent(params: {
       <p style="margin:0 0 12px 0;font-weight:bold;font-size:16px;color:#0b1c30;">سفارش شما ثبت شد</p>
       <p style="margin:0 0 12px 0;color:#434655;">سلام ${safeName}،</p>
       <p style="margin:0 0 16px 0;color:#434655;">
-        سفارش شماره <strong dir="ltr" style="color:#004ac6;">${safeCode}</strong> شامل ${params.itemsCount} کالا به مبلغ کل <strong>${safeTotal} تومان</strong> با موفقیت در سامانه ثبت شد و در انتظار بررسی و تکمیل پرداخت است.
+        سفارش شماره <strong dir="ltr" style="color:#004ac6;">${safeCode}</strong> شامل ${params.itemsCount} کالا به مبلغ کل <strong>${safeTotal} تومان</strong> با موفقیت در سامانه ثبت شد و در انتظار تکمیل پرداخت است. موجودی کالاهای این سفارش به مدت <strong>۳۰ دقیقه</strong> برای شما رزرو شده است.
+      </p>
+    `
+  );
+  return { subject, html };
+}
+
+export function buildOrderExpiredEmailContent(params: {
+  fullName: string;
+  orderCode: string;
+  totalFormatted: string;
+}): { subject: string; html: string } {
+  const safeName = escapeHtml(params.fullName || 'کاربر گرامی');
+  const safeCode = escapeHtml(params.orderCode);
+  const safeTotal = escapeHtml(params.totalFormatted);
+  const subject = `انقضای مهلت سفارش ${params.orderCode} — فروشگاه موبایل امیر`;
+  const html = wrapEmailLayout(
+    subject,
+    `
+      <p style="margin:0 0 12px 0;font-weight:bold;font-size:16px;color:#b42318;">مهلت ۳۰ دقیقه‌ای پرداخت سفارش به پایان رسید</p>
+      <p style="margin:0 0 12px 0;color:#434655;">سلام ${safeName}،</p>
+      <p style="margin:0 0 16px 0;color:#434655;">
+        به دلیل عدم تکمیل پرداخت در بازه ۳۰ دقیقه‌ای، سفارش شماره <strong dir="ltr" style="color:#0b1c30;">${safeCode}</strong> به مبلغ <strong>${safeTotal} تومان</strong> به‌صورت خودکار منقضی شد و موجودی کالاهای آن به انبار بازگردانده گردید.
+      </p>
+      <p style="margin:0;font-size:12px;color:#434655;">
+        در صورت تمایل به خرید، می‌توانید مجدداً سفارش جدیدی در فروشگاه موبایل امیر ثبت نمایید.
       </p>
     `
   );

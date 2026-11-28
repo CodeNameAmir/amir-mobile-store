@@ -306,7 +306,8 @@ export type OrderStatus =
   | 'preparing'
   | 'shipped'
   | 'delivered'
-  | 'cancelled';
+  | 'cancelled'
+  | 'expired';
 
 export type PaymentStatus = 'unpaid' | 'pending_gateway' | 'paid' | 'not_required';
 
@@ -329,6 +330,8 @@ export interface OrderRecord {
   status: OrderStatus;
   paymentStatus?: PaymentStatus;
   idempotencyKey?: string;
+  expiresAt?: string | null;
+  expiredAt?: string | null;
   deliveryPin: string;
   imeiSample: string;
   adminNote?: string;
@@ -341,6 +344,7 @@ export interface OrderSummary {
   status: OrderStatus;
   paymentStatus?: PaymentStatus;
   deliverySlot: 'express' | 'standard';
+  expiresAt?: string | null;
   createdAt: string;
   requiresVerification: true;
   isGuestOrder: boolean;

@@ -31,11 +31,14 @@ import {
   isValidPasswordPolicy,
   RATE_LIMIT_RULES,
   resolveCorsConfig,
+  resolveInternalJobSecret,
   resolveSessionSecret,
   validateAvatarUrlServer,
+  verifyInternalJobSecret,
 } from './server/config.ts';
 import {
   buildBackInStockEmailContent,
+  buildOrderExpiredEmailContent,
   buildOrderReceiptEmailContent,
   buildOtpEmailContent,
   buildSecurityAlertEmailContent,
@@ -53,6 +56,7 @@ import {
   normalizePhone,
   normalizeRole,
   normalizeUsernameServer,
+  ORDER_RESERVATION_TTL_MS,
   stripPrivateVariantFields,
   toSummaryOrderDTO,
   validateUsernameServer,
@@ -123,6 +127,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     : env;
 
   const sessionSecret = resolveSessionSecret(configEnv);
+  const internalJobSecret = resolveInternalJobSecret(configEnv);
   const corsCfg = resolveCorsConfig(configEnv);
   const storage = options.storage || createDefaultAuthStorage(configEnv);
   const authService = new AuthService(storage, sessionSecret);
@@ -187,6 +192,13 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
   const reviewCreateLimiter = createModerateRateLimiter();
   const supportTicketLimiter = createModerateRateLimiter();
   const moderateWriteLimiter = createModerateRateLimiter();
+  const internalJobLimiter = rateLimit({
+    windowMs: 60_000,
+    limit: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many requests' },
+  });
 
   async function triggerBackInStockAlerts(info: {
     productId: string;
@@ -458,6 +470,7 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
       environment: isProd ? 'production' : 'development',
       storage: storageHealth,
       corsConfigured: corsCfg.configured,
+      internalJobConfigured: Boolean(internalJobSecret),
       resend: getResendProviderStatus(),
       timestamp: new Date().toISOString(),
     });
@@ -2586,6 +2599,8 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         paymentStatus: 'unpaid',
         ...(idempotencyKey ? { idempotencyKey } : {}),
         stockRestored: false,
+        expiresAt: new Date(Date.now() + ORDER_RESERVATION_TTL_MS).toISOString(),
+        expiredAt: null,
         deliveryPin: String(crypto.randomInt(1000, 9999)),
         imeiSample: '',
         items: totals.items,
@@ -2759,6 +2774,8 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
           error:
             order.status === 'cancelled'
               ? 'این سفارش قبلاً لغو شده است.'
+              : order.status === 'expired'
+              ? 'مهلت ۳۰ دقیقه‌ای این سفارش به پایان رسیده و سفارش منقضی شده است.'
               : 'سفارش پس از ارسال یا تحویل قابل لغو نیست.',
         });
         return;
@@ -2772,8 +2789,12 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
         order.orderCode,
         cancelReason ? `لغو توسط خریدار: ${cancelReason}` : order.adminNote
       );
+      if (!updated) {
+        res.status(404).json({ error: 'سفارش یافت نشد.' });
+        return;
+      }
 
-      res.json({ order: updated || { ...order, status: 'cancelled', stockRestored: true } });
+      res.json({ order: updated });
     } catch (err) {
       next(err);
     }
@@ -2832,6 +2853,125 @@ export async function createServerApp(options: CreateServerAppOptions = {}) {
     requireAdmin,
     createAdminRouter(storage, { onStockRestocked: triggerBackInStockAlerts })
   );
+
+  // ============================================================================
+  // Protected Internal Scheduled Job Endpoints (Server-to-Server / Render Cron)
+  // ============================================================================
+  app.post('/internal/jobs/expire-pending-orders', internalJobLimiter, async (req, res, next) => {
+    try {
+      if (!internalJobSecret) {
+        res.status(503).json({ error: 'Internal job secret is not configured.' });
+        return;
+      }
+
+      const authHeader =
+        typeof req.headers.authorization === 'string' ? req.headers.authorization.trim() : '';
+      const bearerMatch = /^Bearer\s+(.+)$/i.exec(authHeader);
+      const customHeaderRaw = req.headers['x-internal-job-secret'];
+      const customHeader = Array.isArray(customHeaderRaw)
+        ? String(customHeaderRaw[0] || '').trim()
+        : typeof customHeaderRaw === 'string'
+        ? customHeaderRaw.trim()
+        : '';
+      const providedSecret = (bearerMatch?.[1] || customHeader || '').trim();
+
+      if (!providedSecret || !verifyInternalJobSecret(providedSecret, internalJobSecret)) {
+        console.warn(
+          JSON.stringify({
+            event: 'job.expire_pending_orders.unauthorized',
+            timestamp: new Date().toISOString(),
+          })
+        );
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
+      const rawLimit = Number(req.body?.limit ?? req.query?.limit ?? 100);
+      const limit = Number.isFinite(rawLimit)
+        ? Math.min(500, Math.max(1, Math.floor(rawLimit)))
+        : 100;
+
+      const startedAt = Date.now();
+      const result = await storage.expirePendingOrdersAtomic({ limit });
+
+      let emailAttempted = 0;
+      let emailSent = 0;
+      let emailFailed = 0;
+
+      for (const item of result.expiredOrders) {
+        if (item.userId) {
+          await storage
+            .createUserNotification({
+              userId: item.userId,
+              type: 'order_update',
+              title: `انقضای مهلت سفارش ${item.orderCode}`,
+              message: `مهلت ۳۰ دقیقه‌ای تکمیل پرداخت سفارش ${item.orderCode} به پایان رسید و موجودی کالاهای سفارش به انبار بازگردانده شد.`,
+              link: `/tracking/${item.orderCode}`,
+            })
+            .catch(() => undefined);
+        }
+
+        let recipientEmail = item.customerEmail?.trim() || '';
+        if (!recipientEmail && item.userId) {
+          const owner = await storage.findUserById(item.userId).catch(() => null);
+          recipientEmail = owner?.email?.trim() || '';
+        }
+
+        if (recipientEmail) {
+          emailAttempted += 1;
+          try {
+            const totalFormatted = new Intl.NumberFormat('fa-IR').format(item.totalAmount);
+            const emailContent = buildOrderExpiredEmailContent({
+              fullName: item.customerName,
+              orderCode: item.orderCode,
+              totalFormatted,
+            });
+            const delivery = await dispatchEmail({
+              to: recipientEmail,
+              subject: emailContent.subject,
+              html: emailContent.html,
+              idempotencyKey: `order-expired-${item.orderCode}`,
+              tags: [{ name: 'category', value: 'order_expired' }],
+            });
+            if (delivery.sent) {
+              emailSent += 1;
+            } else {
+              emailFailed += 1;
+            }
+          } catch {
+            emailFailed += 1;
+          }
+        }
+      }
+
+      const durationMs = Date.now() - startedAt;
+      console.log(
+        JSON.stringify({
+          event: 'job.expire_pending_orders.completed',
+          processed: result.processed,
+          expired: result.expired,
+          emailAttempted,
+          emailSent,
+          emailFailed,
+          durationMs,
+        })
+      );
+
+      res.json({
+        ok: true,
+        processed: result.processed,
+        expired: result.expired,
+        expiredOrderCodes: result.expiredOrderCodes,
+        emailSummary: {
+          attempted: emailAttempted,
+          sent: emailSent,
+          failed: emailFailed,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
 
   const distDir = path.resolve(process.cwd(), 'dist');
   const publicDir = path.resolve(process.cwd(), 'public');

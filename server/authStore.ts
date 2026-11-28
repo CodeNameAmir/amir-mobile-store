@@ -24,6 +24,7 @@ import {
   normalizePhone,
   normalizeRole,
   normalizeUsernameServer,
+  ORDER_RESERVATION_TTL_MS,
   sanitizeAuditDetails,
   type AdminAuditLogDTO,
   type AdminCustomerDTO,
@@ -149,11 +150,29 @@ export interface StoredOrderRecord {
   paymentStatus?: PaymentStatus;
   idempotencyKey?: string | null;
   stockRestored?: boolean;
+  expiresAt?: string | null;
+  expiredAt?: string | null;
   deliveryPin: string;
   imeiSample: string;
   adminNote?: string;
   items: StoredOrderItem[];
   createdAt: string;
+}
+
+export interface ExpiredOrderNotificationInfo {
+  orderCode: string;
+  userId: string | null;
+  customerName: string;
+  customerEmail?: string;
+  totalAmount: number;
+  expiredAt: string;
+}
+
+export interface ExpirePendingOrdersResult {
+  processed: number;
+  expired: number;
+  expiredOrderCodes: string[];
+  expiredOrders: ExpiredOrderNotificationInfo[];
 }
 
 export interface AtomicOrderPlacementInput {
@@ -259,6 +278,10 @@ export interface AuthStorageAdapter {
     input: AtomicOrderPlacementInput
   ): Promise<{ order: StoredOrderRecord; deduplicated: boolean }>;
   cancelOrderAtomic(orderCode: string, adminNote?: string): Promise<StoredOrderRecord | null>;
+  expirePendingOrdersAtomic(params?: {
+    limit?: number;
+    now?: Date;
+  }): Promise<ExpirePendingOrdersResult>;
   findOrderByCode(orderCode: string): Promise<StoredOrderRecord | null>;
   listAllOrders(params?: {
     status?: string;
@@ -606,6 +629,8 @@ function mapSupabaseOrderRow(row: Record<string, unknown>): StoredOrderRecord {
     paymentStatus,
     ...(row.idempotency_key ? { idempotencyKey: String(row.idempotency_key) } : {}),
     stockRestored: Boolean(row.stock_restored),
+    ...(row.expires_at ? { expiresAt: String(row.expires_at) } : {}),
+    ...(row.expired_at ? { expiredAt: String(row.expired_at) } : {}),
     deliveryPin: String(row.delivery_pin || ''),
     imeiSample: String(row.imei_sample || ''),
     adminNote: row.admin_note ? String(row.admin_note) : undefined,
@@ -877,7 +902,7 @@ function buildCustomerStatsMap(
     if (!ord.userId) continue;
     const prev = stats.get(ord.userId) || { count: 0, totalSpent: 0 };
     prev.count += 1;
-    if (ord.status !== 'cancelled') {
+    if (ord.status !== 'cancelled' && ord.status !== 'expired') {
       prev.totalSpent += ord.totalAmount;
     }
     stats.set(ord.userId, prev);
@@ -1486,131 +1511,107 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
       }).rpc;
 
-      if (typeof rpcCandidate === 'function') {
-        const normalizedAddress =
-          order.city && !order.shippingAddress.startsWith(order.city)
-            ? `${order.city}، ${order.shippingAddress}`
-            : order.shippingAddress;
-        const { data, error } = await rpcCandidate('place_order_atomic', {
-          p_payload: {
-            idempotency_key: cleanIdempKey || null,
-            order_code: order.orderCode,
-            user_id: userId,
-            customer_name: order.customerName,
-            customer_phone: order.customerPhone,
-            customer_email: order.customerEmail ?? null,
-            city: order.city,
-            shipping_address: normalizedAddress,
-            postal_code: order.postalCode,
-            delivery_slot: order.deliverySlot,
-            shaparak_ref: order.shaparakRef,
-            coupon_code: order.couponCode,
-            subtotal: order.subtotal,
-            discount_total: order.productDiscount + order.couponDiscount,
-            product_discount: order.productDiscount,
-            coupon_discount: order.couponDiscount,
-            shipping_cost: order.shippingCost,
-            total_amount: order.totalAmount,
-            status: order.status,
-            payment_status: order.paymentStatus ?? 'unpaid',
-            delivery_pin: order.deliveryPin,
-            imei_sample: order.imeiSample,
-            items: order.items,
-            stock_decrements: stockDecrements,
-          },
-        });
-
-        if (!error && data && typeof data === 'object') {
-          const payload = data as { deduplicated?: boolean; order?: Record<string, unknown> };
-          if (payload.order) {
-            return {
-              order: mapSupabaseOrderRow(payload.order),
-              deduplicated: Boolean(payload.deduplicated),
-            };
-          }
-        }
-
-        if (error) {
-          const msg = String(error.message || '');
-          const isMissingRpc =
-            error.code === '42883' ||
-            error.code === 'PGRST202' ||
-            /place_order_atomic/i.test(msg);
-
-          if (!isMissingRpc) {
-            if (/INSUFFICIENT_VARIANT_STOCK|INSUFFICIENT_PRODUCT_STOCK/i.test(msg)) {
-              throw new StoreOperationError('موجودی یک یا چند کالا در انبار کافی نیست.', 409);
-            }
-            if (/PRODUCT_NOT_FOUND/i.test(msg)) {
-              throw new StoreOperationError('محصول انتخاب‌شده یافت نشد.', 400);
-            }
-            if (/COUPON_EXPIRED/i.test(msg)) {
-              throw new StoreOperationError('مهلت استفاده از این کد تخفیف به پایان رسیده است.', 400);
-            }
-            if (/COUPON_NOT_STARTED/i.test(msg)) {
-              throw new StoreOperationError('زمان فعال‌سازی این کد تخفیف هنوز فرا نرسیده است.', 400);
-            }
-            if (/COUPON_USAGE_LIMIT/i.test(msg)) {
-              throw new StoreOperationError('سقف مجاز استفاده از این کد تخفیف تکمیل شده است.', 400);
-            }
-            if (/COUPON_USER_LIMIT/i.test(msg)) {
-              throw new StoreOperationError('شما پیش‌تر به حداکثر دفعات مجاز از این کد تخفیف استفاده کرده‌اید.', 400);
-            }
-            if (/COUPON_INVALID/i.test(msg)) {
-              throw new StoreOperationError('کد تخفیف معتبر یا فعال نیست.', 400);
-            }
-            throw new Error(`Supabase atomic order placement failed: ${msg}`);
-          }
-        }
+      if (typeof rpcCandidate !== 'function') {
+        console.error('[Supabase RPC Unavailable] place_order_atomic: rpc client method missing');
+        throw new StoreOperationError(
+          'در حال حاضر امکان ثبت تراکنشی سفارش وجود ندارد. لطفاً دقایقی دیگر مجدداً تلاش کنید.',
+          503
+        );
       }
 
-      // Fallback when transactional RPC is not yet deployed in Supabase
-      if (cleanIdempKey) {
-        try {
-          const { data: existingRow } = await supabase
-            .from('orders')
-            .select('*')
-            .eq('idempotency_key', cleanIdempKey)
-            .maybeSingle();
-          if (existingRow) {
-            return {
-              order: mapSupabaseOrderRow(existingRow as Record<string, unknown>),
-              deduplicated: true,
-            };
-          }
-        } catch {
-          // Ignore if idempotency_key column is missing before migration
-        }
-      }
-
-      const saved = await this.createOrder(userId, {
-        ...order,
-        ...(cleanIdempKey ? { idempotencyKey: cleanIdempKey } : {}),
+      const normalizedAddress =
+        order.city && !order.shippingAddress.startsWith(order.city)
+          ? `${order.city}، ${order.shippingAddress}`
+          : order.shippingAddress;
+      const { data, error } = await rpcCandidate('place_order_atomic', {
+        p_payload: {
+          idempotency_key: cleanIdempKey || null,
+          order_code: order.orderCode,
+          user_id: userId,
+          customer_name: order.customerName,
+          customer_phone: order.customerPhone,
+          customer_email: order.customerEmail ?? null,
+          city: order.city,
+          shipping_address: normalizedAddress,
+          postal_code: order.postalCode,
+          delivery_slot: order.deliverySlot,
+          shaparak_ref: order.shaparakRef,
+          coupon_code: order.couponCode,
+          subtotal: order.subtotal,
+          discount_total: order.productDiscount + order.couponDiscount,
+          product_discount: order.productDiscount,
+          coupon_discount: order.couponDiscount,
+          shipping_cost: order.shippingCost,
+          total_amount: order.totalAmount,
+          status: order.status,
+          payment_status: order.paymentStatus ?? 'unpaid',
+          expires_at: order.expiresAt ?? null,
+          delivery_pin: order.deliveryPin,
+          imei_sample: order.imeiSample,
+          items: order.items,
+          stock_decrements: stockDecrements,
+        },
       });
 
-      for (const dec of stockDecrements) {
-        if (dec.variantId) {
-          const variantStocks = await this.listWarehouseStock({ variantId: dec.variantId }).catch(() => []);
-          const bestStock = variantStocks.slice().sort((a, b) => b.availableQty - a.availableQty)[0];
-          if (bestStock && bestStock.availableQty >= dec.qty) {
-            await this.recordStockMovement({
-              warehouseId: bestStock.warehouseId,
-              variantId: dec.variantId,
-              movementType: 'order_sale',
-              quantityChange: -dec.qty,
-              referenceType: 'order',
-              referenceId: saved.orderCode,
-              idempotencyKey: `order-sale:${saved.orderCode}:${dec.variantId}`,
-              noteFa: `کسر موجودی بابت سفارش ${saved.orderCode}`,
-              createdBy: userId,
-            });
-            continue;
-          }
+      if (error) {
+        const msg = String(error.message || '');
+        const isMissingRpc =
+          error.code === '42883' ||
+          error.code === 'PGRST202' ||
+          /could not find the function|function .*place_order_atomic.* does not exist/i.test(msg);
+
+        if (isMissingRpc) {
+          console.error('[Supabase RPC Missing] place_order_atomic', {
+            code: error.code,
+          });
+          throw new StoreOperationError(
+            'در حال حاضر امکان ثبت تراکنشی سفارش در پایگاه داده وجود ندارد. لطفاً دقایقی دیگر تلاش کنید.',
+            503
+          );
         }
-        await this.decrementProductStock(dec.productId, dec.qty);
+
+        if (/INSUFFICIENT_VARIANT_STOCK|INSUFFICIENT_PRODUCT_STOCK/i.test(msg)) {
+          throw new StoreOperationError('موجودی یک یا چند کالا در انبار کافی نیست.', 409);
+        }
+        if (/PRODUCT_NOT_FOUND/i.test(msg)) {
+          throw new StoreOperationError('محصول انتخاب‌شده یافت نشد.', 400);
+        }
+        if (/INVALID_ORDER_CODE/i.test(msg)) {
+          throw new StoreOperationError('کد سفارش معتبر نیست.', 400);
+        }
+        if (/COUPON_EXPIRED/i.test(msg)) {
+          throw new StoreOperationError('مهلت استفاده از این کد تخفیف به پایان رسیده است.', 400);
+        }
+        if (/COUPON_NOT_STARTED/i.test(msg)) {
+          throw new StoreOperationError('زمان فعال‌سازی این کد تخفیف هنوز فرا نرسیده است.', 400);
+        }
+        if (/COUPON_USAGE_LIMIT/i.test(msg)) {
+          throw new StoreOperationError('سقف مجاز استفاده از این کد تخفیف تکمیل شده است.', 400);
+        }
+        if (/COUPON_USER_LIMIT/i.test(msg)) {
+          throw new StoreOperationError('شما پیش‌تر به حداکثر دفعات مجاز از این کد تخفیف استفاده کرده‌اید.', 400);
+        }
+        if (/COUPON_INVALID/i.test(msg)) {
+          throw new StoreOperationError('کد تخفیف معتبر یا فعال نیست.', 400);
+        }
+
+        console.error('[Supabase RPC Error] place_order_atomic', {
+          code: error.code,
+          message: msg,
+        });
+        throw new StoreOperationError('ثبت تراکنشی سفارش در سرور با خطا مواجه شد.', 500);
       }
 
-      return { order: saved, deduplicated: false };
+      if (!data || typeof data !== 'object' || !(data as { order?: unknown }).order) {
+        console.error('[Supabase RPC Invalid Response] place_order_atomic');
+        throw new StoreOperationError('پاسخ نامعتبر از سرویس ثبت تراکنشی سفارش دریافت شد.', 500);
+      }
+
+      const payload = data as { deduplicated?: boolean; order: Record<string, unknown> };
+      return {
+        order: mapSupabaseOrderRow(payload.order),
+        deduplicated: Boolean(payload.deduplicated),
+      };
     },
 
     async cancelOrderAtomic(orderCode: string, adminNote?: string) {
@@ -1622,79 +1623,144 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
       }).rpc;
 
-      if (typeof rpcCandidate === 'function') {
-        const { data, error } = await rpcCandidate('cancel_order_atomic', {
-          p_order_code: normalized,
-          p_admin_note: adminNote ?? null,
-        });
-        if (!error && data && typeof data === 'object') {
-          const payload = data as { order?: Record<string, unknown> };
-          if (payload.order) {
-            return mapSupabaseOrderRow(payload.order);
-          }
-        }
-        if (error) {
-          const msg = String(error.message || '');
-          const isMissingRpc =
-            error.code === '42883' ||
-            error.code === 'PGRST202' ||
-            /cancel_order_atomic/i.test(msg);
-          if (!isMissingRpc) {
-            if (/ORDER_NOT_FOUND/i.test(msg)) {
-              throw new StoreOperationError('سفارش یافت نشد.', 404);
-            }
-            if (/ORDER_NOT_CANCELLABLE/i.test(msg)) {
-              throw new StoreOperationError('سفارش در وضعیت فعلی قابل لغو نیست.', 409);
-            }
-            throw new Error(`Supabase atomic order cancel failed: ${msg}`);
-          }
-        }
-      }
-
-      // Fallback when cancel_order_atomic RPC is not deployed
-      const current = await this.findOrderByCode(normalized);
-      if (!current) return null;
-      if (!['pending_payment', 'paid', 'preparing'].includes(current.status)) {
+      if (typeof rpcCandidate !== 'function') {
+        console.error('[Supabase RPC Unavailable] cancel_order_atomic: rpc client method missing');
         throw new StoreOperationError(
-          current.status === 'cancelled'
-            ? 'این سفارش قبلاً لغو شده است.'
-            : 'سفارش پس از ارسال یا تحویل قابل لغو نیست.',
-          409
+          'در حال حاضر امکان لغو تراکنشی سفارش و بازگشت موجودی وجود ندارد.',
+          503
         );
       }
-      if (!current.stockRestored) {
-        for (const item of current.items) {
-          if (item.variantId) {
-            const movs = await this.listStockMovements({
-              variantId: item.variantId,
-              movementType: 'order_sale',
-              limit: 20,
-            }).catch(() => []);
-            const saleMov = movs.find(
-              (m) => m.referenceType === 'order' && m.referenceId === current.orderCode
-            );
-            if (saleMov) {
-              await this.recordStockMovement({
-                warehouseId: saleMov.warehouseId,
-                variantId: item.variantId,
-                movementType: 'customer_return',
-                quantityChange: item.qty,
-                referenceType: 'order',
-                referenceId: current.orderCode,
-                idempotencyKey: `order-cancel:${current.orderCode}:${item.variantId}:${item.key}`,
-                noteFa: `بازگشت موجودی بابت لغو سفارش ${current.orderCode}`,
-              }).catch(() => undefined);
-              continue;
-            }
-          }
-          const prod = await this.findProductByIdOrSlug(item.productId).catch(() => null);
-          if (prod) {
-            await this.updateProductInventory(prod.id, prod.stockCount + item.qty, true).catch(() => undefined);
-          }
+
+      const { data, error } = await rpcCandidate('cancel_order_atomic', {
+        p_order_code: normalized,
+        p_admin_note: adminNote ?? null,
+      });
+
+      if (error) {
+        const msg = String(error.message || '');
+        const isMissingRpc =
+          error.code === '42883' ||
+          error.code === 'PGRST202' ||
+          /could not find the function|function .*cancel_order_atomic.* does not exist/i.test(msg);
+
+        if (isMissingRpc) {
+          console.error('[Supabase RPC Missing] cancel_order_atomic', {
+            code: error.code,
+          });
+          throw new StoreOperationError(
+            'در حال حاضر امکان لغو تراکنشی سفارش و بازگشت موجودی وجود ندارد.',
+            503
+          );
         }
+        if (/ORDER_NOT_FOUND/i.test(msg)) {
+          throw new StoreOperationError('سفارش یافت نشد.', 404);
+        }
+        if (/ORDER_NOT_CANCELLABLE:EXPIRED/i.test(msg)) {
+          throw new StoreOperationError(
+            'مهلت ۳۰ دقیقه‌ای این سفارش به پایان رسیده و منقضی شده است؛ موجودی پیش‌تر بازگردانده شده است.',
+            409
+          );
+        }
+        if (/ORDER_NOT_CANCELLABLE:CANCELLED/i.test(msg)) {
+          throw new StoreOperationError('این سفارش قبلاً لغو شده است.', 409);
+        }
+        if (/ORDER_NOT_CANCELLABLE/i.test(msg)) {
+          throw new StoreOperationError('سفارش در وضعیت فعلی قابل لغو نیست.', 409);
+        }
+
+        console.error('[Supabase RPC Error] cancel_order_atomic', {
+          code: error.code,
+          message: msg,
+        });
+        throw new StoreOperationError('لغو تراکنشی سفارش در سرور با خطا مواجه شد.', 500);
       }
-      const updated = await this.updateOrderStatus(normalized, 'cancelled', adminNote);
-      return updated ? { ...updated, stockRestored: true } : null;
+
+      if (!data || typeof data !== 'object' || !(data as { order?: unknown }).order) {
+        console.error('[Supabase RPC Invalid Response] cancel_order_atomic');
+        throw new StoreOperationError('پاسخ نامعتبر از سرویس لغو تراکنشی سفارش دریافت شد.', 500);
+      }
+
+      const payload = data as { order: Record<string, unknown> };
+      return mapSupabaseOrderRow(payload.order);
+    },
+
+    async expirePendingOrdersAtomic(params = {}) {
+      const safeLimit = Math.min(500, Math.max(1, Math.floor(Number(params.limit || 100))));
+      const rpcCandidate = (supabase as unknown as {
+        rpc?: (
+          fn: string,
+          args: Record<string, unknown>
+        ) => Promise<{ data: unknown; error: { code?: string; message?: string } | null }>;
+      }).rpc;
+
+      if (typeof rpcCandidate !== 'function') {
+        console.error('[Supabase RPC Unavailable] expire_pending_orders_atomic: rpc client method missing');
+        throw new StoreOperationError(
+          'سرویس تراکنشی انقضای سفارش‌ها در پایگاه داده در دسترس نیست.',
+          503
+        );
+      }
+
+      const { data, error } = await rpcCandidate('expire_pending_orders_atomic', {
+        p_limit: safeLimit,
+      });
+
+      if (error) {
+        const msg = String(error.message || '');
+        const isMissingRpc =
+          error.code === '42883' ||
+          error.code === 'PGRST202' ||
+          /could not find the function|function .*expire_pending_orders_atomic.* does not exist/i.test(msg);
+        if (isMissingRpc) {
+          console.error('[Supabase RPC Missing] expire_pending_orders_atomic', {
+            code: error.code,
+          });
+          throw new StoreOperationError(
+            'تابع تراکنشی انقضای سفارش‌ها در پایگاه داده در دسترس نیست.',
+            503
+          );
+        }
+        console.error('[Supabase RPC Error] expire_pending_orders_atomic', {
+          code: error.code,
+          message: msg,
+        });
+        throw new StoreOperationError('اجرای تراکنشی انقضای سفارش‌ها با خطا مواجه شد.', 500);
+      }
+
+      if (!data || typeof data !== 'object') {
+        console.error('[Supabase RPC Invalid Response] expire_pending_orders_atomic');
+        throw new StoreOperationError('پاسخ نامعتبر از سرویس انقضای سفارش‌ها دریافت شد.', 500);
+      }
+
+      const payload = data as {
+        processed?: unknown;
+        expired?: unknown;
+        expiredOrderCodes?: unknown;
+        expiredOrders?: unknown;
+      };
+      const rawOrders = Array.isArray(payload.expiredOrders) ? payload.expiredOrders : [];
+      const expiredOrders: ExpiredOrderNotificationInfo[] = rawOrders
+        .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+        .map((item) => ({
+          orderCode: String(item.orderCode || ''),
+          userId: item.userId ? String(item.userId) : null,
+          customerName: String(item.customerName || ''),
+          customerEmail: item.customerEmail ? String(item.customerEmail) : undefined,
+          totalAmount: Number(item.totalAmount || 0),
+          expiredAt: item.expiredAt ? String(item.expiredAt) : new Date().toISOString(),
+        }))
+        .filter((item) => Boolean(item.orderCode));
+
+      const expiredOrderCodes = Array.isArray(payload.expiredOrderCodes)
+        ? payload.expiredOrderCodes.map((c) => String(c)).filter(Boolean)
+        : expiredOrders.map((o) => o.orderCode);
+
+      return {
+        processed: Number(payload.processed || 0),
+        expired: Number(payload.expired ?? expiredOrderCodes.length),
+        expiredOrderCodes,
+        expiredOrders,
+      };
     },
 
     async findOrderByCode(orderCode: string) {
@@ -2738,7 +2804,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       if (!user) return null;
       const orders = await this.listUserOrders(userId);
       const totalSpent = orders
-        .filter((o) => o.status !== 'cancelled')
+        .filter((o) => o.status !== 'cancelled' && o.status !== 'expired')
         .reduce((acc, o) => acc + o.totalAmount, 0);
       return {
         customer: toAdminCustomer(user, { count: orders.length, totalSpent }),
@@ -2860,10 +2926,11 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
       let shippedOrders = 0;
       let deliveredOrders = 0;
       let cancelledOrders = 0;
+      let expiredOrders = 0;
 
       for (const row of ordersRows) {
         const status = normalizeOrderStatus(row.status);
-        if (status !== 'cancelled') {
+        if (status !== 'cancelled' && status !== 'expired') {
           totalRevenue += Number(row.total_amount || 0);
         }
         if (status === 'paid') pendingOrders += 1;
@@ -2871,6 +2938,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         if (status === 'shipped') shippedOrders += 1;
         if (status === 'delivered') deliveredOrders += 1;
         if (status === 'cancelled') cancelledOrders += 1;
+        if (status === 'expired') expiredOrders += 1;
       }
 
       let outOfStockProducts = 0;
@@ -2895,6 +2963,7 @@ export function createSupabaseAuthStorage(supabase: SupabaseClient): AuthStorage
         shippedOrders,
         deliveredOrders,
         cancelledOrders,
+        expiredOrders,
         totalProducts: productsRows.length,
         outOfStockProducts,
         lowStockProducts,
@@ -4708,12 +4777,20 @@ export function createMemoryAuthStorage(options?: {
         });
       }
 
+      const resolvedPaymentStatus = input.order.paymentStatus ?? 'unpaid';
+      const resolvedExpiresAt =
+        input.order.status === 'pending_payment' && resolvedPaymentStatus === 'unpaid'
+          ? input.order.expiresAt ?? new Date(Date.now() + ORDER_RESERVATION_TTL_MS).toISOString()
+          : input.order.expiresAt ?? null;
+
       const savedOrder: StoredOrderRecord = {
         ...input.order,
         userId: input.userId,
-        paymentStatus: input.order.paymentStatus ?? 'unpaid',
+        paymentStatus: resolvedPaymentStatus,
         ...(cleanIdemp ? { idempotencyKey: cleanIdemp } : {}),
         stockRestored: false,
+        expiresAt: resolvedExpiresAt,
+        expiredAt: null,
         createdAt: formatPersianTimestamp(input.order.createdAt),
         items: input.order.items.map((item) => ({ ...item })),
       };
@@ -4730,7 +4807,9 @@ export function createMemoryAuthStorage(options?: {
       if (!match) return null;
       if (!['pending_payment', 'paid', 'preparing'].includes(match.order.status)) {
         throw new StoreOperationError(
-          match.order.status === 'cancelled'
+          match.order.status === 'expired'
+            ? 'مهلت ۳۰ دقیقه‌ای این سفارش به پایان رسیده و منقضی شده است؛ موجودی پیش‌تر بازگردانده شده است.'
+            : match.order.status === 'cancelled'
             ? 'این سفارش قبلاً لغو شده است.'
             : 'سفارش پس از ارسال یا تحویل قابل لغو نیست.',
           409
@@ -4748,34 +4827,40 @@ export function createMemoryAuthStorage(options?: {
                 m.variantId === item.variantId &&
                 m.movementType === 'order_sale'
             );
+            const returnIdempKey = `order-cancel:${match.order.orderCode}:${item.variantId}:${item.key}`;
+            const alreadyReturned = stockMovements.some(
+              (m) => m.idempotencyKey === returnIdempKey
+            );
             if (saleMov) {
               const sIdx = warehouseStocks.findIndex(
                 (s) => s.warehouseId === saleMov.warehouseId && s.variantId === item.variantId
               );
               if (sIdx >= 0) {
-                const cur = warehouseStocks[sIdx];
-                const balanceAfter = cur.quantityOnHand + item.qty;
-                const availableQty = Math.max(0, balanceAfter - cur.reservedQty);
-                warehouseStocks[sIdx] = {
-                  ...cur,
-                  quantityOnHand: balanceAfter,
-                  availableQty,
-                  isLowStock: availableQty <= cur.minStockAlert,
-                  updatedAt: nowIso,
-                };
-                stockMovements.unshift({
-                  id: crypto.randomUUID(),
-                  warehouseId: cur.warehouseId,
-                  variantId: item.variantId,
-                  movementType: 'customer_return',
-                  quantityChange: item.qty,
-                  balanceAfter,
-                  referenceType: 'order',
-                  referenceId: match.order.orderCode,
-                  idempotencyKey: `order-cancel:${match.order.orderCode}:${item.variantId}:${item.key}`,
-                  noteFa: `بازگشت موجودی بابت لغو سفارش ${match.order.orderCode}`,
-                  createdAt: nowIso,
-                });
+                if (!alreadyReturned) {
+                  const cur = warehouseStocks[sIdx];
+                  const balanceAfter = cur.quantityOnHand + item.qty;
+                  const availableQty = Math.max(0, balanceAfter - cur.reservedQty);
+                  warehouseStocks[sIdx] = {
+                    ...cur,
+                    quantityOnHand: balanceAfter,
+                    availableQty,
+                    isLowStock: availableQty <= cur.minStockAlert,
+                    updatedAt: nowIso,
+                  };
+                  stockMovements.unshift({
+                    id: crypto.randomUUID(),
+                    warehouseId: cur.warehouseId,
+                    variantId: item.variantId,
+                    movementType: 'customer_return',
+                    quantityChange: item.qty,
+                    balanceAfter,
+                    referenceType: 'order',
+                    referenceId: match.order.orderCode,
+                    idempotencyKey: returnIdempKey,
+                    noteFa: `بازگشت موجودی بابت لغو سفارش ${match.order.orderCode}`,
+                    createdAt: nowIso,
+                  });
+                }
                 const prodVariants = variants.filter((v) => v.productId === item.productId);
                 const prodVarIds = new Set(prodVariants.map((v) => v.id));
                 const totalProdAvail = warehouseStocks
@@ -4834,6 +4919,161 @@ export function createMemoryAuthStorage(options?: {
         adminNote: adminNote !== undefined ? adminNote : match.order.adminNote,
       };
       return { ...match.order, userId: match.userId };
+    },
+
+    async expirePendingOrdersAtomic(params = {}) {
+      const limit = Math.min(500, Math.max(1, Math.floor(Number(params.limit || 100))));
+      const now = params.now ?? new Date();
+      const nowMs = now.getTime();
+      const nowIso = now.toISOString();
+
+      const eligible = orders
+        .filter((entry) => {
+          const o = entry.order;
+          if (o.status !== 'pending_payment') return false;
+          if ((o.paymentStatus ?? 'unpaid') !== 'unpaid') return false;
+          if (!o.expiresAt) return false;
+          const expMs = Date.parse(o.expiresAt);
+          return Number.isFinite(expMs) && expMs <= nowMs;
+        })
+        .sort((a, b) => Date.parse(a.order.expiresAt!) - Date.parse(b.order.expiresAt!))
+        .slice(0, limit);
+
+      let processed = 0;
+      let expired = 0;
+      const expiredOrderCodes: string[] = [];
+      const expiredOrders: ExpiredOrderNotificationInfo[] = [];
+
+      for (const match of eligible) {
+        processed += 1;
+        if (
+          match.order.status !== 'pending_payment' ||
+          (match.order.paymentStatus ?? 'unpaid') !== 'unpaid' ||
+          !match.order.expiresAt ||
+          Date.parse(match.order.expiresAt) > nowMs
+        ) {
+          continue;
+        }
+
+        if (!match.order.stockRestored) {
+          for (const item of match.order.items) {
+            if (item.variantId) {
+              const saleMov = stockMovements.find(
+                (m) =>
+                  m.referenceType === 'order' &&
+                  m.referenceId === match.order.orderCode &&
+                  m.variantId === item.variantId &&
+                  m.movementType === 'order_sale'
+              );
+              const returnIdempKey = `order-expire:${match.order.orderCode}:${item.variantId}:${item.key}`;
+              const alreadyReturned = stockMovements.some(
+                (m) => m.idempotencyKey === returnIdempKey
+              );
+              if (saleMov) {
+                const sIdx = warehouseStocks.findIndex(
+                  (s) => s.warehouseId === saleMov.warehouseId && s.variantId === item.variantId
+                );
+                if (sIdx >= 0) {
+                  if (!alreadyReturned) {
+                    const cur = warehouseStocks[sIdx];
+                    const balanceAfter = cur.quantityOnHand + item.qty;
+                    const availableQty = Math.max(0, balanceAfter - cur.reservedQty);
+                    warehouseStocks[sIdx] = {
+                      ...cur,
+                      quantityOnHand: balanceAfter,
+                      availableQty,
+                      isLowStock: availableQty <= cur.minStockAlert,
+                      updatedAt: nowIso,
+                    };
+                    stockMovements.unshift({
+                      id: crypto.randomUUID(),
+                      warehouseId: cur.warehouseId,
+                      variantId: item.variantId,
+                      movementType: 'customer_return',
+                      quantityChange: item.qty,
+                      balanceAfter,
+                      referenceType: 'order',
+                      referenceId: match.order.orderCode,
+                      idempotencyKey: returnIdempKey,
+                      noteFa: `بازگشت خودکار موجودی بابت انقضای مهلت پرداخت سفارش ${match.order.orderCode}`,
+                      createdAt: nowIso,
+                    });
+                  }
+                  const prodVariants = variants.filter((v) => v.productId === item.productId);
+                  const prodVarIds = new Set(prodVariants.map((v) => v.id));
+                  const totalProdAvail = warehouseStocks
+                    .filter((s) => prodVarIds.has(s.variantId))
+                    .reduce((acc, s) => acc + Math.max(0, s.quantityOnHand - s.reservedQty), 0);
+                  const pIdx = products.findIndex((p) => p.id === item.productId);
+                  if (pIdx >= 0) {
+                    products[pIdx] = {
+                      ...products[pIdx],
+                      stockCount: totalProdAvail,
+                      inStock: totalProdAvail > 0,
+                      updatedAt: nowIso,
+                    };
+                  }
+                  continue;
+                }
+              }
+            }
+            const pIdx = products.findIndex((p) => p.id === item.productId || p.slug === item.productId);
+            if (pIdx >= 0) {
+              const nextStock = products[pIdx].stockCount + item.qty;
+              products[pIdx] = {
+                ...products[pIdx],
+                stockCount: nextStock,
+                inStock: nextStock > 0,
+                updatedAt: nowIso,
+              };
+            }
+          }
+
+          if (match.order.couponCode) {
+            const red = couponRedemptions.find(
+              (r) =>
+                r.orderCode.toUpperCase() === match.order.orderCode.toUpperCase() &&
+                r.status === 'applied'
+            );
+            if (red) {
+              red.status = 'cancelled';
+              const cIdx = coupons.findIndex(
+                (c) => c.code.toUpperCase() === match.order.couponCode!.toUpperCase()
+              );
+              if (cIdx >= 0) {
+                coupons[cIdx] = {
+                  ...coupons[cIdx],
+                  usedCount: Math.max(0, (coupons[cIdx].usedCount ?? 0) - 1),
+                };
+              }
+            }
+          }
+        }
+
+        match.order = {
+          ...match.order,
+          status: 'expired',
+          stockRestored: true,
+          expiredAt: match.order.expiredAt ?? nowIso,
+        };
+        expired += 1;
+        expiredOrderCodes.push(match.order.orderCode);
+        expiredOrders.push({
+          orderCode: match.order.orderCode,
+          userId: match.userId,
+          customerName: match.order.customerName,
+          customerEmail: match.order.customerEmail,
+          totalAmount: match.order.totalAmount,
+          expiredAt: match.order.expiredAt!,
+        });
+      }
+
+      return {
+        processed,
+        expired,
+        expiredOrderCodes,
+        expiredOrders,
+      };
     },
 
     async findOrderByCode(orderCode: string) {
@@ -5448,7 +5688,7 @@ export function createMemoryAuthStorage(options?: {
         .filter((o) => o.userId === userId)
         .map((o) => ({ ...o.order, userId: o.userId }));
       const totalSpent = userOrders
-        .filter((o) => o.status !== 'cancelled')
+        .filter((o) => o.status !== 'cancelled' && o.status !== 'expired')
         .reduce((acc, o) => acc + o.totalAmount, 0);
       return {
         customer: toAdminCustomer(user, { count: userOrders.length, totalSpent }),
@@ -5494,15 +5734,17 @@ export function createMemoryAuthStorage(options?: {
       let shippedOrders = 0;
       let deliveredOrders = 0;
       let cancelledOrders = 0;
+      let expiredOrders = 0;
 
       for (const entry of orders) {
         const s = entry.order.status;
-        if (s !== 'cancelled') totalRevenue += entry.order.totalAmount;
+        if (s !== 'cancelled' && s !== 'expired') totalRevenue += entry.order.totalAmount;
         if (s === 'paid') pendingOrders += 1;
         if (s === 'preparing') preparingOrders += 1;
         if (s === 'shipped') shippedOrders += 1;
         if (s === 'delivered') deliveredOrders += 1;
         if (s === 'cancelled') cancelledOrders += 1;
+        if (s === 'expired') expiredOrders += 1;
       }
 
       let outOfStockProducts = 0;
@@ -5525,6 +5767,7 @@ export function createMemoryAuthStorage(options?: {
         shippedOrders,
         deliveredOrders,
         cancelledOrders,
+        expiredOrders,
         totalProducts: products.length,
         outOfStockProducts,
         lowStockProducts,
@@ -5916,6 +6159,14 @@ export function createDefaultAuthStorage(env: NodeJS.ProcessEnv = process.env): 
       },
     });
     return createSupabaseAuthStorage(client);
+  }
+  const nodeEnv = String(env.NODE_ENV || '').trim().toLowerCase();
+  const isExplicitDevOrTest = nodeEnv === 'development' || nodeEnv === 'test';
+  const isLocalImplicitDev = !nodeEnv && env.RENDER !== 'true';
+  if (!isExplicitDevOrTest && !isLocalImplicitDev) {
+    throw new Error(
+      'FATAL: In-memory auth storage is restricted to explicit development/test environments.'
+    );
   }
   return createMemoryAuthStorage();
 }

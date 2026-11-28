@@ -64,6 +64,7 @@ const STATUS_LABELS: Record<OrderRecord['status'], string> = {
   shipped: 'تحویل به پیک / پست',
   delivered: 'تحویل‌شده',
   cancelled: 'لغو شده',
+  expired: 'منقضی‌شده',
 };
 
 const EMPTY_ADDRESS_FORM = {
@@ -1605,6 +1606,7 @@ export const AccountDashboard: React.FC<{ user: DemoUser }> = ({ user }) => {
                     { id: 'shipped', label: 'ارسال‌شده' },
                     { id: 'delivered', label: 'تحویل‌شده' },
                     { id: 'cancelled', label: 'لغو شده' },
+                    { id: 'expired', label: 'منقضی‌شده' },
                   ] as const
                 ).map((f) => (
                   <button
